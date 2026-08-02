@@ -1,0 +1,9 @@
+/target/
+/ui/node_modules/
+/ui/dist/
+/.cortex-loom/
+*.db
+*.db-shm
+*.db-wal
+.env
+

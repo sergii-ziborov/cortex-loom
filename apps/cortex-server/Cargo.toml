@@ -1,0 +1,22 @@
+[package]
+name = "cortex-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+axum.workspace = true
+cortex-domain = { path = "../../crates/cortex-domain" }
+cortex-skills = { path = "../../crates/cortex-skills" }
+cortex-store = { path = "../../crates/cortex-store" }
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tower-http.workspace = true
+
+[lints]
+workspace = true
+

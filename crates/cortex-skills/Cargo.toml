@@ -1,0 +1,15 @@
+[package]
+name = "cortex-skills"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+cortex-domain = { path = "../cortex-domain" }
+serde_json.workspace = true
+
+[lints]
+workspace = true

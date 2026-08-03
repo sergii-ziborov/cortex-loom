@@ -1,5 +1,5 @@
 [package]
-name = "cortex-mcp"
+name = "cortex-shadow"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,16 +9,13 @@ publish = false
 
 [dependencies]
 cortex-context = { path = "../cortex-context" }
-cortex-domain = { path = "../cortex-domain" }
-cortex-run = { path = "../cortex-run" }
+cortex-eval = { path = "../cortex-eval" }
+cortex-ollama = { path = "../cortex-ollama" }
 cortex-router = { path = "../cortex-router" }
-cortex-shadow = { path = "../cortex-shadow" }
-cortex-skills = { path = "../cortex-skills" }
 cortex-store = { path = "../cortex-store" }
-cortex-weavatrix = { path = "../cortex-weavatrix" }
-mcport.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 
 [lints]
 workspace = true

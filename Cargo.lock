@@ -166,6 +166,7 @@ dependencies = [
  "cortex-domain",
  "cortex-router",
  "cortex-run",
+ "cortex-shadow",
  "cortex-skills",
  "cortex-store",
  "cortex-weavatrix",
@@ -216,6 +217,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "cortex-shadow"
+version = "0.1.0"
+dependencies = [
+ "blazingly-json",
+ "cortex-context",
+ "cortex-eval",
+ "cortex-ollama",
+ "cortex-router",
+ "cortex-store",
+ "serde",
+ "sha2",
+]
+
+[[package]]
 name = "cortex-skills"
 version = "0.1.0"
 dependencies = [
@@ -231,6 +246,7 @@ dependencies = [
  "cortex-domain",
  "cortex-run",
  "rusqlite",
+ "serde",
 ]
 
 [[package]]

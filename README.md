@@ -11,6 +11,7 @@ The first milestone contains:
 - deterministic evidence selection and token-budget reporting, including one-step compilation of typed Weavatrix evidence;
 - inspectable model/context routing with fail-closed escalation;
 - an offline model-profile calibration harness (`cortex-eval`) with typed fixtures, fail-closed verdicts, and no hidden model pulls;
+- opt-in shadow observation (`cortex-shadow`, `CORTEX_SHADOW=1`) that measures local profiles on real MCP traffic with append-only samples and zero workflow influence;
 - native `weavatrix-rust` repository evidence and preview-only Weavatrix Refactor integration;
 - bounded MCP tools plus a browser-based React/SVG editor extracted from AI Dev System.
 

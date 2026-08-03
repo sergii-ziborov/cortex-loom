@@ -1,29 +1,22 @@
 //! Suite execution against one candidate profile.
 
-use std::fmt::Write as _;
-
-use cortex_context::estimate_tokens;
-use cortex_ollama::{ChatMessage, DevicePlacement, StructuredChatRequest};
+use cortex_ollama::DevicePlacement;
 use cortex_router::ModelTier;
-use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde::Serialize;
 
 use crate::backend::EvalBackend;
 use crate::comparators::{citation_metrics, classification_outcome, token_delta};
-use crate::fixtures::{
-    ALLOWED_ACTIONS, ClassificationFixture, CompressionFixture, ExtractionFixture, FixtureSet,
-};
+use crate::fixtures::{ClassificationFixture, CompressionFixture, ExtractionFixture, FixtureSet};
 use crate::metrics::{
     ClassificationAggregate, ClassificationSample, CompressionAggregate, CompressionSample,
     ExtractionAggregate, ExtractionMatches, ExtractionSample, LatencyStats,
     aggregate_classification, aggregate_compression, aggregate_extraction, latency_stats,
 };
+use crate::prompts::{
+    EvidenceBlock, classification_request, compression_request, extraction_request,
+    parse_compression, parse_extraction, parse_tier,
+};
 use crate::verdict::{CalibrationVerdict, judge};
-
-const PROMPT_OVERHEAD_TOKENS: u32 = 32;
-const CLASSIFICATION_OUTPUT_TOKENS: u32 = 128;
-const EXTRACTION_OUTPUT_TOKENS: u32 = 256;
-const COMPRESSION_OUTPUT_TOKENS: u32 = 768;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SuiteSelection {
@@ -215,60 +208,16 @@ fn progress(profile: &str, suite: &str, index: usize, total: usize, error: Optio
     }
 }
 
-fn request(
-    profile: &str,
-    system: &str,
-    user: String,
-    schema: Value,
-    output_tokens: u32,
-) -> StructuredChatRequest {
-    let estimated_input_tokens = estimate_tokens(system)
-        .saturating_add(estimate_tokens(&user))
-        .saturating_add(PROMPT_OVERHEAD_TOKENS);
-    StructuredChatRequest {
-        profile: profile.to_owned(),
-        messages: vec![ChatMessage::system(system), ChatMessage::user(user)],
-        schema,
-        estimated_input_tokens,
-        requested_output_tokens: output_tokens,
-    }
-}
-
-const CLASSIFICATION_SYSTEM: &str = "You classify one engineering task for a routing policy. Reply with JSON only. Tiers: none = deterministic tooling or repository graph analysis without any model; local_small = bounded structured extraction over supplied text; local_medium = citation-preserving summarization or advisory drafting over supplied evidence; upstream_strong = anything that mutates code or state, security, authentication, concurrency, migrations, releases, deployment, publication, or ambiguous work. When uncertain choose upstream_strong.";
-
-fn tier_schema() -> Value {
-    json!({
-        "type": "object",
-        "properties": {
-            "tier": {"type": "string", "enum": ["none", "local_small", "local_medium", "upstream_strong"]}
-        },
-        "required": ["tier"],
-        "additionalProperties": false
-    })
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct TierResponse {
-    tier: ModelTier,
-}
-
 fn run_classification(
     backend: &dyn EvalBackend,
     profile: &str,
     fixture: &ClassificationFixture,
 ) -> ClassificationSample {
-    let call = backend.structured(&request(
-        profile,
-        CLASSIFICATION_SYSTEM,
-        format!("Task: {}", fixture.task),
-        tier_schema(),
-        CLASSIFICATION_OUTPUT_TOKENS,
-    ));
+    let call = backend.structured(&classification_request(profile, &fixture.task));
     let (observed, latency_ms, error) = match call {
-        Ok(timed) => match serde_json::from_str::<TierResponse>(&timed.content) {
-            Ok(parsed) => (Some(parsed.tier), timed.latency_ms, None),
-            Err(parse_error) => (None, timed.latency_ms, Some(parse_error.to_string())),
+        Ok(timed) => match parse_tier(&timed.content) {
+            Ok(tier) => (Some(tier), timed.latency_ms, None),
+            Err(parse_error) => (None, timed.latency_ms, Some(parse_error)),
         },
         Err(error) => (None, 0, Some(error)),
     };
@@ -283,29 +232,6 @@ fn run_classification(
     }
 }
 
-const EXTRACTION_SYSTEM: &str = "You extract fields literally present in one task description. Reply with JSON only. action is one of: add, fix, remove, rename, move, refactor, document, test, update, other. files lists file paths exactly as written. symbols lists function, constant, or type names exactly as written. Never invent entries; use empty arrays when nothing is present.";
-
-fn extraction_schema() -> Value {
-    json!({
-        "type": "object",
-        "properties": {
-            "action": {"type": "string", "enum": ALLOWED_ACTIONS},
-            "files": {"type": "array", "items": {"type": "string"}},
-            "symbols": {"type": "array", "items": {"type": "string"}}
-        },
-        "required": ["action", "files", "symbols"],
-        "additionalProperties": false
-    })
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ExtractionResponse {
-    action: String,
-    files: Vec<String>,
-    symbols: Vec<String>,
-}
-
 fn normalized(values: &[String]) -> Vec<String> {
     let mut sorted: Vec<String> = values.iter().map(|value| value.trim().to_owned()).collect();
     sorted.sort();
@@ -318,20 +244,14 @@ fn run_extraction(
     profile: &str,
     fixture: &ExtractionFixture,
 ) -> ExtractionSample {
-    let call = backend.structured(&request(
-        profile,
-        EXTRACTION_SYSTEM,
-        format!("Task: {}", fixture.text),
-        extraction_schema(),
-        EXTRACTION_OUTPUT_TOKENS,
-    ));
+    let call = backend.structured(&extraction_request(profile, &fixture.text));
     let no_match = ExtractionMatches {
         action: false,
         files: false,
         symbols: false,
     };
     let (schema_valid, matches, latency_ms, error) = match call {
-        Ok(timed) => match serde_json::from_str::<ExtractionResponse>(&timed.content) {
+        Ok(timed) => match parse_extraction(&timed.content) {
             Ok(parsed) => {
                 let matches = ExtractionMatches {
                     action: parsed.action.eq_ignore_ascii_case(&fixture.gold.action),
@@ -340,12 +260,7 @@ fn run_extraction(
                 };
                 (true, matches, timed.latency_ms, None)
             }
-            Err(parse_error) => (
-                false,
-                no_match,
-                timed.latency_ms,
-                Some(parse_error.to_string()),
-            ),
+            Err(parse_error) => (false, no_match, timed.latency_ms, Some(parse_error)),
         },
         Err(error) => (false, no_match, 0, Some(error)),
     };
@@ -358,47 +273,21 @@ fn run_extraction(
     }
 }
 
-const COMPRESSION_SYSTEM: &str = "You compress evidence into one short grounded briefing for a coding agent. Keep the summary under 120 words. Cite evidence inline with bracketed IDs such as [WX-GRAPH], and list every cited ID in evidenceIds. Use only supplied IDs and never invent one. Reply with JSON only.";
-
-fn compression_schema() -> Value {
-    json!({
-        "type": "object",
-        "properties": {
-            "summary": {"type": "string"},
-            "evidenceIds": {"type": "array", "items": {"type": "string"}}
-        },
-        "required": ["summary", "evidenceIds"],
-        "additionalProperties": false
-    })
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct CompressionResponse {
-    summary: String,
-    evidence_ids: Vec<String>,
-}
-
 fn run_compression(
     backend: &dyn EvalBackend,
     profile: &str,
     fixture: &CompressionFixture,
 ) -> CompressionSample {
-    let mut blocks = String::new();
-    for evidence in &fixture.evidence {
-        let _ = write!(
-            blocks,
-            "## [{}] {}\n{}\n\n",
-            evidence.id, evidence.source, evidence.content
-        );
-    }
-    let call = backend.structured(&request(
-        profile,
-        COMPRESSION_SYSTEM,
-        format!("Task: {}\n\nEvidence:\n\n{blocks}", fixture.task),
-        compression_schema(),
-        COMPRESSION_OUTPUT_TOKENS,
-    ));
+    let blocks: Vec<EvidenceBlock<'_>> = fixture
+        .evidence
+        .iter()
+        .map(|evidence| EvidenceBlock {
+            id: &evidence.id,
+            source: &evidence.source,
+            content: &evidence.content,
+        })
+        .collect();
+    let call = backend.structured(&compression_request(profile, &fixture.task, &blocks));
     let supplied: Vec<String> = fixture
         .evidence
         .iter()
@@ -410,7 +299,7 @@ fn run_compression(
         .map(|evidence| evidence.content.as_str())
         .collect();
     let (schema_valid, citations, delta, latency_ms, error) = match call {
-        Ok(timed) => match serde_json::from_str::<CompressionResponse>(&timed.content) {
+        Ok(timed) => match parse_compression(&timed.content) {
             Ok(parsed) => {
                 let citations = citation_metrics(
                     &supplied,
@@ -421,13 +310,7 @@ fn run_compression(
                 let delta = token_delta(&contents, &parsed.summary);
                 (true, Some(citations), Some(delta), timed.latency_ms, None)
             }
-            Err(parse_error) => (
-                false,
-                None,
-                None,
-                timed.latency_ms,
-                Some(parse_error.to_string()),
-            ),
+            Err(parse_error) => (false, None, None, timed.latency_ms, Some(parse_error)),
         },
         Err(error) => (false, None, None, 0, Some(error)),
     };

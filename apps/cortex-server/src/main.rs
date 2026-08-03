@@ -2,14 +2,14 @@ use std::env;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
-use axum::extract::{Path as AxumPath, State};
+use axum::extract::{Path as AxumPath, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use cortex_domain::{GraphDocument, default_control_plane};
 use cortex_skills::{export_skill_markdown, import_skill_markdown};
-use cortex_store::{GraphStore, StoreError};
+use cortex_store::{GraphStore, ShadowAggregate, ShadowOperation, ShadowSampleRow, StoreError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tower_http::services::ServeDir;
@@ -120,6 +120,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/graphs/{id}", get(get_graph).put(save_graph))
         .route("/api/skills/compile", post(compile_skill))
         .route("/api/skills/export", post(export_skill))
+        .route("/api/shadow/metrics", get(shadow_metrics))
+        .route("/api/shadow/samples", get(shadow_samples))
         .merge(runs::routes())
         .with_state(state);
     let app = api.fallback_service(
@@ -203,6 +205,50 @@ async fn export_skill(
     let markdown =
         export_skill_markdown(&graph).map_err(|error| ApiError::BadRequest(error.to_string()))?;
     Ok(Json(ExportSkillResponse { markdown }))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ShadowQuery {
+    operation: Option<String>,
+    model: Option<String>,
+    limit: Option<usize>,
+}
+
+fn parse_shadow_operation(value: Option<&str>) -> Result<Option<ShadowOperation>, ApiError> {
+    match value {
+        None => Ok(None),
+        Some(raw) => ShadowOperation::parse(raw)
+            .map(Some)
+            .ok_or_else(|| ApiError::BadRequest(format!("unknown shadow operation: {raw}"))),
+    }
+}
+
+/// Bounded read-only aggregates; shadow output never influences workflows.
+async fn shadow_metrics(
+    State(state): State<AppState>,
+    Query(query): Query<ShadowQuery>,
+) -> Result<Json<Vec<ShadowAggregate>>, ApiError> {
+    let operation = parse_shadow_operation(query.operation.as_deref())?;
+    Ok(Json(
+        state
+            .store
+            .shadow()
+            .aggregate(operation, query.model.as_deref())?,
+    ))
+}
+
+async fn shadow_samples(
+    State(state): State<AppState>,
+    Query(query): Query<ShadowQuery>,
+) -> Result<Json<Vec<ShadowSampleRow>>, ApiError> {
+    let operation = parse_shadow_operation(query.operation.as_deref())?;
+    let limit = query.limit.unwrap_or(20).clamp(1, 100);
+    Ok(Json(state.store.shadow().list(
+        operation,
+        query.model.as_deref(),
+        limit,
+    )?))
 }
 
 async fn shutdown_signal() {

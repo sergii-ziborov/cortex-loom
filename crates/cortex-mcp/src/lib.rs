@@ -6,8 +6,11 @@ use std::time::Duration;
 use cortex_context::{ContextRequest, compile_context};
 use cortex_domain::{GraphDocument, default_control_plane};
 use cortex_router::{RoutingRequest, route};
+use cortex_shadow::{
+    CompressionSnapshot, RoutingSnapshot, ShadowConfig, ShadowEvidence, ShadowHandle, ShadowTask,
+};
 use cortex_skills::{export_skill_markdown, import_skill_markdown};
-use cortex_store::GraphStore;
+use cortex_store::{GraphStore, ShadowOperation};
 use cortex_weavatrix::{
     RefactorOperation, WeavatrixAdapter, WeavatrixConfig, compile_evidence_bundle,
 };
@@ -24,6 +27,9 @@ const MAX_SKILL_BYTES: usize = 2 * 1024 * 1024;
 pub struct CortexMcpState {
     store: GraphStore,
     weavatrix: WeavatrixAdapter,
+    /// Present only under explicit `CORTEX_SHADOW=1` configuration; observes
+    /// deterministic outcomes without any workflow influence.
+    shadow: Option<Arc<ShadowHandle>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -82,6 +88,14 @@ struct RefactorPreviewArgs {
     arguments: Value,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ShadowMetricsArgs {
+    operation: Option<String>,
+    model: Option<String>,
+    limit: Option<usize>,
+}
+
 impl CortexMcpState {
     pub fn open(database: PathBuf) -> Result<Self, String> {
         if let Some(parent) = database.parent() {
@@ -93,7 +107,19 @@ impl CortexMcpState {
             .map_err(|error| error.to_string())?;
         let weavatrix =
             WeavatrixAdapter::new(WeavatrixConfig::discover().map_err(|error| error.to_string())?);
-        Ok(Self { store, weavatrix })
+        let shadow = match cortex_shadow::spawn(ShadowConfig::from_env(), store.shadow()) {
+            Ok(handle) => handle.map(Arc::new),
+            Err(error) => {
+                // A broken shadow configuration must never block the host.
+                eprintln!("cortex-mcp: shadow mode disabled: {error}");
+                None
+            }
+        };
+        Ok(Self {
+            store,
+            weavatrix,
+            shadow,
+        })
     }
 }
 
@@ -106,6 +132,8 @@ pub fn serve(state: CortexMcpState) -> io::Result<()> {
     let prepare_state = Arc::clone(&state);
     let context_state = Arc::clone(&state);
     let refactor_state = Arc::clone(&state);
+    let route_state = Arc::clone(&state);
+    let shadow_state = Arc::clone(&state);
 
     let server = ConcurrentMcpServer::new("cortex-loom", env!("CARGO_PKG_VERSION"))
         .instructions(
@@ -163,8 +191,39 @@ pub fn serve(state: CortexMcpState) -> io::Result<()> {
                 if context.is_cancelled() {
                     return ToolReply::error("cancelled");
                 }
+                // Copied only when shadow observation is active; the shadow
+                // runner never touches the deterministic reply below.
+                let shadow_evidence = context_state.shadow.as_ref().map(|_| {
+                    bundle
+                        .evidence
+                        .iter()
+                        .map(|fragment| ShadowEvidence {
+                            id: fragment.id.clone(),
+                            source: fragment.source.clone(),
+                            content: fragment.content.clone(),
+                        })
+                        .collect::<Vec<_>>()
+                });
                 match compile_evidence_bundle(bundle, &arguments.task, arguments.max_tokens) {
-                    Ok(packet) => ToolReply::structured(packet),
+                    Ok(packet) => {
+                        if let (Some(shadow), Some(evidence)) =
+                            (&context_state.shadow, shadow_evidence)
+                        {
+                            shadow.observe(ShadowTask::ContextCompression {
+                                task: arguments.task.clone(),
+                                evidence,
+                                deterministic: CompressionSnapshot {
+                                    included_ids: packet.context.included_ids.clone(),
+                                    omitted_ids: packet.context.omitted_ids.clone(),
+                                    selected_estimated_tokens: packet
+                                        .context
+                                        .selected_estimated_tokens,
+                                    requires_upstream: packet.context.requires_upstream,
+                                },
+                            });
+                        }
+                        ToolReply::structured(packet)
+                    }
                     Err(error) => ToolReply::error(error.to_string()),
                 }
             },
@@ -299,7 +358,71 @@ pub fn serve(state: CortexMcpState) -> io::Result<()> {
                 if context.is_cancelled() {
                     return ToolReply::error("cancelled");
                 }
-                ToolReply::structured(route(&arguments))
+                let decision = route(&arguments);
+                if let Some(shadow) = &route_state.shadow {
+                    shadow.observe(ShadowTask::RouteClassification {
+                        task: arguments.task.clone(),
+                        deterministic: RoutingSnapshot {
+                            tier: decision.model_tier,
+                            class: decision.class,
+                            risk: decision.risk,
+                        },
+                    });
+                }
+                ToolReply::structured(decision)
+            },
+        )
+        .typed_tool(
+            "shadow_metrics_read",
+            "Read append-only shadow observation aggregates and recent samples. Shadow output never influences routing or compilation.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "operation": {"type": "string", "enum": ["route_classification", "context_compression"]},
+                    "model": {"type": "string", "maxLength": 256},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 100}
+                },
+                "additionalProperties": false
+            }),
+            move |context, arguments: ShadowMetricsArgs| {
+                if context.is_cancelled() {
+                    return ToolReply::error("cancelled");
+                }
+                let operation = match arguments.operation.as_deref() {
+                    None => None,
+                    Some(value) => match ShadowOperation::parse(value) {
+                        Some(operation) => Some(operation),
+                        None => {
+                            return ToolReply::error(format!("unknown operation: {value}"));
+                        }
+                    },
+                };
+                let shadow_store = shadow_state.store.shadow();
+                let aggregates =
+                    match shadow_store.aggregate(operation, arguments.model.as_deref()) {
+                        Ok(aggregates) => aggregates,
+                        Err(error) => return ToolReply::error(error.to_string()),
+                    };
+                let samples = match arguments.limit {
+                    None => Vec::new(),
+                    Some(limit) => match shadow_store.list(
+                        operation,
+                        arguments.model.as_deref(),
+                        limit.clamp(1, 100),
+                    ) {
+                        Ok(samples) => samples,
+                        Err(error) => return ToolReply::error(error.to_string()),
+                    },
+                };
+                let handle = shadow_state.shadow.as_deref();
+                ToolReply::structured(serde_json::json!({
+                    "enabled": handle.is_some(),
+                    "smallModel": handle.and_then(ShadowHandle::small_model),
+                    "mediumModel": handle.and_then(ShadowHandle::medium_model),
+                    "droppedSamples": handle.map_or(0, ShadowHandle::dropped),
+                    "aggregates": aggregates,
+                    "samples": samples,
+                }))
             },
         )
         .typed_tool(

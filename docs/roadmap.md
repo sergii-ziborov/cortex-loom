@@ -18,7 +18,7 @@
 
 1. Extend durable runs with evidence invalidation, executor leases, lease expiry, and explicit external-executor identity.
 2. Add graph-to-agent adapters for Codex, Claude Code, and Copilot while keeping the canonical graph vendor-neutral.
-3. Wire evaluated Ollama profiles into the MCP host behind explicit runtime configuration and shadow-mode metrics. Prerequisite: a `cortex-eval` calibration record for each shadow profile; design in [shadow-mode.md](shadow-mode.md).
+3. ~~Wire evaluated Ollama profiles into the MCP host behind explicit runtime configuration and shadow-mode metrics.~~ Done (iteration 1): `cortex-shadow` observes `route_work` and `weavatrix_context_compile` behind `CORTEX_SHADOW=1`, with append-only samples, `shadow_metrics_read`, and `/api/shadow/*`; see [shadow-mode.md](shadow-mode.md). Remaining: promotion criteria stay gated on calibration verdicts and shadow agreement data.
 4. Add embeddings and retrieval evaluation before permitting semantic evidence selection.
 5. Import a small, licensed Superpowers-derived methodology fixture set and build scenario/pressure tests for round-trip behavior.
 6. Stabilize or publish native Rust Refactor planning crates before removing the JavaScript compatibility oracle.

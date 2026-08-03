@@ -4,7 +4,7 @@ The “90% less upstream work” idea is a measurable product target, not a rele
 
 ## Shadow phase
 
-Local inference runs without changing workflow state. Every candidate result is compared with deterministic evidence and the upstream agent’s accepted outcome.
+Local inference runs without changing workflow state. Every candidate result is compared with deterministic evidence and the upstream agent’s accepted outcome. Shadow mode is implemented behind explicit `CORTEX_SHADOW=1` configuration ([shadow-mode.md](shadow-mode.md)); it turns real MCP traffic into the same metrics the offline harness produces.
 
 Promotion requires:
 

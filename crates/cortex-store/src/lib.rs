@@ -8,8 +8,12 @@ use cortex_run::RunError;
 use rusqlite::{Connection, OptionalExtension, params};
 
 mod run_store;
+mod shadow_store;
 
 pub use run_store::RunStore;
+pub use shadow_store::{
+    ShadowAggregate, ShadowOperation, ShadowSample, ShadowSampleRow, ShadowStore,
+};
 
 #[derive(Clone)]
 pub struct GraphStore {
@@ -143,7 +147,28 @@ impl GraphStore {
                recorded_at INTEGER NOT NULL,
                PRIMARY KEY (run_id, sequence),
                FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE
-             );",
+             );
+             CREATE TABLE IF NOT EXISTS shadow_samples (
+               id INTEGER PRIMARY KEY AUTOINCREMENT,
+               created_at INTEGER NOT NULL,
+               operation TEXT NOT NULL CHECK (operation IN
+                 ('route_classification','context_compression')),
+               model_tag TEXT NOT NULL,
+               device TEXT,
+               latency_ms INTEGER,
+               input_digest TEXT NOT NULL,
+               deterministic_summary TEXT NOT NULL,
+               shadow_summary TEXT,
+               schema_valid INTEGER,
+               agreement INTEGER,
+               missed_escalation INTEGER NOT NULL DEFAULT 0,
+               citation_preserved_ratio REAL,
+               hallucinated_citations INTEGER,
+               token_estimate_delta INTEGER,
+               error TEXT
+             );
+             CREATE INDEX IF NOT EXISTS shadow_samples_by_group
+               ON shadow_samples (operation, model_tag, id DESC);",
         )?;
         Ok(Self {
             connection: Arc::new(Mutex::new(connection)),
@@ -256,6 +281,11 @@ impl GraphStore {
     #[must_use]
     pub fn runs(&self) -> RunStore {
         RunStore::new(Arc::clone(&self.connection))
+    }
+
+    #[must_use]
+    pub fn shadow(&self) -> ShadowStore {
+        ShadowStore::new(Arc::clone(&self.connection))
     }
 
     fn lock(&self) -> Result<MutexGuard<'_, Connection>, StoreError> {

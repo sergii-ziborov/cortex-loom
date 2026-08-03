@@ -15,6 +15,7 @@ pub mod backend;
 pub mod comparators;
 pub mod fixtures;
 pub mod metrics;
+pub mod prompts;
 pub mod report;
 pub mod runner;
 pub mod verdict;

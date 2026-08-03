@@ -1,7 +1,25 @@
-# Shadow mode design — milestone 3, iteration 1
+# Shadow mode — milestone 3, iteration 1 (implemented)
 
 Wire evaluated Ollama profiles into the MCP host behind explicit runtime
 configuration and shadow-mode metrics, with zero workflow influence.
+
+## Runtime configuration
+
+Shadow mode starts only when `cortex-mcp` sees explicit configuration:
+
+```powershell
+$env:CORTEX_SHADOW = "1"                    # required master switch
+$env:CORTEX_SHADOW_SMALL = "qwen3.5:4b"     # exact tag for route_classification
+$env:CORTEX_SHADOW_MEDIUM = "qwen3.5:9b"    # exact tag for context_compression
+$env:CORTEX_SHADOW_TIMEOUT_MS = "30000"     # optional, default 30000
+$env:CORTEX_SHADOW_QUEUE = "64"             # optional, default 64
+cargo run -p cortex-mcp
+```
+
+Without `CORTEX_SHADOW=1` plus at least one model tag there is no thread, no
+queue, and no samples. An operation whose model tag is unset is ignored
+entirely. A broken shadow configuration only prints a warning; the MCP host
+starts normally without shadow mode.
 
 ## Invariants
 
@@ -72,7 +90,7 @@ out of bounds.
 ```sql
 CREATE TABLE IF NOT EXISTS shadow_samples (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  created_at TEXT NOT NULL,
+  created_at INTEGER NOT NULL,          -- unix seconds, matching other tables
   operation TEXT NOT NULL CHECK (operation IN
     ('route_classification','context_compression')),
   model_tag TEXT NOT NULL,
@@ -91,30 +109,42 @@ CREATE TABLE IF NOT EXISTS shadow_samples (
 );
 ```
 
-Inserts only. The list query is bounded by `LIMIT`; the aggregate query returns
-per `(operation, model_tag)`: sample count, schema-valid rate, agreement rate,
-missed-escalation count, latency p50/p95, device breakdown, and dropped count.
+Inserts only; the store exposes no update or delete surface. The list query is
+bounded by `LIMIT <= 100`; the aggregate query covers the most recent 1000
+samples per query and returns per `(operation, model_tag)`: sample count,
+schema-valid rate, agreement rate, missed-escalation count, hallucinated
+citations, mean preserved ratio, latency p50/p95, and device breakdown.
 `input_digest` is a SHA-256 of the canonical input — raw payloads are not
-persisted.
+persisted. For compression, `must_cite` is the intersection of the
+deterministic `includedIds` with the actual evidence fragment IDs, so the
+synthetic `TASK` citation is never demanded from the draft, and
+`token_estimate_delta` is the shadow draft estimate minus the deterministic
+packet's `selectedEstimatedTokens`. The drop counter is per-process runtime
+state: it appears in the MCP tool response, not in HTTP aggregates.
 
 ### Read-only surfaces
 
 - `cortex-mcp`: one bounded tool, `shadow_metrics_read { operation?, model?,
-  limit <= 100 }` → aggregates plus optional recent samples. No write or apply
-  surface.
-- `cortex-server`: `GET /api/shadow/metrics` and
-  `GET /api/shadow/samples?limit=`, served through the store handle only — the
-  server takes no dependency on the shadow runner.
+  limit <= 100 }` → enabled flag, configured models, per-process dropped
+  counter, aggregates, and (only when `limit` is passed) recent samples. No
+  write or apply surface.
+- `cortex-server`: `GET /api/shadow/metrics?operation=&model=` and
+  `GET /api/shadow/samples?operation=&model=&limit=`, served through the store
+  handle only — the server takes no dependency on the shadow runner.
 
 ## Testing (no live Ollama in CI)
 
+Covered by `cortex-shadow/src/tests.rs` and `cortex-store` shadow tests:
+
 - Scripted backend behind the same trait used by `cortex-eval`.
-- Disabled-by-default: no samples, no queue, no thread.
+- Disabled-by-default: no samples, no queue, no thread; enabling requires both
+  the switch and a model tag.
 - Agreement and missed-escalation matrix; citation preservation and
-  hallucination counting.
-- Timeout produces a failed sample and leaves hot-path latency unaffected.
+  hallucination counting against the deterministic packet.
+- A backend error or timeout produces a failed sample; the hot path only ever
+  executes a non-blocking `try_send`.
 - Queue overflow drops without blocking; the drop counter increments.
-- Samples are append-only.
+- Samples are append-only with monotonic IDs and bounded, filterable reads.
 - Full gates as usual: `cargo fmt --check`, `cargo test --workspace`,
   `cargo clippy --workspace --all-targets -D warnings`, UI build.
 

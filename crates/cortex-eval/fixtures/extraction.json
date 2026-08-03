@@ -1,0 +1,52 @@
+[
+  {
+    "id": "ex-1",
+    "text": "Fix the off-by-one in src/parser.rs inside parse_line",
+    "gold": { "action": "fix", "files": ["src/parser.rs"], "symbols": ["parse_line"] }
+  },
+  {
+    "id": "ex-2",
+    "text": "Add a retry helper named schedule_retry to crates/cortex-run/src/retry.rs",
+    "gold": { "action": "add", "files": ["crates/cortex-run/src/retry.rs"], "symbols": ["schedule_retry"] }
+  },
+  {
+    "id": "ex-3",
+    "text": "Remove the deprecated function legacy_export from src/export.rs",
+    "gold": { "action": "remove", "files": ["src/export.rs"], "symbols": ["legacy_export"] }
+  },
+  {
+    "id": "ex-4",
+    "text": "Rename save_all to save_batch in crates/cortex-store/src/lib.rs",
+    "gold": { "action": "rename", "files": ["crates/cortex-store/src/lib.rs"], "symbols": ["save_all", "save_batch"] }
+  },
+  {
+    "id": "ex-5",
+    "text": "Move the helper normalize_path from src/util.rs to src/paths.rs",
+    "gold": { "action": "move", "files": ["src/util.rs", "src/paths.rs"], "symbols": ["normalize_path"] }
+  },
+  {
+    "id": "ex-6",
+    "text": "Document the public function compile_context in crates/cortex-context/src/lib.rs",
+    "gold": { "action": "document", "files": ["crates/cortex-context/src/lib.rs"], "symbols": ["compile_context"] }
+  },
+  {
+    "id": "ex-7",
+    "text": "Test the edge resolver resolve_edge in crates/cortex-run/src/transition.rs",
+    "gold": { "action": "test", "files": ["crates/cortex-run/src/transition.rs"], "symbols": ["resolve_edge"] }
+  },
+  {
+    "id": "ex-8",
+    "text": "Update the timeout constant DEFAULT_TIMEOUT in src/config.rs",
+    "gold": { "action": "update", "files": ["src/config.rs"], "symbols": ["DEFAULT_TIMEOUT"] }
+  },
+  {
+    "id": "ex-9",
+    "text": "Refactor the duplicated frontmatter parsing shared by src/import.rs and src/export.rs",
+    "gold": { "action": "refactor", "files": ["src/import.rs", "src/export.rs"], "symbols": [] }
+  },
+  {
+    "id": "ex-10",
+    "text": "Investigate flaky output ordering in the scheduler",
+    "gold": { "action": "other", "files": [], "symbols": [] }
+  }
+]

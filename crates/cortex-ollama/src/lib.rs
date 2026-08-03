@@ -10,7 +10,7 @@ pub use client::OllamaClient;
 pub use quality::assess_local_draft;
 pub use types::{
     ChatMessage, ChatRole, DevicePlacement, DraftAssessment, DraftRequest, LocalDraft, ModelInfo,
-    ModelProfile, OllamaConfig, QualityFailure, RunningModel, VersionInfo,
+    ModelProfile, OllamaConfig, QualityFailure, RunningModel, StructuredChatRequest, VersionInfo,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]

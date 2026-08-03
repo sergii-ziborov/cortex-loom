@@ -33,3 +33,17 @@ Report savings only for quality-equivalent accepted runs. A smaller prompt that 
 
 Escalate when evidence is missing or contradictory, validation fails, a budget is exceeded, a task is repository-wide or high-risk, or the user asks for the stronger model. Silent fallback to a smaller local model is forbidden.
 
+## Calibration harness
+
+`cortex-eval` measures candidate profiles offline against typed fixtures. It never pulls a model: absent models are reported as `model_absent` and skipped.
+
+```powershell
+cargo run -p cortex-eval -- --discover
+cargo run -p cortex-eval -- --profile local-small
+cargo run -p cortex-eval -- --suite classification --limit 5
+```
+
+Profiles live in `config/eval-profiles.json` (exact tags only). Reports land in `.cortex-loom/eval/` as JSON plus a Markdown summary on stdout, pinned to prompt/schema versions, with the model digest and CPU/GPU placement recorded.
+
+Encoded gates per profile: schema-valid rate ≥ 0.95 per suite, zero missed escalations, classification accuracy ≥ 0.8, extraction action accuracy ≥ 0.8 and exact-match ≥ 0.6, minimum citation-preservation ≥ 0.9, zero hallucinated citations, and a negative mean token delta (the draft must actually compress). A failing verdict is calibration data, not a build failure; shadow-mode profiles must reference a calibration record for the exact model tag.
+

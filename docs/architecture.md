@@ -29,6 +29,7 @@ Generated Markdown is a view; the typed, versioned graph is canonical.
 - `cortex-skills`: Markdown skill import and canonical readable export.
 - `cortex-router`: deterministic risk and execution policy.
 - `cortex-ollama`: bounded Ollama discovery and structured drafting.
+- `cortex-eval`: offline benchmark and calibration harness for local model profiles; pure comparators shared with shadow mode; never pulls a model.
 - `cortex-weavatrix`: native `weavatrix-rust` evidence, typed conversion into the transport-independent context compiler, plus a compatibility client for safe Weavatrix Refactor previews.
 - `cortex-mcp`: bounded stdio tools for Codex and Claude.
 - `cortex-server`: local HTTP API and embedded graph UI host.

@@ -104,9 +104,48 @@ fn chat_is_structured_bounded_and_uses_the_exact_model() {
     let json: serde_json::Value = serde_json::from_str(body).unwrap();
     assert_eq!(json["model"], "exact-model:9b");
     assert_eq!(json["stream"], false);
+    assert_eq!(json["think"], false);
     assert_eq!(json["format"]["additionalProperties"], false);
     assert_eq!(json["options"]["temperature"], 0);
     assert_eq!(json["options"]["num_predict"], 100);
+}
+
+#[test]
+fn structured_chat_forwards_the_caller_schema_and_stays_bounded() {
+    let response = r#"{"message":{"content":"{\"tier\":\"upstream_strong\"}"}}"#;
+    let (base_url, server) = mock_server(vec![response]);
+    let client = OllamaClient::new(config(base_url)).unwrap();
+    let schema = serde_json::json!({
+        "type": "object",
+        "properties": {"tier": {"type": "string"}},
+        "required": ["tier"],
+        "additionalProperties": false
+    });
+    let request = StructuredChatRequest {
+        profile: "draft".to_owned(),
+        messages: vec![ChatMessage::user("Classify the task")],
+        schema: schema.clone(),
+        estimated_input_tokens: 64,
+        requested_output_tokens: 100,
+    };
+    let content = client.structured_chat(&request).unwrap();
+    assert_eq!(content, r#"{"tier":"upstream_strong"}"#);
+
+    let captured = server.join().unwrap().pop().unwrap();
+    let body = captured.split("\r\n\r\n").nth(1).unwrap();
+    let json: serde_json::Value = serde_json::from_str(body).unwrap();
+    assert_eq!(json["model"], "exact-model:9b");
+    assert_eq!(json["format"], schema);
+    assert_eq!(json["options"]["temperature"], 0);
+
+    let over_budget = StructuredChatRequest {
+        estimated_input_tokens: 513,
+        ..request
+    };
+    assert!(matches!(
+        client.structured_chat(&over_budget),
+        Err(OllamaError::InputBudgetExceeded { .. })
+    ));
 }
 
 #[test]

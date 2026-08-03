@@ -10,6 +10,7 @@ The first milestone contains:
 - executable run snapshots with immutable evidence, audited human decisions, bounded retries, and deterministic replay verification;
 - deterministic evidence selection and token-budget reporting, including one-step compilation of typed Weavatrix evidence;
 - inspectable model/context routing with fail-closed escalation;
+- an offline model-profile calibration harness (`cortex-eval`) with typed fixtures, fail-closed verdicts, and no hidden model pulls;
 - native `weavatrix-rust` repository evidence and preview-only Weavatrix Refactor integration;
 - bounded MCP tools plus a browser-based React/SVG editor extracted from AI Dev System.
 

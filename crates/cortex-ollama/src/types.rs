@@ -127,6 +127,21 @@ impl DraftRequest {
     }
 }
 
+/// One exact-profile completion constrained by a caller-supplied JSON schema.
+///
+/// This exists for offline evaluation and shadow observation. Its output is
+/// measurement data: it never passes the draft quality gate and must never be
+/// treated as a workflow authority.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructuredChatRequest {
+    pub profile: String,
+    pub messages: Vec<ChatMessage>,
+    /// JSON schema forwarded verbatim as the Ollama `format` grammar.
+    pub schema: serde_json::Value,
+    pub estimated_input_tokens: u32,
+    pub requested_output_tokens: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LocalDraft {

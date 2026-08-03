@@ -71,17 +71,69 @@ impl OllamaClient {
             .profiles
             .get(&request.profile)
             .ok_or_else(|| OllamaError::UnknownProfile(request.profile.clone()))?;
-        validate_budget(request, profile)?;
+        validate_budget(
+            request.estimated_input_tokens,
+            request.requested_output_tokens,
+            profile,
+        )?;
+        let content = self.chat_content(
+            &profile.model,
+            &request.messages,
+            local_draft_schema(),
+            request.requested_output_tokens,
+            profile.context_tokens,
+        )?;
+        Ok(assess_local_draft(&content, &request.evidence_ids, routing))
+    }
 
+    /// Request one exact-profile completion constrained by a caller schema.
+    ///
+    /// This deliberately bypasses the draft quality gate: it serves offline
+    /// evaluation and shadow observation, where the raw structured text is the
+    /// measurement itself. Callers must never grant it workflow authority.
+    pub fn structured_chat(
+        &self,
+        request: &crate::StructuredChatRequest,
+    ) -> Result<String, OllamaError> {
+        let profile = self
+            .config
+            .profiles
+            .get(&request.profile)
+            .ok_or_else(|| OllamaError::UnknownProfile(request.profile.clone()))?;
+        validate_budget(
+            request.estimated_input_tokens,
+            request.requested_output_tokens,
+            profile,
+        )?;
+        self.chat_content(
+            &profile.model,
+            &request.messages,
+            request.schema.clone(),
+            request.requested_output_tokens,
+            profile.context_tokens,
+        )
+    }
+
+    fn chat_content(
+        &self,
+        model: &str,
+        messages: &[crate::ChatMessage],
+        format: serde_json::Value,
+        num_predict: u32,
+        num_ctx: u32,
+    ) -> Result<String, OllamaError> {
         let body = ChatApiRequest {
-            model: &profile.model,
-            messages: &request.messages,
+            model,
+            messages,
             stream: false,
-            format: local_draft_schema(),
+            // Structured output must land in `content` deterministically, so
+            // hidden thinking is disabled for every profile.
+            think: false,
+            format,
             options: ChatOptions {
                 temperature: 0,
-                num_predict: request.requested_output_tokens,
-                num_ctx: profile.context_tokens,
+                num_predict,
+                num_ctx,
             },
         };
         let serialized =
@@ -93,11 +145,7 @@ impl OllamaClient {
             });
         }
         let response: ChatApiResponse = self.post_json("/api/chat", &serialized)?;
-        Ok(assess_local_draft(
-            &response.message.content,
-            &request.evidence_ids,
-            routing,
-        ))
+        Ok(response.message.content)
     }
 
     fn get_json<T: DeserializeOwned>(&self, path: &str) -> Result<T, OllamaError> {
@@ -168,6 +216,7 @@ struct ChatApiRequest<'a> {
     model: &'a str,
     messages: &'a [crate::ChatMessage],
     stream: bool,
+    think: bool,
     format: serde_json::Value,
     options: ChatOptions,
 }
@@ -254,24 +303,24 @@ fn validate_loopback_url(base_url: &str) -> Result<(), OllamaError> {
     Ok(())
 }
 
-fn validate_budget(request: &DraftRequest, profile: &ModelProfile) -> Result<(), OllamaError> {
-    if request.estimated_input_tokens > profile.max_input_tokens {
+fn validate_budget(
+    estimated_input_tokens: u32,
+    requested_output_tokens: u32,
+    profile: &ModelProfile,
+) -> Result<(), OllamaError> {
+    if estimated_input_tokens > profile.max_input_tokens {
         return Err(OllamaError::InputBudgetExceeded {
-            estimated: request.estimated_input_tokens,
+            estimated: estimated_input_tokens,
             limit: profile.max_input_tokens,
         });
     }
-    if request.requested_output_tokens == 0
-        || request.requested_output_tokens > profile.max_output_tokens
-    {
+    if requested_output_tokens == 0 || requested_output_tokens > profile.max_output_tokens {
         return Err(OllamaError::OutputBudgetExceeded {
-            requested: request.requested_output_tokens,
+            requested: requested_output_tokens,
             limit: profile.max_output_tokens,
         });
     }
-    let total = request
-        .estimated_input_tokens
-        .saturating_add(request.requested_output_tokens);
+    let total = estimated_input_tokens.saturating_add(requested_output_tokens);
     if total > profile.context_tokens {
         return Err(OllamaError::ContextBudgetExceeded {
             requested: total,

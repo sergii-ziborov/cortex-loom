@@ -1,0 +1,29 @@
+{
+  "baseUrl": "http://127.0.0.1:11434",
+  "profiles": [
+    {
+      "id": "local-small",
+      "tier": "local_small",
+      "model": "qwen3.5:4b",
+      "maxInputTokens": 6144,
+      "maxOutputTokens": 1024,
+      "contextTokens": 8192
+    },
+    {
+      "id": "local-small-alt",
+      "tier": "local_small",
+      "model": "phi4-mini:latest",
+      "maxInputTokens": 6144,
+      "maxOutputTokens": 1024,
+      "contextTokens": 8192
+    },
+    {
+      "id": "local-medium",
+      "tier": "local_medium",
+      "model": "qwen3.5:9b",
+      "maxInputTokens": 6144,
+      "maxOutputTokens": 1024,
+      "contextTokens": 8192
+    }
+  ]
+}

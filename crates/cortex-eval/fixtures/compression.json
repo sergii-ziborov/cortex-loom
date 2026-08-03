@@ -1,0 +1,134 @@
+[
+  {
+    "id": "cp-1",
+    "task": "Prepare a grounded briefing for renaming the export helper without breaking callers.",
+    "evidence": [
+      {
+        "id": "WX-GRAPH",
+        "source": "weavatrix:graph_stats",
+        "content": "The repository graph has 412 nodes and 903 edges across nine crates. The skills crate contributes 61 nodes, and no cycles were detected in the export path. Graph freshness was confirmed against the current working tree revision."
+      },
+      {
+        "id": "WX-MODULES",
+        "source": "weavatrix:module_map",
+        "content": "The module map places export logic in cortex-skills::export with two internal callers: the MCP skill_export tool and the HTTP export endpoint. Import logic lives in a separate module and does not reference the helper being renamed."
+      },
+      {
+        "id": "WX-SYMBOL",
+        "source": "weavatrix:context_bundle",
+        "content": "The symbol render_frontmatter is defined once and referenced from three call sites, all inside cortex-skills. No external crate references were found, and the signature takes a graph document reference plus a mutable string buffer."
+      }
+    ],
+    "mustCite": ["WX-GRAPH", "WX-MODULES", "WX-SYMBOL"]
+  },
+  {
+    "id": "cp-2",
+    "task": "Summarize why the integration test started failing after the last merge.",
+    "evidence": [
+      {
+        "id": "LOG-TAIL",
+        "source": "ci:test-log",
+        "content": "The failing assertion expected revision 3 but observed revision 4 in graph_round_trip. The failure started in the nightly run immediately after merge commit 9f21c. Earlier steps in the same job passed unchanged."
+      },
+      {
+        "id": "DIFF-STAT",
+        "source": "git:diff",
+        "content": "The merge touched the store save path and added one extra revision bump when a graph is seeded from defaults. Fourteen lines changed in cortex-store and two lines in the seeding helper. No test files were updated in the merge."
+      },
+      {
+        "id": "RUN-EVENTS",
+        "source": "store:events",
+        "content": "The event history shows two consecutive save events for the default graph during test setup, where older runs recorded one. Both events carry the same actor and occur within the same millisecond."
+      }
+    ],
+    "mustCite": ["LOG-TAIL", "DIFF-STAT", "RUN-EVENTS"]
+  },
+  {
+    "id": "cp-3",
+    "task": "Brief the review gate on the pending change plan before approval.",
+    "evidence": [
+      {
+        "id": "WX-VERIFY",
+        "source": "weavatrix:verified_change",
+        "content": "The plan-phase verification lists three intended edits: one signature change, one call-site update, and one new unit test. Duplicate-detection reported no conflicts, but tests were not executed in this phase, so the plan remains unproven."
+      },
+      {
+        "id": "TASK-NOTE",
+        "source": "request:task",
+        "content": "The requester asked to keep the public API stable and explicitly excluded any changes to persisted schemas. The change should land as a single reviewable commit."
+      },
+      {
+        "id": "RISK-LIST",
+        "source": "router:classification",
+        "content": "The deterministic router classified the work as implementation with medium risk and reserved execution for the upstream agent. No high-risk categories were detected in the task text."
+      }
+    ],
+    "mustCite": ["WX-VERIFY", "TASK-NOTE", "RISK-LIST"]
+  },
+  {
+    "id": "cp-4",
+    "task": "Condense the dependency upgrade evidence for the maintainer.",
+    "evidence": [
+      {
+        "id": "DEP-TREE",
+        "source": "cargo:tree",
+        "content": "The upgrade moves the JSON crate from 0.9.4 to 1.0.1 and removes one transitive duplicate. Two workspace crates depend on it directly, and no other dependency pins the older major version."
+      },
+      {
+        "id": "ADVISORY-DB",
+        "source": "audit:advisories",
+        "content": "The advisory database lists one medium-severity issue fixed in 1.0.0 involving unbounded recursion on crafted input. No advisories are open against the new version at the time of the scan."
+      },
+      {
+        "id": "CHANGE-LOG",
+        "source": "upstream:changelog",
+        "content": "The upstream changelog documents one breaking change: error variants were consolidated, and the from_reader entry point now requires a size hint. All other API surfaces are reported unchanged."
+      }
+    ],
+    "mustCite": ["DEP-TREE", "ADVISORY-DB", "CHANGE-LOG"]
+  },
+  {
+    "id": "cp-5",
+    "task": "Summarize the performance regression investigation for the run engine.",
+    "evidence": [
+      {
+        "id": "PROF-FLAME",
+        "source": "profiler:flamegraph",
+        "content": "The flame graph attributes 38 percent of run-transition time to repeated JSON serialization of unchanged snapshots. The hot frame appears once per command in the persistence layer rather than once per run."
+      },
+      {
+        "id": "BENCH-DIFF",
+        "source": "bench:comparison",
+        "content": "The benchmark comparison shows median command latency rising from 2.1 to 5.7 milliseconds after the snapshot audit change. Throughput on the replay path is unchanged within noise."
+      },
+      {
+        "id": "GIT-BISECT",
+        "source": "git:bisect",
+        "content": "Bisection isolates the regression to the commit that began re-serializing the full snapshot for event payload hashing. Reverting only that hunk restores the previous latency in a spot check."
+      }
+    ],
+    "mustCite": ["PROF-FLAME", "BENCH-DIFF", "GIT-BISECT"]
+  },
+  {
+    "id": "cp-6",
+    "task": "Report the documentation drift found during the audit.",
+    "evidence": [
+      {
+        "id": "DOC-DIFF",
+        "source": "docs:comparison",
+        "content": "The architecture page still describes four MCP tools, while the server now registers nine. The routing section matches the code, but the persistence section omits the run store entirely."
+      },
+      {
+        "id": "API-SURFACE",
+        "source": "tools:list",
+        "content": "The live tool listing returns nine tools including run controls and the one-step Weavatrix context compiler. Every tool carries a bounded input schema and a one-line description."
+      },
+      {
+        "id": "EXAMPLE-RUN",
+        "source": "examples:walkthrough",
+        "content": "The walkthrough example still calls the two-step prepare-then-compile sequence. It succeeds, but it no longer demonstrates the recommended single-call path and never mentions run snapshots."
+      }
+    ],
+    "mustCite": ["DOC-DIFF", "API-SURFACE", "EXAMPLE-RUN"]
+  }
+]

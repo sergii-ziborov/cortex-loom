@@ -147,6 +147,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cortex-eval"
+version = "0.1.0"
+dependencies = [
+ "blazingly-json",
+ "cortex-context",
+ "cortex-ollama",
+ "cortex-router",
+ "serde",
+]
+
+[[package]]
 name = "cortex-mcp"
 version = "0.1.0"
 dependencies = [

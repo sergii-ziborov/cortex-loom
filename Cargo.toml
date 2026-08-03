@@ -3,6 +3,7 @@ members = [
   "apps/cortex-server",
   "crates/cortex-domain",
   "crates/cortex-context",
+  "crates/cortex-eval",
   "crates/cortex-mcp",
   "crates/cortex-ollama",
   "crates/cortex-run",

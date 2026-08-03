@@ -45,5 +45,7 @@ cargo run -p cortex-eval -- --suite classification --limit 5
 
 Profiles live in `config/eval-profiles.json` (exact tags only). Reports land in `.cortex-loom/eval/` as JSON plus a Markdown summary on stdout, pinned to prompt/schema versions, with the model digest and CPU/GPU placement recorded.
 
-Encoded gates per profile: schema-valid rate ≥ 0.95 per suite, zero missed escalations, classification accuracy ≥ 0.8, extraction action accuracy ≥ 0.8 and exact-match ≥ 0.6, minimum citation-preservation ≥ 0.9, zero hallucinated citations, and a negative mean token delta (the draft must actually compress). A failing verdict is calibration data, not a build failure; shadow-mode profiles must reference a calibration record for the exact model tag.
+Encoded gates per profile: schema-valid rate ≥ 0.95 per gated suite, zero missed escalations, classification accuracy ≥ 0.8, extraction action accuracy ≥ 0.8 and exact-match ≥ 0.6, minimum citation-preservation ≥ 0.9, zero hallucinated citations, and a negative mean token delta (the draft must actually compress).
+
+Verdicts are role-aware: a profile is calibrated for the tier it would be granted. `local_small` is gated on classification and extraction; `local_medium` on citation-preserving compression; any other tier on the full matrix. Suites outside the role are still measured and reported, but they never gate the verdict, because routing never assigns that work to the profile. A failing verdict is calibration data, not a build failure; shadow-mode profiles must reference a calibration record for the exact model tag and role.
 

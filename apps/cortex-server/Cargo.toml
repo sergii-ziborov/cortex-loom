@@ -9,7 +9,9 @@ publish = false
 
 [dependencies]
 axum.workspace = true
+cortex-adapters = { path = "../../crates/cortex-adapters" }
 cortex-domain = { path = "../../crates/cortex-domain" }
+include_dir.workspace = true
 cortex-run = { path = "../../crates/cortex-run" }
 cortex-skills = { path = "../../crates/cortex-skills" }
 cortex-store = { path = "../../crates/cortex-store" }

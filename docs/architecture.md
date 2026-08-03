@@ -31,6 +31,7 @@ Generated Markdown is a view; the typed, versioned graph is canonical.
 - `cortex-ollama`: bounded Ollama discovery and structured drafting.
 - `cortex-eval`: offline benchmark and calibration harness for local model profiles; pure comparators and pinned prompts shared with shadow mode; never pulls a model.
 - `cortex-shadow`: opt-in shadow observation of local profiles on real MCP traffic; bounded queue, dedicated worker thread, append-only samples, zero workflow influence.
+- `cortex-adapters`: preview-only vendor wiring (Claude Code, Codex, Copilot) rendered from the canonical graph; never writes files.
 - `cortex-weavatrix`: native `weavatrix-rust` evidence, typed conversion into the transport-independent context compiler, plus a compatibility client for safe Weavatrix Refactor previews.
 - `cortex-mcp`: bounded stdio tools for Codex and Claude.
 - `cortex-server`: local HTTP API and embedded graph UI host.

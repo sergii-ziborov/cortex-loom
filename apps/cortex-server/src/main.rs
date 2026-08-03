@@ -7,9 +7,11 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use cortex_adapters::{AdapterBundle, AgentKind, McpLaunch, export_adapter};
 use cortex_domain::{GraphDocument, default_control_plane};
 use cortex_skills::{export_skill_markdown, import_skill_markdown};
 use cortex_store::{GraphStore, ShadowAggregate, ShadowOperation, ShadowSampleRow, StoreError};
+use include_dir::{Dir, include_dir};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tower_http::services::ServeDir;
@@ -17,6 +19,11 @@ use tower_http::services::ServeDir;
 mod runs;
 
 const DEFAULT_ADDRESS: &str = "127.0.0.1:43817";
+
+/// Production UI assets baked into the binary for single-file distribution.
+/// Empty when the UI was not built before compilation; the server then serves
+/// from disk exactly as before.
+static EMBEDDED_UI: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/../../ui/dist");
 
 #[derive(Clone)]
 pub(crate) struct AppState {
@@ -122,13 +129,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/skills/export", post(export_skill))
         .route("/api/shadow/metrics", get(shadow_metrics))
         .route("/api/shadow/samples", get(shadow_samples))
+        .route("/api/adapters/{agent}", get(adapter_bundle))
         .merge(runs::routes())
         .with_state(state);
-    let app = api.fallback_service(
-        ServeDir::new(&settings.ui_directory).append_index_html_on_directories(true),
-    );
+    let use_embedded = !settings.explicit_ui_directory && !EMBEDDED_UI.entries().is_empty();
+    let app = if use_embedded {
+        api.fallback(embedded_ui)
+    } else {
+        api.fallback_service(
+            ServeDir::new(&settings.ui_directory).append_index_html_on_directories(true),
+        )
+    };
     let listener = tokio::net::TcpListener::bind(settings.address).await?;
     println!("Cortex Loom UI: http://{}", settings.address);
+    println!(
+        "UI assets: {}",
+        if use_embedded {
+            "embedded in the binary".to_owned()
+        } else {
+            settings.ui_directory.display().to_string()
+        }
+    );
     println!("Database: {}", settings.database.display());
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
@@ -215,6 +236,31 @@ struct ShadowQuery {
     limit: Option<usize>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AdapterQuery {
+    graph_id: Option<String>,
+}
+
+/// Preview-only: returns vendor wiring content; nothing is written by the
+/// server.
+async fn adapter_bundle(
+    State(state): State<AppState>,
+    AxumPath(agent): AxumPath<String>,
+    Query(query): Query<AdapterQuery>,
+) -> Result<Json<AdapterBundle>, ApiError> {
+    let agent = AgentKind::parse(&agent)
+        .ok_or_else(|| ApiError::BadRequest(format!("unknown agent: {agent}")))?;
+    let id = query.graph_id.as_deref().unwrap_or("default-control-plane");
+    let graph = state
+        .store
+        .get(id)?
+        .ok_or_else(|| ApiError::NotFound(format!("graph not found: {id}")))?;
+    let bundle = export_adapter(&graph, agent, &McpLaunch::default())
+        .map_err(|error| ApiError::BadRequest(error.to_string()))?;
+    Ok(Json(bundle))
+}
+
 fn parse_shadow_operation(value: Option<&str>) -> Result<Option<ShadowOperation>, ApiError> {
     match value {
         None => Ok(None),
@@ -251,6 +297,49 @@ async fn shadow_samples(
     )?))
 }
 
+/// Serve one embedded UI asset; extensionless paths fall back to the SPA
+/// index. Lookup is by exact relative path in the baked file map, so path
+/// traversal cannot escape the bundle.
+async fn embedded_ui(uri: axum::http::Uri) -> Response {
+    let requested = uri.path().trim_start_matches('/');
+    let candidate = if requested.is_empty() {
+        "index.html"
+    } else {
+        requested
+    };
+    let file = EMBEDDED_UI.get_file(candidate).or_else(|| {
+        (!candidate.contains('.'))
+            .then(|| EMBEDDED_UI.get_file("index.html"))
+            .flatten()
+    });
+    match file {
+        Some(file) => (
+            [(
+                axum::http::header::CONTENT_TYPE,
+                content_type(&file.path().to_string_lossy()),
+            )],
+            file.contents(),
+        )
+            .into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+fn content_type(path: &str) -> &'static str {
+    match path.rsplit('.').next().unwrap_or_default() {
+        "html" | "htm" => "text/html; charset=utf-8",
+        "js" | "mjs" => "text/javascript",
+        "css" => "text/css",
+        "json" | "map" => "application/json",
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "ico" => "image/x-icon",
+        "woff2" => "font/woff2",
+        "txt" => "text/plain; charset=utf-8",
+        _ => "application/octet-stream",
+    }
+}
+
 async fn shutdown_signal() {
     let _ = tokio::signal::ctrl_c().await;
 }
@@ -259,6 +348,9 @@ struct Settings {
     address: SocketAddr,
     database: PathBuf,
     ui_directory: PathBuf,
+    /// True when the operator explicitly chose a directory; embedded assets
+    /// are then bypassed.
+    explicit_ui_directory: bool,
 }
 
 impl Settings {
@@ -268,8 +360,9 @@ impl Settings {
             .parse()?;
         let mut database =
             env::var_os("CORTEX_LOOM_DB").map_or_else(default_database, PathBuf::from);
-        let mut ui_directory = env::var_os("CORTEX_LOOM_UI_DIR")
-            .map_or_else(|| PathBuf::from("ui/dist"), PathBuf::from);
+        let env_ui_directory = env::var_os("CORTEX_LOOM_UI_DIR").map(PathBuf::from);
+        let mut explicit_ui_directory = env_ui_directory.is_some();
+        let mut ui_directory = env_ui_directory.unwrap_or_else(|| PathBuf::from("ui/dist"));
         let mut arguments = env::args().skip(1);
         while let Some(argument) = arguments.next() {
             match argument.as_str() {
@@ -277,6 +370,7 @@ impl Settings {
                 "--db" => database = PathBuf::from(next_value(&mut arguments, "--db")?),
                 "--ui-dir" => {
                     ui_directory = PathBuf::from(next_value(&mut arguments, "--ui-dir")?);
+                    explicit_ui_directory = true;
                 }
                 other => return Err(format!("unknown argument: {other}").into()),
             }
@@ -285,6 +379,7 @@ impl Settings {
             address,
             database,
             ui_directory,
+            explicit_ui_directory,
         })
     }
 }

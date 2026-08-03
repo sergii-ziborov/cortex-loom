@@ -21,11 +21,11 @@ pub const COMPRESSION_OUTPUT_TOKENS: u32 = 768;
 
 const PROMPT_OVERHEAD_TOKENS: u32 = 32;
 
-pub const CLASSIFICATION_SYSTEM: &str = "You classify one engineering task for a routing policy. Reply with JSON only. Tiers: none = deterministic tooling or repository graph analysis without any model; local_small = bounded structured extraction over supplied text; local_medium = citation-preserving summarization or advisory drafting over supplied evidence; upstream_strong = anything that mutates code or state, security, authentication, concurrency, migrations, releases, deployment, publication, or ambiguous work. When uncertain choose upstream_strong.";
+pub const CLASSIFICATION_SYSTEM: &str = "You classify one engineering task for a routing policy. Reply with JSON only. Tiers: none = deterministic tooling (sort, count, parse, validate, canonicalize) or repository graph analysis; no model involved. local_small = extracting or classifying fields from supplied text only. local_medium = summarizing, compressing, or drafting advice from supplied evidence only. upstream_strong = everything else. Hard rules: any task that creates, fixes, implements, changes, renames, moves, removes, rewrites, or updates code, tests, configuration, or state is upstream_strong. Any task touching security, vulnerabilities, authentication, concurrency, migration, backfill, release, deployment, or publication is upstream_strong. Vague or underspecified tasks are upstream_strong. When uncertain choose upstream_strong.";
 
-pub const EXTRACTION_SYSTEM: &str = "You extract fields literally present in one task description. Reply with JSON only. action is one of: add, fix, remove, rename, move, refactor, document, test, update, other. files lists file paths exactly as written. symbols lists function, constant, or type names exactly as written. Never invent entries; use empty arrays when nothing is present.";
+pub const EXTRACTION_SYSTEM: &str = "You extract fields literally present in one task description. Reply with JSON only. action is one of: add, fix, remove, rename, move, refactor, document, test, update, other. files lists file paths copied character-for-character from the text. symbols lists function, constant, or type names copied character-for-character from the text. Copy exactly; never invent, expand, or normalize an entry; use empty arrays when nothing is literally present.";
 
-pub const COMPRESSION_SYSTEM: &str = "You compress evidence into one short grounded briefing for a coding agent. Keep the summary under 120 words. Cite evidence inline with bracketed IDs such as [WX-GRAPH], and list every cited ID in evidenceIds. Use only supplied IDs and never invent one. Reply with JSON only.";
+pub const COMPRESSION_SYSTEM: &str = "You compress evidence into one short grounded briefing for a coding agent. Keep the summary under 120 words. Cite evidence inline using each block's bracketed ID exactly as it appears in the Evidence section, and cite every evidence block at least once. evidenceIds must list exactly the IDs cited in the summary. Only IDs listed under Allowed IDs are valid; never output any other ID. Reply with JSON only.";
 
 /// One evidence block rendered into a compression prompt.
 #[derive(Debug, Clone, Copy)]
@@ -110,10 +110,15 @@ pub fn compression_request(
             block.id, block.source, block.content
         );
     }
+    let allowed = evidence
+        .iter()
+        .map(|block| block.id)
+        .collect::<Vec<_>>()
+        .join(", ");
     request(
         profile,
         COMPRESSION_SYSTEM,
-        format!("Task: {task}\n\nEvidence:\n\n{blocks}"),
+        format!("Task: {task}\n\nAllowed IDs: {allowed}\n\nEvidence:\n\n{blocks}"),
         compression_schema(),
         COMPRESSION_OUTPUT_TOKENS,
     )

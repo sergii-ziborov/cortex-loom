@@ -1,8 +1,13 @@
-//! Fail-closed calibration verdicts.
+//! Fail-closed, role-aware calibration verdicts.
 //!
 //! A verdict is measurement data for humans and for shadow-mode configuration
-//! gates. It never changes routing by itself.
+//! gates. It never changes routing by itself. A profile is calibrated for the
+//! role its tier grants: `local_small` is gated on classification and
+//! extraction, `local_medium` on citation-preserving compression. Suites
+//! outside the role are still measured and reported, but they do not gate the
+//! verdict, because routing never assigns that work to the profile.
 
+use cortex_router::ModelTier;
 use serde::Serialize;
 
 use crate::SuiteKind;
@@ -35,19 +40,24 @@ pub struct CalibrationVerdict {
     pub reasons: Vec<VerdictReason>,
 }
 
-/// Judge one profile. Every suite must have run: calibration is only
-/// meaningful for the full matrix, so a partial run fails explicitly.
+/// Judge one profile for the role its tier grants. Every gated suite must
+/// have run: a partial run of the role matrix fails explicitly. A tier that
+/// maps to no local role (`none`, `upstream_strong`) is gated on everything.
 #[must_use]
 pub fn judge(
+    tier: ModelTier,
     classification: Option<&ClassificationAggregate>,
     extraction: Option<&ExtractionAggregate>,
     compression: Option<&CompressionAggregate>,
 ) -> CalibrationVerdict {
+    let gate_small_role = !matches!(tier, ModelTier::LocalMedium);
+    let gate_medium_role = !matches!(tier, ModelTier::LocalSmall);
     let mut reasons = Vec::new();
 
-    match classification {
-        None => reasons.push(VerdictReason::SuiteNotRun(SuiteKind::Classification)),
-        Some(aggregate) => {
+    match (gate_small_role, classification) {
+        (false, _) => {}
+        (true, None) => reasons.push(VerdictReason::SuiteNotRun(SuiteKind::Classification)),
+        (true, Some(aggregate)) => {
             if aggregate.schema_valid_rate < MIN_SCHEMA_VALID_RATE {
                 reasons.push(VerdictReason::SchemaValidityBelowThreshold {
                     suite: SuiteKind::Classification,
@@ -67,9 +77,10 @@ pub fn judge(
         }
     }
 
-    match extraction {
-        None => reasons.push(VerdictReason::SuiteNotRun(SuiteKind::Extraction)),
-        Some(aggregate) => {
+    match (gate_small_role, extraction) {
+        (false, _) => {}
+        (true, None) => reasons.push(VerdictReason::SuiteNotRun(SuiteKind::Extraction)),
+        (true, Some(aggregate)) => {
             if aggregate.schema_valid_rate < MIN_SCHEMA_VALID_RATE {
                 reasons.push(VerdictReason::SchemaValidityBelowThreshold {
                     suite: SuiteKind::Extraction,
@@ -89,9 +100,10 @@ pub fn judge(
         }
     }
 
-    match compression {
-        None => reasons.push(VerdictReason::SuiteNotRun(SuiteKind::Compression)),
-        Some(aggregate) => {
+    match (gate_medium_role, compression) {
+        (false, _) => {}
+        (true, None) => reasons.push(VerdictReason::SuiteNotRun(SuiteKind::Compression)),
+        (true, Some(aggregate)) => {
             if aggregate.schema_valid_rate < MIN_SCHEMA_VALID_RATE {
                 reasons.push(VerdictReason::SchemaValidityBelowThreshold {
                     suite: SuiteKind::Compression,

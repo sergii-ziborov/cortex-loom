@@ -84,8 +84,8 @@ fn absent_models_are_skipped_without_a_single_model_call() {
     assert!(!report.verdict.pass);
     assert_eq!(
         report.verdict.reasons.len(),
-        3,
-        "every suite reported unrun"
+        2,
+        "both local_small role suites reported unrun"
     );
 }
 
@@ -165,7 +165,12 @@ fn compression_flags_hallucinated_citations() {
         extraction: false,
         compression: true,
     };
-    let report = run_profile(&backend, &profile(), &fixtures, selection, None);
+    let medium_profile = EvalProfile {
+        id: "candidate-medium".to_owned(),
+        tier: ModelTier::LocalMedium,
+        model: "qwen-test:4b".to_owned(),
+    };
+    let report = run_profile(&backend, &medium_profile, &fixtures, selection, None);
     let aggregate = report.compression.expect("compression suite ran");
     assert_eq!(aggregate.hallucinated_total, 1);
     assert_eq!(aggregate.missing_total, 0);
@@ -250,25 +255,83 @@ fn passing_aggregates() -> (
 }
 
 #[test]
-fn verdicts_pass_only_when_every_gate_holds() {
+fn verdicts_gate_only_the_suites_the_role_grants() {
     let (classification, extraction, compression) = passing_aggregates();
-    assert!(judge(Some(&classification), Some(&extraction), Some(&compression)).pass);
 
+    // A small profile passes on its role suites even with terrible
+    // compression, because routing never assigns compression to it.
+    let mut bad_compression = compression.clone();
+    bad_compression.hallucinated_total = 18;
+    bad_compression.min_preserved_ratio = 0.0;
+    assert!(
+        judge(
+            ModelTier::LocalSmall,
+            Some(&classification),
+            Some(&extraction),
+            Some(&bad_compression),
+        )
+        .pass
+    );
+
+    // A medium profile passes on perfect compression despite weak
+    // classification, and fails once its compression hallucinates.
+    let mut weak_classification = classification.clone();
+    weak_classification.accuracy = 0.7;
+    weak_classification.missed_escalations = 1;
+    assert!(
+        judge(
+            ModelTier::LocalMedium,
+            Some(&weak_classification),
+            Some(&extraction),
+            Some(&compression),
+        )
+        .pass
+    );
+    assert!(!judge(ModelTier::LocalMedium, None, None, Some(&bad_compression)).pass);
+
+    // Missed escalations always fail the small role.
     let mut missed = classification.clone();
     missed.missed_escalations = 1;
-    assert!(!judge(Some(&missed), Some(&extraction), Some(&compression)).pass);
+    let verdict = judge(
+        ModelTier::LocalSmall,
+        Some(&missed),
+        Some(&extraction),
+        Some(&compression),
+    );
+    assert!(!verdict.pass);
+    assert!(
+        verdict
+            .reasons
+            .iter()
+            .any(|reason| matches!(reason, VerdictReason::MissedEscalations { count: 1 }))
+    );
 
+    // A non-local tier is gated on the full matrix.
     let mut inflating = compression.clone();
     inflating.mean_token_delta = 40;
-    let verdict = judge(Some(&classification), Some(&extraction), Some(&inflating));
-    assert!(verdict.reasons.iter().any(|reason| matches!(
+    let full = judge(
+        ModelTier::UpstreamStrong,
+        Some(&classification),
+        Some(&extraction),
+        Some(&inflating),
+    );
+    assert!(full.reasons.iter().any(|reason| matches!(
         reason,
         VerdictReason::DraftDoesNotCompress {
             mean_token_delta: 40
         }
     )));
 
-    assert!(!judge(None, Some(&extraction), Some(&compression)).pass);
+    // A gated suite that did not run fails explicitly.
+    assert!(
+        !judge(
+            ModelTier::LocalSmall,
+            None,
+            Some(&extraction),
+            Some(&compression)
+        )
+        .pass
+    );
 }
 
 #[test]

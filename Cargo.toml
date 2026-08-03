@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "apps/cortex-server",
+  "crates/cortex-adapters",
   "crates/cortex-domain",
   "crates/cortex-context",
   "crates/cortex-eval",
@@ -24,6 +25,7 @@ repository = "https://github.com/sergii-ziborov/cortex-loom"
 
 [workspace.dependencies]
 axum = "0.8.9"
+include_dir = "0.7.4"
 mcport = "0.3.0"
 rusqlite = { version = "0.40.1", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
@@ -33,6 +35,10 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 tower-http = { version = "0.7.0", features = ["fs", "trace"] }
 ureq = { version = "3.3.0", default-features = false }
 weavatrix-rust = "2.0.2"
+
+[profile.release]
+lto = "thin"
+strip = "symbols"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

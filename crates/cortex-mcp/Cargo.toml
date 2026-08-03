@@ -8,6 +8,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+cortex-adapters = { path = "../cortex-adapters" }
 cortex-context = { path = "../cortex-context" }
 cortex-domain = { path = "../cortex-domain" }
 cortex-run = { path = "../cortex-run" }

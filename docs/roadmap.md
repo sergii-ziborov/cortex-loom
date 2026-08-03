@@ -17,7 +17,7 @@
 ## Next implementation milestones
 
 1. Extend durable runs with evidence invalidation, executor leases, lease expiry, and explicit external-executor identity.
-2. Add graph-to-agent adapters for Codex, Claude Code, and Copilot while keeping the canonical graph vendor-neutral.
+2. ~~Add graph-to-agent adapters for Codex, Claude Code, and Copilot while keeping the canonical graph vendor-neutral.~~ Done (iteration 1): `cortex-adapters` renders preview-only vendor wiring (skill instructions plus MCP registration) from one canonical graph via the `adapter_export` MCP tool and `GET /api/adapters/{agent}`. Remaining: run-node execution by external agents stays gated on milestone 1 leases and executor identity.
 3. ~~Wire evaluated Ollama profiles into the MCP host behind explicit runtime configuration and shadow-mode metrics.~~ Done (iteration 1): `cortex-shadow` observes `route_work` and `weavatrix_context_compile` behind `CORTEX_SHADOW=1`, with append-only samples, `shadow_metrics_read`, and `/api/shadow/*`; see [shadow-mode.md](shadow-mode.md). Remaining: promotion criteria stay gated on calibration verdicts and shadow agreement data.
 4. Add embeddings and retrieval evaluation before permitting semantic evidence selection.
 5. Import a small, licensed Superpowers-derived methodology fixture set and build scenario/pressure tests for round-trip behavior.
@@ -27,7 +27,7 @@
 
 ## Research gates
 
-- Compare `qwen3.5:4b`, `phi4-mini`, and a medium local profile on extraction, classification, and citation-preserving compression. The harness and initial fixture set exist in `cortex-eval`; `qwen3.5:4b` is measured on this device, while `phi4-mini` and the medium profile await an explicit install.
+- Compare `qwen3.5:4b`, `phi4-mini`, and a medium local profile on extraction, classification, and citation-preserving compression. The harness and initial fixture set exist in `cortex-eval`; all three profiles are measured on this device under pinned `eval-prompts-v2` with role-aware verdicts. Under v1 prompts, `qwen3.5:9b` already achieved perfect citation preservation while both small profiles missed escalations.
 - Do not claim NPU execution until an OpenVINO GenAI or Foundry Local adapter reports and passes calibration on the actual device.
 - Establish repository-specific Recall@k, nDCG, classification F1, unsupported-claim rate, and zero-missed-escalation fixtures.
 - Measure end-to-end upstream token savings only on quality-equivalent accepted outcomes.

@@ -167,6 +167,7 @@ pub fn run_profile(
     });
     report.latency = latency_stats(&latencies);
     report.verdict = judge(
+        profile.tier,
         report.classification.as_ref(),
         report.extraction.as_ref(),
         report.compression.as_ref(),
@@ -186,7 +187,7 @@ fn empty_report(profile: &EvalProfile) -> ProfileReport {
         extraction: None,
         compression: None,
         latency: latency_stats(&[]),
-        verdict: judge(None, None, None),
+        verdict: judge(profile.tier, None, None, None),
         classification_samples: Vec::new(),
         extraction_samples: Vec::new(),
         compression_samples: Vec::new(),

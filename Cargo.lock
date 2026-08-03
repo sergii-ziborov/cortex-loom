@@ -132,6 +132,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
+name = "cortex-adapters"
+version = "0.1.0"
+dependencies = [
+ "blazingly-json",
+ "cortex-domain",
+ "cortex-skills",
+ "serde",
+]
+
+[[package]]
 name = "cortex-context"
 version = "0.1.0"
 dependencies = [
@@ -162,6 +172,7 @@ name = "cortex-mcp"
 version = "0.1.0"
 dependencies = [
  "blazingly-json",
+ "cortex-adapters",
  "cortex-context",
  "cortex-domain",
  "cortex-router",
@@ -207,10 +218,12 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "blazingly-json",
+ "cortex-adapters",
  "cortex-domain",
  "cortex-run",
  "cortex-skills",
  "cortex-store",
+ "include_dir",
  "serde",
  "tokio",
  "tower-http",
@@ -500,6 +513,25 @@ dependencies = [
  "pin-project-lite",
  "tokio",
  "tower-service",
+]
+
+[[package]]
+name = "include_dir"
+version = "0.7.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "923d117408f1e49d914f1a379a309cffe4f18c05cf4e3d12e613a15fc81bd0dd"
+dependencies = [
+ "include_dir_macros",
+]
+
+[[package]]
+name = "include_dir_macros"
+version = "0.7.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7cab85a7ed0bd5f0e76d93846e0147172bed2e2d3f859bcc33a8d9699cad1a75"
+dependencies = [
+ "proc-macro2",
+ "quote",
 ]
 
 [[package]]

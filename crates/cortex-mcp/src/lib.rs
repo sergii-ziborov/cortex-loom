@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use cortex_adapters::{AgentKind, McpLaunch, export_adapter};
 use cortex_context::{ContextRequest, compile_context};
 use cortex_domain::{GraphDocument, default_control_plane};
 use cortex_router::{RoutingRequest, route};
@@ -96,6 +97,14 @@ struct ShadowMetricsArgs {
     limit: Option<usize>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AdapterExportArgs {
+    graph_id: Option<String>,
+    agent: AgentKind,
+    launch: Option<McpLaunch>,
+}
+
 impl CortexMcpState {
     pub fn open(database: PathBuf) -> Result<Self, String> {
         if let Some(parent) = database.parent() {
@@ -134,6 +143,7 @@ pub fn serve(state: CortexMcpState) -> io::Result<()> {
     let refactor_state = Arc::clone(&state);
     let route_state = Arc::clone(&state);
     let shadow_state = Arc::clone(&state);
+    let adapter_state = Arc::clone(&state);
 
     let server = ConcurrentMcpServer::new("cortex-loom", env!("CARGO_PKG_VERSION"))
         .instructions(
@@ -423,6 +433,44 @@ pub fn serve(state: CortexMcpState) -> io::Result<()> {
                     "aggregates": aggregates,
                     "samples": samples,
                 }))
+            },
+        )
+        .typed_tool(
+            "adapter_export",
+            "Render vendor wiring (Claude Code, Codex, or Copilot) from one canonical graph: skill instructions plus MCP registration. Preview-only: returns file contents and never writes.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "graphId": {"type": "string", "maxLength": 256},
+                    "agent": {"type": "string", "enum": ["claude_code", "codex", "copilot"]},
+                    "launch": {
+                        "type": "object",
+                        "properties": {
+                            "command": {"type": "string", "maxLength": 1024},
+                            "args": {"type": "array", "items": {"type": "string", "maxLength": 1024}, "maxItems": 32}
+                        },
+                        "required": ["command", "args"],
+                        "additionalProperties": false
+                    }
+                },
+                "required": ["agent"],
+                "additionalProperties": false
+            }),
+            move |context, arguments: AdapterExportArgs| {
+                if context.is_cancelled() {
+                    return ToolReply::error("cancelled");
+                }
+                let id = arguments.graph_id.as_deref().unwrap_or(DEFAULT_GRAPH_ID);
+                let graph = match adapter_state.store.get(id) {
+                    Ok(Some(graph)) => graph,
+                    Ok(None) => return ToolReply::error(format!("graph not found: {id}")),
+                    Err(error) => return ToolReply::error(error.to_string()),
+                };
+                let launch = arguments.launch.unwrap_or_default();
+                match export_adapter(&graph, arguments.agent, &launch) {
+                    Ok(bundle) => ToolReply::structured(bundle),
+                    Err(error) => ToolReply::error(error.to_string()),
+                }
             },
         )
         .typed_tool(

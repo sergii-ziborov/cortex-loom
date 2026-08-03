@@ -59,7 +59,8 @@ pub fn render_markdown(report: &EvalReport) -> String {
         }
         let _ = writeln!(
             out,
-            "digest: {} | device: {} | latency p50/p95/max: {}/{}/{} ms over {} calls",
+            "role: {:?} | digest: {} | device: {} | latency p50/p95/max: {}/{}/{} ms over {} calls",
+            profile.tier,
             profile.digest.as_deref().unwrap_or("unknown"),
             profile.device.map_or("unknown", |device| match device {
                 cortex_ollama::DevicePlacement::Cpu => "cpu",

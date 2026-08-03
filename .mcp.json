@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "weavatrix": {
+      "type": "stdio",
+      "command": "npx.cmd",
+      "args": [
+        "-y",
+        "weavatrix@1.1.2",
+        "mcp",
+        ".",
+        "--profile=code"
+      ],
+      "tools": [
+        "*"
+      ]
+    }
+  }
+}

@@ -32,3 +32,16 @@ Ollama’s [hardware documentation](https://docs.ollama.com/gpu) documents GPU/C
 
 The current development machine has an Intel Core Ultra 7 255U, Intel Graphics, Intel AI Boost NPU, about 51 GB RAM, and no NVIDIA runtime. Ollama 0.32.5 is installed, but its two present XiYanSQL models are domain-specific and are not accepted as general coding fallbacks.
 
+## Agent Finder scan
+
+GitHub Agent Finder was queried on 2026-08-03 for MCP construction, editable workflow skills, code-graph/refactor integrations, context compression, and Ollama orchestration. The most relevant results were:
+
+| Resource | Type | Relevance |
+| --- | --- | ---: |
+| [MCP Server Dev](https://github.com/anthropics/claude-plugins-public/blob/main/plugins/mcp-server-dev) | Copilot/Claude plugin | 80 |
+| [MCP Builder](https://github.com/anthropics/skills/blob/main/skills/mcp-builder/SKILL.md) | AI skill | 80 |
+| [Serena](https://github.com/anthropics/claude-plugins-public/blob/main/external_plugins/serena) | Copilot/Claude plugin | 75 |
+| [Designing Workflow Skills](https://github.com/trailofbits/skills/blob/main/plugins/workflow-skill-design/skills/designing-workflow-skills/SKILL.md) | AI skill | 50 |
+| [MCP Apps](https://github.com/modelcontextprotocol/ext-apps/blob/main/plugins/mcp-apps) | Copilot/Claude plugin | 40 |
+
+These scores measure query relevance, not trust, safety, quality, or architectural fit. Nothing was installed automatically. Cortex Loom already owns its Rust transport, graph editor, and Weavatrix boundary; the skill-design resources are useful evaluation references, while Serena is primarily a competitor/reference rather than a dependency.

@@ -10,6 +10,7 @@ publish = false
 [dependencies]
 axum.workspace = true
 cortex-domain = { path = "../../crates/cortex-domain" }
+cortex-run = { path = "../../crates/cortex-run" }
 cortex-skills = { path = "../../crates/cortex-skills" }
 cortex-store = { path = "../../crates/cortex-store" }
 serde.workspace = true
@@ -19,4 +20,3 @@ tower-http.workspace = true
 
 [lints]
 workspace = true
-

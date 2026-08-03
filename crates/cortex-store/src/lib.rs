@@ -4,7 +4,12 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use cortex_domain::{GraphDocument, GraphError};
+use cortex_run::RunError;
 use rusqlite::{Connection, OptionalExtension, params};
+
+mod run_store;
+
+pub use run_store::RunStore;
 
 #[derive(Clone)]
 pub struct GraphStore {
@@ -16,12 +21,20 @@ pub enum StoreError {
     Database(rusqlite::Error),
     Json(serde_json::Error),
     Graph(GraphError),
+    Run(RunError),
     LockPoisoned,
+    IntegerOutOfRange {
+        field: &'static str,
+        value: u64,
+    },
+    InvalidStoredRevision(i64),
     Conflict {
         graph_id: String,
         expected: u64,
         current: u64,
     },
+    RunAlreadyExists(String),
+    RunNotFound(String),
 }
 
 impl Display for StoreError {
@@ -30,7 +43,20 @@ impl Display for StoreError {
             Self::Database(error) => write!(formatter, "graph database error: {error}"),
             Self::Json(error) => write!(formatter, "graph JSON error: {error}"),
             Self::Graph(error) => write!(formatter, "graph validation error: {error}"),
+            Self::Run(error) => write!(formatter, "run transition error: {error}"),
             Self::LockPoisoned => formatter.write_str("graph database lock was poisoned"),
+            Self::IntegerOutOfRange { field, value } => {
+                write!(
+                    formatter,
+                    "{field} value {value} exceeds the SQLite integer range"
+                )
+            }
+            Self::InvalidStoredRevision(value) => {
+                write!(
+                    formatter,
+                    "graph database contains an invalid revision: {value}"
+                )
+            }
             Self::Conflict {
                 graph_id,
                 expected,
@@ -39,6 +65,8 @@ impl Display for StoreError {
                 formatter,
                 "graph {graph_id} revision conflict: expected {expected}, current {current}"
             ),
+            Self::RunAlreadyExists(id) => write!(formatter, "run already exists: {id}"),
+            Self::RunNotFound(id) => write!(formatter, "run not found: {id}"),
         }
     }
 }
@@ -63,6 +91,12 @@ impl From<GraphError> for StoreError {
     }
 }
 
+impl From<RunError> for StoreError {
+    fn from(value: RunError) -> Self {
+        Self::Run(value)
+    }
+}
+
 impl GraphStore {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, StoreError> {
         let connection = Connection::open(path)?;
@@ -76,6 +110,7 @@ impl GraphStore {
     fn from_connection(connection: Connection) -> Result<Self, StoreError> {
         connection.execute_batch(
             "PRAGMA foreign_keys = ON;
+             PRAGMA busy_timeout = 5000;
              CREATE TABLE IF NOT EXISTS graphs (
                id TEXT PRIMARY KEY,
                revision INTEGER NOT NULL,
@@ -88,6 +123,26 @@ impl GraphStore {
                document TEXT NOT NULL,
                archived_at INTEGER NOT NULL,
                PRIMARY KEY (graph_id, revision)
+             );
+             CREATE TABLE IF NOT EXISTS runs (
+               id TEXT PRIMARY KEY,
+               graph_id TEXT NOT NULL,
+               graph_revision INTEGER NOT NULL,
+               revision INTEGER NOT NULL,
+               document TEXT NOT NULL,
+               graph_document TEXT NOT NULL,
+               created_at INTEGER NOT NULL,
+               updated_at INTEGER NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS runs_by_graph
+               ON runs (graph_id, updated_at DESC);
+             CREATE TABLE IF NOT EXISTS run_events (
+               run_id TEXT NOT NULL,
+               sequence INTEGER NOT NULL,
+               event TEXT NOT NULL,
+               recorded_at INTEGER NOT NULL,
+               PRIMARY KEY (run_id, sequence),
+               FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE
              );",
         )?;
         Ok(Self {
@@ -102,10 +157,11 @@ impl GraphStore {
         }
         let document = serde_json::to_string(graph)?;
         let now = unix_timestamp();
+        let revision = sqlite_integer(graph.revision, "revision")?;
         self.lock()?.execute(
             "INSERT OR IGNORE INTO graphs (id, revision, document, updated_at)
              VALUES (?1, ?2, ?3, ?4)",
-            params![graph.id, graph.revision, document, now],
+            params![graph.id, revision, document, now],
         )?;
         self.get(&graph.id)?
             .ok_or_else(|| StoreError::Database(rusqlite::Error::QueryReturnedNoRows))
@@ -131,46 +187,46 @@ impl GraphStore {
             .query_row(
                 "SELECT revision, document FROM graphs WHERE id = ?1",
                 [&graph.id],
-                |row| Ok((row.get::<_, u64>(0)?, row.get::<_, String>(1)?)),
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
             )
             .optional()?;
 
-        let next_revision = match current {
-            Some((current_revision, current_document)) => {
-                if graph.revision != current_revision {
-                    return Err(StoreError::Conflict {
-                        graph_id: graph.id.clone(),
-                        expected: graph.revision,
-                        current: current_revision,
-                    });
-                }
-                transaction.execute(
-                    "INSERT OR IGNORE INTO graph_history
-                     (graph_id, revision, document, archived_at) VALUES (?1, ?2, ?3, ?4)",
-                    params![
-                        graph.id,
-                        current_revision,
-                        current_document,
-                        unix_timestamp()
-                    ],
-                )?;
-                current_revision.saturating_add(1)
+        let next_revision = if let Some((stored_revision, current_document)) = current {
+            let current_revision = u64::try_from(stored_revision)
+                .map_err(|_| StoreError::InvalidStoredRevision(stored_revision))?;
+            if graph.revision != current_revision {
+                return Err(StoreError::Conflict {
+                    graph_id: graph.id.clone(),
+                    expected: graph.revision,
+                    current: current_revision,
+                });
             }
-            None => {
-                if graph.revision != 0 {
-                    return Err(StoreError::Conflict {
-                        graph_id: graph.id.clone(),
-                        expected: graph.revision,
-                        current: 0,
-                    });
-                }
-                1
+            transaction.execute(
+                "INSERT OR IGNORE INTO graph_history
+                 (graph_id, revision, document, archived_at) VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    graph.id,
+                    stored_revision,
+                    current_document,
+                    unix_timestamp()
+                ],
+            )?;
+            current_revision.saturating_add(1)
+        } else {
+            if graph.revision != 0 {
+                return Err(StoreError::Conflict {
+                    graph_id: graph.id.clone(),
+                    expected: graph.revision,
+                    current: 0,
+                });
             }
+            1
         };
 
         let mut saved = graph.clone();
         saved.revision = next_revision;
         let document = serde_json::to_string(&saved)?;
+        let saved_revision = sqlite_integer(saved.revision, "revision")?;
         transaction.execute(
             "INSERT INTO graphs (id, revision, document, updated_at)
              VALUES (?1, ?2, ?3, ?4)
@@ -178,7 +234,7 @@ impl GraphStore {
                revision = excluded.revision,
                document = excluded.document,
                updated_at = excluded.updated_at",
-            params![saved.id, saved.revision, document, unix_timestamp()],
+            params![saved.id, saved_revision, document, unix_timestamp()],
         )?;
         transaction.commit()?;
         Ok(saved)
@@ -197,15 +253,26 @@ impl GraphStore {
             .collect()
     }
 
+    #[must_use]
+    pub fn runs(&self) -> RunStore {
+        RunStore::new(Arc::clone(&self.connection))
+    }
+
     fn lock(&self) -> Result<MutexGuard<'_, Connection>, StoreError> {
         self.connection.lock().map_err(|_| StoreError::LockPoisoned)
     }
 }
 
-fn unix_timestamp() -> u64 {
+fn sqlite_integer(value: u64, field: &'static str) -> Result<i64, StoreError> {
+    i64::try_from(value).map_err(|_| StoreError::IntegerOutOfRange { field, value })
+}
+
+fn unix_timestamp() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_or(0, |duration| duration.as_secs())
+        .map_or(0, |duration| {
+            i64::try_from(duration.as_secs()).unwrap_or(i64::MAX)
+        })
 }
 
 #[cfg(test)]

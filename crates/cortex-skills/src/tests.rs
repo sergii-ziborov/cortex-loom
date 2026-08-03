@@ -2,7 +2,7 @@ use cortex_domain::EdgeKind;
 
 use super::*;
 
-const SKILL: &str = r#"---
+const SKILL: &str = r"---
 name: Evidence First
 description: Gather facts before proposing a change.
 license: MIT
@@ -17,7 +17,7 @@ Use observed repository evidence.
 2. Record evidence IDs.
 - [ ] Draft the bounded answer after step 2.
 - Ask for review [depends: 1, 2]
-"#;
+";
 
 #[test]
 fn imports_frontmatter_provenance_and_typed_steps() {
@@ -110,11 +110,39 @@ fn canonical_round_trip_keeps_workflow_semantics() {
 }
 
 #[test]
+fn graph_dependency_edits_are_reflected_in_exported_markdown() {
+    let mut graph = import_skill_markdown("SKILL.md", SKILL).unwrap();
+    graph
+        .edges
+        .retain(|edge| edge.label != "explicit dependency" || edge.to != "step-4");
+    let markdown = export_skill_markdown(&graph).unwrap();
+    assert!(!markdown.contains("[depends: 1, 2]"));
+
+    let second = import_skill_markdown("SKILL.md", &markdown).unwrap();
+    assert!(
+        second
+            .edges
+            .iter()
+            .all(|edge| edge.label != "explicit dependency" || edge.to != "step-4")
+    );
+}
+
+#[test]
 fn imports_without_frontmatter() {
     let graph = import_skill_markdown("safe-review/SKILL.md", "# Safe Review\n\n- Inspect only.\n")
         .unwrap();
     assert_eq!(graph.name, "Safe Review");
     assert_eq!(graph.nodes.len(), 2);
+}
+
+#[test]
+fn compiled_graph_starts_unsaved_at_revision_zero() {
+    assert_eq!(
+        import_skill_markdown("safe-review/SKILL.md", "# Safe Review\n")
+            .unwrap()
+            .revision,
+        0
+    );
 }
 
 #[test]

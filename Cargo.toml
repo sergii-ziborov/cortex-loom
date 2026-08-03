@@ -2,8 +2,10 @@
 members = [
   "apps/cortex-server",
   "crates/cortex-domain",
+  "crates/cortex-context",
   "crates/cortex-mcp",
   "crates/cortex-ollama",
+  "crates/cortex-run",
   "crates/cortex-router",
   "crates/cortex-skills",
   "crates/cortex-store",

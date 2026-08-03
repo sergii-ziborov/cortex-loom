@@ -5,26 +5,35 @@ use std::path::{Path, PathBuf};
 use axum::extract::{Path as AxumPath, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post, put};
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use cortex_domain::{GraphDocument, default_control_plane};
-use cortex_skills::import_skill_markdown;
+use cortex_skills::{export_skill_markdown, import_skill_markdown};
 use cortex_store::{GraphStore, StoreError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tower_http::services::ServeDir;
 
+mod runs;
+
 const DEFAULT_ADDRESS: &str = "127.0.0.1:43817";
 
 #[derive(Clone)]
-struct AppState {
+pub(crate) struct AppState {
     store: GraphStore,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CompileSkillRequest {
-    name: String,
+    #[serde(alias = "name")]
+    source: String,
+    markdown: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExportSkillResponse {
     markdown: String,
 }
 
@@ -36,8 +45,18 @@ struct StatusResponse {
     graph_count: usize,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GraphSummary {
+    id: String,
+    name: String,
+    revision: u64,
+    node_count: usize,
+    edge_count: usize,
+}
+
 #[derive(Debug)]
-enum ApiError {
+pub(crate) enum ApiError {
     NotFound(String),
     BadRequest(String),
     Conflict { message: String, current: u64 },
@@ -68,6 +87,18 @@ impl From<StoreError> for ApiError {
                 message: value.to_string(),
                 current,
             },
+            StoreError::Run(cortex_run::RunError::RevisionConflict { current, .. }) => {
+                Self::Conflict {
+                    message: value.to_string(),
+                    current,
+                }
+            }
+            StoreError::RunNotFound(id) => Self::NotFound(format!("run not found: {id}")),
+            StoreError::RunAlreadyExists(_) => Self::Conflict {
+                message: value.to_string(),
+                current: 0,
+            },
+            StoreError::Run(_) => Self::BadRequest(value.to_string()),
             other => Self::Internal(other.to_string()),
         }
     }
@@ -88,6 +119,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/graphs", get(list_graphs))
         .route("/api/graphs/{id}", get(get_graph).put(save_graph))
         .route("/api/skills/compile", post(compile_skill))
+        .route("/api/skills/export", post(export_skill))
+        .merge(runs::routes())
         .with_state(state);
     let app = api.fallback_service(
         ServeDir::new(&settings.ui_directory).append_index_html_on_directories(true),
@@ -110,8 +143,21 @@ async fn status(State(state): State<AppState>) -> Result<Json<StatusResponse>, A
     }))
 }
 
-async fn list_graphs(State(state): State<AppState>) -> Result<Json<Vec<GraphDocument>>, ApiError> {
-    Ok(Json(state.store.list()?))
+async fn list_graphs(State(state): State<AppState>) -> Result<Json<Vec<GraphSummary>>, ApiError> {
+    Ok(Json(
+        state
+            .store
+            .list()?
+            .into_iter()
+            .map(|graph| GraphSummary {
+                id: graph.id,
+                name: graph.name,
+                revision: graph.revision,
+                node_count: graph.nodes.len(),
+                edge_count: graph.edges.len(),
+            })
+            .collect(),
+    ))
 }
 
 async fn get_graph(
@@ -146,9 +192,17 @@ async fn compile_skill(
             "skill Markdown exceeds the 2 MiB limit".to_owned(),
         ));
     }
-    let graph = import_skill_markdown(&request.name, &request.markdown)
+    let graph = import_skill_markdown(&request.source, &request.markdown)
         .map_err(|error| ApiError::BadRequest(error.to_string()))?;
     Ok(Json(graph))
+}
+
+async fn export_skill(
+    Json(graph): Json<GraphDocument>,
+) -> Result<Json<ExportSkillResponse>, ApiError> {
+    let markdown =
+        export_skill_markdown(&graph).map_err(|error| ApiError::BadRequest(error.to_string()))?;
+    Ok(Json(ExportSkillResponse { markdown }))
 }
 
 async fn shutdown_signal() {

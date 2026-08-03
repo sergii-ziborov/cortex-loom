@@ -140,21 +140,21 @@ impl McpChild {
     pub fn initialize(&mut self) -> Result<Value, McpError> {
         let result = self.request(
             "initialize",
-            json!({
+            &json!({
                 "protocolVersion": "2025-11-25",
                 "capabilities": {},
                 "clientInfo": {"name": "cortex-loom", "version": env!("CARGO_PKG_VERSION")}
             }),
         )?;
-        self.notify("notifications/initialized", json!({}))?;
+        self.notify("notifications/initialized", &json!({}))?;
         Ok(result)
     }
 
-    pub fn call_tool(&mut self, name: &str, arguments: Value) -> Result<Value, McpError> {
-        self.request("tools/call", json!({"name": name, "arguments": arguments}))
+    pub fn call_tool(&mut self, name: &str, arguments: &Value) -> Result<Value, McpError> {
+        self.request("tools/call", &json!({"name": name, "arguments": arguments}))
     }
 
-    pub fn request(&mut self, method: &str, params: Value) -> Result<Value, McpError> {
+    pub fn request(&mut self, method: &str, params: &Value) -> Result<Value, McpError> {
         let id = self.next_id;
         self.next_id = self.next_id.saturating_add(1);
         self.write_message(&json!({
@@ -187,7 +187,7 @@ impl McpChild {
         }
     }
 
-    pub fn notify(&mut self, method: &str, params: Value) -> Result<(), McpError> {
+    pub fn notify(&mut self, method: &str, params: &Value) -> Result<(), McpError> {
         self.write_message(&json!({
             "jsonrpc": "2.0",
             "method": method,

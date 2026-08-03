@@ -132,6 +132,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
+name = "cortex-context"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "cortex-domain"
 version = "0.1.0"
 dependencies = [
@@ -144,8 +151,10 @@ name = "cortex-mcp"
 version = "0.1.0"
 dependencies = [
  "blazingly-json",
+ "cortex-context",
  "cortex-domain",
  "cortex-router",
+ "cortex-run",
  "cortex-skills",
  "cortex-store",
  "cortex-weavatrix",
@@ -172,12 +181,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "cortex-run"
+version = "0.1.0"
+dependencies = [
+ "blazingly-json",
+ "cortex-domain",
+ "serde",
+]
+
+[[package]]
 name = "cortex-server"
 version = "0.1.0"
 dependencies = [
  "axum",
  "blazingly-json",
  "cortex-domain",
+ "cortex-run",
  "cortex-skills",
  "cortex-store",
  "serde",
@@ -199,6 +218,7 @@ version = "0.1.0"
 dependencies = [
  "blazingly-json",
  "cortex-domain",
+ "cortex-run",
  "rusqlite",
 ]
 
@@ -207,6 +227,7 @@ name = "cortex-weavatrix"
 version = "0.1.0"
 dependencies = [
  "blazingly-json",
+ "cortex-context",
  "serde",
  "weavatrix-rust",
 ]

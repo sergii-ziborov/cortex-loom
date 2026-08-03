@@ -105,7 +105,7 @@ impl OllamaClient {
             .agent
             .get(&self.endpoint(path))
             .call()
-            .map_err(http_error)?;
+            .map_err(|error| OllamaError::Http(error.to_string()))?;
         self.decode(response)
     }
 
@@ -115,7 +115,7 @@ impl OllamaClient {
             .post(&self.endpoint(path))
             .header("Content-Type", "application/json")
             .send(body)
-            .map_err(http_error)?;
+            .map_err(|error| OllamaError::Http(error.to_string()))?;
         self.decode(response)
     }
 
@@ -128,7 +128,7 @@ impl OllamaClient {
             .with_config()
             .limit(self.config.max_response_bytes)
             .read_to_string()
-            .map_err(http_error)?;
+            .map_err(|error| OllamaError::Http(error.to_string()))?;
         serde_json::from_str(&body).map_err(|error| OllamaError::Json(error.to_string()))
     }
 
@@ -279,8 +279,4 @@ fn validate_budget(request: &DraftRequest, profile: &ModelProfile) -> Result<(),
         });
     }
     Ok(())
-}
-
-fn http_error(error: ureq::Error) -> OllamaError {
-    OllamaError::Http(error.to_string())
 }

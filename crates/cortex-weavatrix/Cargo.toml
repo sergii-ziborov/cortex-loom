@@ -8,6 +8,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+cortex-context = { path = "../cortex-context" }
 serde.workspace = true
 serde_json.workspace = true
 weavatrix-rust.workspace = true

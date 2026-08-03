@@ -4,8 +4,11 @@
 //! based on inspectable task text, evidence state, schema validity, budgets,
 //! mutation authority, and local capability availability.
 
+mod classifier;
+
 use serde::{Deserialize, Serialize};
 
+pub use classifier::classify;
 pub use cortex_domain::{ExecutionTarget, RiskLevel};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -13,6 +16,8 @@ pub use cortex_domain::{ExecutionTarget, RiskLevel};
 pub enum TaskClass {
     Deterministic,
     RepositoryAnalysis,
+    StructuredExtraction,
+    ContextCompression,
     AdvisoryDraft,
     Implementation,
     Security,
@@ -23,6 +28,13 @@ pub enum TaskClass {
     Deployment,
     Publication,
     Ambiguous,
+}
+
+impl TaskClass {
+    #[must_use]
+    pub const fn requires_verified_evidence(self) -> bool {
+        matches!(self, Self::ContextCompression)
+    }
 }
 
 impl TaskClass {
@@ -156,6 +168,8 @@ pub struct RoutingDecision {
     pub reasons: Vec<RoutingReason>,
     /// True only for a bounded local draft which cannot mutate project state.
     pub advisory_only: bool,
+    pub model_tier: ModelTier,
+    pub context: ContextPlan,
 }
 
 impl RoutingDecision {
@@ -165,195 +179,31 @@ impl RoutingDecision {
     }
 }
 
-/// Classify work using stable lexical rules, without calling a model.
-#[must_use]
-pub fn classify(task: &str) -> Classification {
-    let normalized = normalize(task);
-    let mutation_likely = contains_word_from(
-        &normalized,
-        &[
-            "add",
-            "apply",
-            "change",
-            "delete",
-            "edit",
-            "fix",
-            "implement",
-            "modify",
-            "remove",
-            "rename",
-            "replace",
-            "rewrite",
-            "update",
-            "write",
-        ],
-    );
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelTier {
+    None,
+    LocalSmall,
+    LocalMedium,
+    UpstreamStrong,
+}
 
-    let class = if has_phrase(
-        &normalized,
-        &[
-            "authentication",
-            "authorization",
-            "oauth",
-            "openid",
-            "login",
-            "jwt",
-            "access token",
-            "refresh token",
-            "role based access",
-            "tenant isolation",
-        ],
-    ) || contains_word_from(&normalized, &["auth"])
-    {
-        TaskClass::Authentication
-    } else if has_phrase(
-        &normalized,
-        &[
-            "security",
-            "vulnerability",
-            "sql injection",
-            "cross site scripting",
-            "csrf",
-            "xss",
-            "credential",
-            "secret rotation",
-            "permission boundary",
-            "threat model",
-        ],
-    ) {
-        TaskClass::Security
-    } else if has_phrase(
-        &normalized,
-        &[
-            "concurrency",
-            "concurrent",
-            "race condition",
-            "deadlock",
-            "thread safety",
-            "atomic update",
-            "cancellation race",
-            "parallel mutation",
-        ],
-    ) {
-        TaskClass::Concurrency
-    } else if has_phrase(
-        &normalized,
-        &[
-            "database migration",
-            "schema migration",
-            "data migration",
-            "backfill",
-            "migrate database",
-        ],
-    ) || contains_word_from(&normalized, &["migration", "migrations"])
-    {
-        TaskClass::Migration
-    } else if has_phrase(
-        &normalized,
-        &[
-            "release",
-            "version bump",
-            "release tag",
-            "changelog release",
-        ],
-    ) {
-        TaskClass::Release
-    } else if has_phrase(
-        &normalized,
-        &[
-            "deployment",
-            "deploy",
-            "production rollout",
-            "kubernetes",
-            "terraform",
-            "helm chart",
-        ],
-    ) {
-        TaskClass::Deployment
-    } else if has_phrase(
-        &normalized,
-        &[
-            "publication",
-            "publish",
-            "public registry",
-            "cargo publish",
-            "npm publish",
-            "package registry",
-        ],
-    ) {
-        TaskClass::Publication
-    } else if is_ambiguous(&normalized) {
-        TaskClass::Ambiguous
-    } else if has_phrase(
-        &normalized,
-        &[
-            "dependency graph",
-            "call graph",
-            "repository graph",
-            "repo graph",
-            "dead code",
-            "reachability",
-            "impact analysis",
-            "weavatrix",
-            "analyze repository",
-            "inspect dependencies",
-        ],
-    ) {
-        TaskClass::RepositoryAnalysis
-    } else if has_phrase(
-        &normalized,
-        &[
-            "format",
-            "sort",
-            "parse",
-            "validate json",
-            "validate schema",
-            "count",
-            "exact match",
-            "extract fields",
-            "canonicalize",
-            "deterministic",
-        ],
-    ) && !mutation_likely
-    {
-        TaskClass::Deterministic
-    } else if has_phrase(
-        &normalized,
-        &[
-            "summarize",
-            "summary",
-            "draft",
-            "explain",
-            "outline",
-            "brainstorm",
-            "compress evidence",
-            "classify text",
-            "suggest wording",
-        ],
-    ) && !mutation_likely
-    {
-        TaskClass::AdvisoryDraft
-    } else if mutation_likely {
-        TaskClass::Implementation
-    } else {
-        TaskClass::Ambiguous
-    };
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextStrategy {
+    Direct,
+    DeterministicExtraction,
+    WeavatrixEvidence,
+    CitationCompression,
+    UpstreamEvidence,
+}
 
-    let risk = if class.is_high_risk() {
-        RiskLevel::High
-    } else if matches!(
-        class,
-        TaskClass::Implementation | TaskClass::RepositoryAnalysis
-    ) {
-        RiskLevel::Medium
-    } else {
-        RiskLevel::Low
-    };
-    Classification {
-        class,
-        risk,
-        mutation_likely,
-    }
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextPlan {
+    pub strategy: ContextStrategy,
+    pub max_input_tokens: u32,
+    pub require_evidence_ids: bool,
 }
 
 /// Select a target through deterministic, fail-closed routing rules.
@@ -361,6 +211,11 @@ pub fn classify(task: &str) -> Classification {
 pub fn route(request: &RoutingRequest) -> RoutingDecision {
     let classification = classify(&request.task);
     let mut reasons = guard_reasons(request);
+    if classification.class.requires_verified_evidence()
+        && request.evidence == EvidenceStatus::NotRequired
+    {
+        reasons.push(RoutingReason::MissingEvidence);
+    }
     if classification.class.is_high_risk() {
         reasons.push(RoutingReason::HighRiskTask(classification.class));
     }
@@ -381,23 +236,45 @@ pub fn route(request: &RoutingRequest) -> RoutingDecision {
             classification,
             RoutingReason::DeterministicRule,
             false,
+            ModelTier::None,
+            ContextStrategy::DeterministicExtraction,
+            request,
         ),
         TaskClass::RepositoryAnalysis if request.availability.weavatrix => decision(
             ExecutionTarget::Weavatrix,
             classification,
             RoutingReason::RepositoryGraphRule,
             false,
+            ModelTier::None,
+            ContextStrategy::WeavatrixEvidence,
+            request,
         ),
         TaskClass::RepositoryAnalysis => {
             upstream(classification, vec![RoutingReason::WeavatrixUnavailable])
         }
-        TaskClass::AdvisoryDraft if request.availability.ollama => decision(
+        TaskClass::StructuredExtraction if request.availability.ollama => decision(
             ExecutionTarget::Ollama,
             classification,
             RoutingReason::AdvisoryDraftRule,
             true,
+            ModelTier::LocalSmall,
+            ContextStrategy::DeterministicExtraction,
+            request,
         ),
-        TaskClass::AdvisoryDraft => {
+        TaskClass::ContextCompression | TaskClass::AdvisoryDraft if request.availability.ollama => {
+            decision(
+                ExecutionTarget::Ollama,
+                classification,
+                RoutingReason::AdvisoryDraftRule,
+                true,
+                ModelTier::LocalMedium,
+                ContextStrategy::CitationCompression,
+                request,
+            )
+        }
+        TaskClass::StructuredExtraction
+        | TaskClass::ContextCompression
+        | TaskClass::AdvisoryDraft => {
             upstream(classification, vec![RoutingReason::OllamaUnavailable])
         }
         TaskClass::Implementation => upstream(
@@ -442,6 +319,9 @@ fn decision(
     classification: Classification,
     reason: RoutingReason,
     advisory_only: bool,
+    model_tier: ModelTier,
+    strategy: ContextStrategy,
+    request: &RoutingRequest,
 ) -> RoutingDecision {
     RoutingDecision {
         target,
@@ -449,6 +329,15 @@ fn decision(
         risk: classification.risk,
         reasons: vec![reason],
         advisory_only,
+        model_tier,
+        context: ContextPlan {
+            strategy,
+            max_input_tokens: request.budget.max_input_tokens,
+            require_evidence_ids: matches!(
+                strategy,
+                ContextStrategy::WeavatrixEvidence | ContextStrategy::CitationCompression
+            ),
+        },
     }
 }
 
@@ -459,43 +348,13 @@ fn upstream(classification: Classification, reasons: Vec<RoutingReason>) -> Rout
         risk: classification.risk.max(RiskLevel::Medium),
         reasons,
         advisory_only: false,
+        model_tier: ModelTier::UpstreamStrong,
+        context: ContextPlan {
+            strategy: ContextStrategy::UpstreamEvidence,
+            max_input_tokens: 8_192,
+            require_evidence_ids: true,
+        },
     }
-}
-
-fn normalize(task: &str) -> String {
-    task.chars()
-        .map(|character| {
-            if character.is_alphanumeric() {
-                character.to_ascii_lowercase()
-            } else {
-                ' '
-            }
-        })
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn has_phrase(normalized: &str, phrases: &[&str]) -> bool {
-    let padded = format!(" {normalized} ");
-    phrases
-        .iter()
-        .any(|phrase| padded.contains(&format!(" {phrase} ")))
-}
-
-fn contains_word_from(normalized: &str, words: &[&str]) -> bool {
-    normalized
-        .split_whitespace()
-        .any(|word| words.contains(&word))
-}
-
-fn is_ambiguous(normalized: &str) -> bool {
-    normalized.is_empty()
-        || matches!(
-            normalized,
-            "fix it" | "do it" | "handle this" | "make it better" | "update this" | "change this"
-        )
 }
 
 #[cfg(test)]

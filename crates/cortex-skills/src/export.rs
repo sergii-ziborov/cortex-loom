@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::fmt::Write;
+
 use cortex_domain::{GraphDocument, GraphNode};
 
 use crate::SkillError;
@@ -11,10 +14,28 @@ pub fn export_skill_markdown(graph: &GraphDocument) -> Result<String, SkillError
         ));
     }
 
+    let mut output = String::new();
+    write_header(graph, &mut output);
+    let mut nodes: Vec<_> = graph
+        .nodes
+        .iter()
+        .filter(|node| role(node) != Some("skill"))
+        .collect();
+    nodes.sort_by_key(|node| order(node));
+    let dependencies = dependency_map(graph, &nodes);
+    write_nodes(&nodes, &dependencies, &mut output);
+    output.truncate(output.trim_end().len());
+    output.push('\n');
+    Ok(output)
+}
+
+fn write_header(graph: &GraphDocument, output: &mut String) {
     let description = graph.metadata.get("description").map_or("", String::as_str);
-    let mut output = String::from("---\n");
-    output.push_str(&format!("name: {}\n", yaml_string(&graph.name)));
-    output.push_str(&format!("description: {}\n", yaml_string(description)));
+    writeln!(output, "---").expect("writing to a String cannot fail");
+    writeln!(output, "name: {}", yaml_string(&graph.name))
+        .expect("writing to a String cannot fail");
+    writeln!(output, "description: {}", yaml_string(description))
+        .expect("writing to a String cannot fail");
     let mut extra: Vec<_> = graph
         .metadata
         .iter()
@@ -22,36 +43,60 @@ pub fn export_skill_markdown(graph: &GraphDocument) -> Result<String, SkillError
         .collect();
     extra.sort_by_key(|(key, _)| *key);
     for (key, value) in extra {
-        output.push_str(&format!("{key}: {}\n", yaml_string(value)));
+        writeln!(output, "{key}: {}", yaml_string(value)).expect("writing to a String cannot fail");
     }
-    output.push_str("---\n\n");
-    output.push_str(&format!("# {}\n", graph.name));
+    writeln!(output, "---\n\n# {}", graph.name).expect("writing to a String cannot fail");
+}
 
-    let mut nodes: Vec<_> = graph
-        .nodes
+fn dependency_map<'a>(
+    graph: &'a GraphDocument,
+    nodes: &[&'a GraphNode],
+) -> HashMap<&'a str, Vec<usize>> {
+    let step_numbers: HashMap<_, _> = nodes
         .iter()
-        .filter(|node| role(node) != Some("skill"))
+        .filter(|node| role(node) == Some("workflow_step"))
+        .enumerate()
+        .map(|(index, node)| (node.id.as_str(), index + 1))
         .collect();
-    nodes.sort_by_key(|node| order(node));
+    let mut dependencies: HashMap<&str, Vec<usize>> = HashMap::new();
+    for edge in &graph.edges {
+        if edge.label == "explicit dependency"
+            && let (Some(source), Some(_)) = (
+                step_numbers.get(edge.from.as_str()),
+                step_numbers.get(edge.to.as_str()),
+            )
+        {
+            dependencies
+                .entry(edge.to.as_str())
+                .or_default()
+                .push(*source);
+        }
+    }
+    for values in dependencies.values_mut() {
+        values.sort_unstable();
+        values.dedup();
+    }
+    dependencies
+}
+
+fn write_nodes(
+    nodes: &[&GraphNode],
+    dependencies: &HashMap<&str, Vec<usize>>,
+    output: &mut String,
+) {
     let mut previous_was_step = false;
     for node in nodes {
         match role(node) {
             Some("section") => {
-                ensure_blank_line(&mut output);
-                let level = node
-                    .config
-                    .get("headingLevel")
-                    .and_then(serde_json::Value::as_u64)
-                    .unwrap_or(2)
-                    .clamp(1, 6);
-                output.push_str(&"#".repeat(level as usize));
+                ensure_blank_line(output);
+                output.push_str(&"#".repeat(heading_level(node)));
                 output.push(' ');
                 output.push_str(&node.label);
                 output.push('\n');
                 previous_was_step = false;
             }
             Some("guidance") => {
-                ensure_blank_line(&mut output);
+                ensure_blank_line(output);
                 let text = if node.description.is_empty() {
                     &node.label
                 } else {
@@ -63,23 +108,20 @@ pub fn export_skill_markdown(graph: &GraphDocument) -> Result<String, SkillError
             }
             Some("workflow_step") => {
                 if !previous_was_step {
-                    ensure_blank_line(&mut output);
+                    ensure_blank_line(output);
                 }
-                let indent = node
-                    .config
-                    .get("indent")
-                    .and_then(serde_json::Value::as_u64)
-                    .unwrap_or(0);
-                output.push_str(&" ".repeat(indent as usize));
+                output.push_str(&" ".repeat(indent(node)));
                 output.push_str(&marker(node));
-                output.push_str(&node.label);
+                output.push_str(&step_label(
+                    &node.label,
+                    dependencies.get(node.id.as_str()).map(Vec::as_slice),
+                ));
                 output.push('\n');
                 previous_was_step = true;
             }
             _ => {}
         }
     }
-    Ok(format!("{}\n", output.trim_end()))
 }
 
 fn role(node: &GraphNode) -> Option<&str> {
@@ -91,6 +133,24 @@ fn order(node: &GraphNode) -> u64 {
         .get("order")
         .and_then(serde_json::Value::as_u64)
         .unwrap_or(u64::MAX)
+}
+
+fn heading_level(node: &GraphNode) -> usize {
+    node.config
+        .get("headingLevel")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|value| usize::try_from(value).ok())
+        .unwrap_or(2)
+        .clamp(1, 6)
+}
+
+fn indent(node: &GraphNode) -> usize {
+    node.config
+        .get("indent")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|value| usize::try_from(value).ok())
+        .unwrap_or(0)
+        .min(256)
 }
 
 fn marker(node: &GraphNode) -> String {
@@ -120,6 +180,43 @@ fn marker(node: &GraphNode) -> String {
         }
         _ => "- ".to_owned(),
     }
+}
+
+fn step_label(label: &str, dependencies: Option<&[usize]>) -> String {
+    let mut result = strip_dependency_annotations(label);
+    if let Some(dependencies) = dependencies
+        && !dependencies.is_empty()
+    {
+        let natural_dependencies = crate::import::dependency_numbers(&result);
+        let missing = dependencies
+            .iter()
+            .filter(|number| !natural_dependencies.contains(number))
+            .map(usize::to_string)
+            .collect::<Vec<_>>();
+        if !missing.is_empty() {
+            if !result.is_empty() {
+                result.push(' ');
+            }
+            write!(result, "[depends: {}]", missing.join(", "))
+                .expect("writing to a String cannot fail");
+        }
+    }
+    result
+}
+
+fn strip_dependency_annotations(label: &str) -> String {
+    let mut result = label.to_owned();
+    loop {
+        let lower = result.to_ascii_lowercase();
+        let Some(start) = lower.find("[depends:") else {
+            break;
+        };
+        let Some(relative_end) = lower[start..].find(']') else {
+            break;
+        };
+        result.replace_range(start..=start + relative_end, "");
+    }
+    result.trim().to_owned()
 }
 
 fn ensure_blank_line(output: &mut String) {

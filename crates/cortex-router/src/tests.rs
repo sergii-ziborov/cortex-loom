@@ -23,9 +23,16 @@ fn high_risk_phrases_never_route_locally() {
 
 #[test]
 fn advisory_summary_can_use_ollama() {
-    let decision = route(&RoutingRequest::new("Summarize the supplied evidence IDs"));
+    let mut request = RoutingRequest::new("Summarize the supplied evidence IDs");
+    request.evidence = EvidenceStatus::Verified;
+    let decision = route(&request);
     assert_eq!(decision.target, ExecutionTarget::Ollama);
     assert!(decision.approves_local_model());
+    assert_eq!(decision.model_tier, ModelTier::LocalMedium);
+    assert_eq!(
+        decision.context.strategy,
+        ContextStrategy::CitationCompression
+    );
 }
 
 #[test]
@@ -41,6 +48,24 @@ fn deterministic_and_graph_tasks_use_non_model_tools() {
         .target,
         ExecutionTarget::Weavatrix
     );
+}
+
+#[test]
+fn structured_extraction_uses_the_small_local_tier() {
+    let decision = route(&RoutingRequest::new(
+        "Extract fields from the supplied text",
+    ));
+    assert_eq!(decision.target, ExecutionTarget::Ollama);
+    assert_eq!(decision.model_tier, ModelTier::LocalSmall);
+}
+
+#[test]
+fn evidence_compression_requires_verified_inputs() {
+    let decision = route(&RoutingRequest::new(
+        "Compress context for the coding agent",
+    ));
+    assert_eq!(decision.target, ExecutionTarget::Upstream);
+    assert!(decision.reasons.contains(&RoutingReason::MissingEvidence));
 }
 
 #[test]
@@ -77,8 +102,8 @@ fn approved_mutations_still_bypass_local_models() {
 
 #[test]
 fn words_containing_auth_are_not_authentication() {
-    assert_eq!(
+    assert_ne!(
         classify("Summarize the author notes").class,
-        TaskClass::AdvisoryDraft
+        TaskClass::Authentication
     );
 }

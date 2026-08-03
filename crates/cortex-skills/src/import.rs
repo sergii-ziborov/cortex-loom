@@ -22,6 +22,7 @@ enum ListMarker {
     Bullet,
 }
 
+#[derive(Clone, Copy)]
 struct ListItem<'a> {
     marker: ListMarker,
     text: &'a str,
@@ -88,7 +89,7 @@ pub fn import_skill_markdown(source: &str, markdown: &str) -> Result<GraphDocume
         schema_version: GRAPH_SCHEMA_VERSION.to_owned(),
         id: format!("{}-skill", slug(&name)),
         name,
-        revision: 1,
+        revision: 0,
         nodes: builder.nodes,
         edges: builder.edges,
         metadata,
@@ -228,13 +229,17 @@ impl Builder<'_> {
             label: label.trim().to_owned(),
             description: description.trim().to_owned(),
             position: Position {
-                x: depth as f64 * 220.0,
-                y: self.order as f64 * 110.0,
+                x: Self::coordinate(depth, 220.0),
+                y: Self::coordinate(self.order, 110.0),
             },
             execution: None,
             provenance: vec![provenance(self.source, line, label)],
             config,
         });
+    }
+
+    fn coordinate(index: usize, step: f64) -> f64 {
+        f64::from(u32::try_from(index).unwrap_or(u32::MAX)) * step
     }
 
     fn link_parent(&mut self, child: &str) {
@@ -289,32 +294,40 @@ impl Builder<'_> {
 }
 
 fn split_frontmatter(markdown: &str) -> Result<(Frontmatter, &str, usize), SkillError> {
-    let mut lines = markdown.lines();
-    if lines.next().is_none_or(|line| line.trim() != "---") {
+    if markdown
+        .lines()
+        .next()
+        .is_none_or(|line| line.trim() != "---")
+    {
         return Ok((Frontmatter::default(), markdown, 1));
     }
     let mut frontmatter = Frontmatter::default();
-    let mut offset = 4;
+    let mut line_number = 1;
     let mut closed = false;
-    let mut consumed = 1;
-    for line in markdown.lines().skip(1) {
-        consumed += line.len() + 1;
+    let mut consumed = 0;
+    for segment in markdown.split_inclusive('\n') {
+        let line = segment.trim_end_matches(['\r', '\n']);
+        consumed += segment.len();
+        if line_number == 1 {
+            line_number += 1;
+            continue;
+        }
         if line.trim() == "---" {
             closed = true;
             break;
         }
-        offset += 1;
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with('#') {
+            line_number += 1;
             continue;
         }
         let (key, value) = trimmed.split_once(':').ok_or_else(|| {
-            SkillError::InvalidFrontmatter(format!("expected key: value at line {offset}"))
+            SkillError::InvalidFrontmatter(format!("expected key: value at line {line_number}"))
         })?;
         let key = key.trim().to_ascii_lowercase();
         if key.is_empty() {
             return Err(SkillError::InvalidFrontmatter(format!(
-                "empty key at line {offset}"
+                "empty key at line {line_number}"
             )));
         }
         let value = unquote(value.trim());
@@ -325,13 +338,14 @@ fn split_frontmatter(markdown: &str) -> Result<(Frontmatter, &str, usize), Skill
                 frontmatter.extra.insert(key, value);
             }
         }
+        line_number += 1;
     }
     if !closed {
         return Err(SkillError::InvalidFrontmatter(
             "opening delimiter has no closing delimiter".to_owned(),
         ));
     }
-    Ok((frontmatter, &markdown[consumed..], offset))
+    Ok((frontmatter, &markdown[consumed..], line_number + 1))
 }
 
 fn parse_heading(line: &str) -> Option<(usize, &str)> {
@@ -380,7 +394,7 @@ fn parse_list_item(line: &str) -> Option<ListItem<'_>> {
     })
 }
 
-fn dependency_numbers(text: &str) -> Vec<usize> {
+pub(crate) fn dependency_numbers(text: &str) -> Vec<usize> {
     let lower = text.to_ascii_lowercase();
     let mut numbers = Vec::new();
     for prefix in ["depends on step ", "after step "] {

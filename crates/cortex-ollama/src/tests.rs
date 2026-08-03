@@ -15,7 +15,9 @@ fn config(base_url: String) -> OllamaConfig {
 }
 
 fn local_route() -> cortex_router::RoutingDecision {
-    route(&RoutingRequest::new("Summarize the supplied evidence"))
+    let mut request = RoutingRequest::new("Summarize the supplied evidence");
+    request.evidence = cortex_router::EvidenceStatus::Verified;
+    route(&request)
 }
 
 fn mock_server(responses: Vec<&'static str>) -> (String, thread::JoinHandle<Vec<String>>) {

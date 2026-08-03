@@ -1,32 +1,41 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { GraphConflictError, loadGraph, saveGraph } from '../api/client'
-import type { GraphDocument, SaveState } from '../types'
+import { GraphConflictError, listGraphs, loadGraph, saveGraph } from '../api/client'
+import type { GraphDocument, GraphSummary, SaveState } from '../types'
 
 const messageOf = (error: unknown): string => error instanceof Error ? error.message : 'Unknown error'
 
 export interface GraphDocumentState {
   graph: GraphDocument | null
+  graphs: GraphSummary[]
   loadError: string
   loading: boolean
   dirty: boolean
   saveState: SaveState
   editGraph: (update: (current: GraphDocument) => GraphDocument) => void
   replaceGraph: (document: GraphDocument, dirty?: boolean) => void
+  selectGraph: (id: string) => Promise<void>
   reload: () => Promise<void>
   save: () => Promise<void>
 }
 
 export function useGraphDocument(): GraphDocumentState {
   const [graph, setGraph] = useState<GraphDocument | null>(null)
+  const [graphs, setGraphs] = useState<GraphSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [dirty, setDirty] = useState(false)
   const [saveState, setSaveState] = useState<SaveState>({ phase: 'ready', message: 'Loaded' })
   const graphRef = useRef<GraphDocument | null>(null)
   const editVersion = useRef(0)
+  const selectedId = useRef('default-control-plane')
+
+  const refreshList = useCallback(async () => {
+    setGraphs(await listGraphs())
+  }, [])
 
   const replaceGraph = useCallback((document: GraphDocument, nextDirty = false) => {
     graphRef.current = document
+    selectedId.current = document.id
     setGraph(document)
     setDirty(nextDirty)
     editVersion.current += nextDirty ? 1 : 0
@@ -39,7 +48,21 @@ export function useGraphDocument(): GraphDocumentState {
     setLoading(true)
     setLoadError('')
     try {
-      const document = await loadGraph()
+      const document = await loadGraph(selectedId.current)
+      replaceGraph(document)
+      await refreshList()
+    } catch (error) {
+      setLoadError(messageOf(error))
+    } finally {
+      setLoading(false)
+    }
+  }, [refreshList, replaceGraph])
+
+  const selectGraph = useCallback(async (id: string) => {
+    setLoading(true)
+    setLoadError('')
+    try {
+      const document = await loadGraph(id)
       replaceGraph(document)
     } catch (error) {
       setLoadError(messageOf(error))
@@ -52,9 +75,12 @@ export function useGraphDocument(): GraphDocumentState {
     const controller = new AbortController()
     let active = true
     setLoading(true)
-    loadGraph(controller.signal)
-      .then(document => {
-        if (active) replaceGraph(document)
+    Promise.all([loadGraph('default-control-plane', controller.signal), listGraphs(controller.signal)])
+      .then(([document, summaries]) => {
+        if (active) {
+          replaceGraph(document)
+          setGraphs(summaries)
+        }
       })
       .catch(error => {
         if (active && (error as { name?: string }).name !== 'AbortError') setLoadError(messageOf(error))
@@ -90,6 +116,17 @@ export function useGraphDocument(): GraphDocumentState {
       if (editVersion.current === savedVersion) {
         graphRef.current = stored
         setGraph(stored)
+        setGraphs(current => {
+          const summary: GraphSummary = {
+            id: stored.id,
+            name: stored.name,
+            revision: stored.revision,
+            nodeCount: stored.nodes.length,
+            edgeCount: stored.edges.length,
+          }
+          const remaining = current.filter(item => item.id !== stored.id)
+          return [summary, ...remaining]
+        })
         setDirty(false)
         setSaveState({ phase: 'saved', message: `Saved revision ${stored.revision}` })
       } else {
@@ -111,5 +148,17 @@ export function useGraphDocument(): GraphDocumentState {
     }
   }, [])
 
-  return { graph, loadError, loading, dirty, saveState, editGraph, replaceGraph, reload, save }
+  return {
+    graph,
+    graphs,
+    loadError,
+    loading,
+    dirty,
+    saveState,
+    editGraph,
+    replaceGraph,
+    reload,
+    save,
+    selectGraph,
+  }
 }

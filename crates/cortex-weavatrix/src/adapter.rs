@@ -25,11 +25,26 @@ pub struct WeavatrixConfig {
 #[serde(rename_all = "camelCase")]
 pub struct EvidenceBundle {
     pub repository: String,
-    pub graph_status: String,
-    pub module_map: String,
-    pub symbol_context: Option<String>,
-    pub verification: String,
+    pub evidence: Vec<EvidenceFragment>,
     pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvidenceFragment {
+    pub id: String,
+    pub kind: EvidenceKind,
+    pub source: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum EvidenceKind {
+    GraphStats,
+    ModuleMap,
+    ChangePlan,
+    SymbolContext,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -177,12 +192,38 @@ impl WeavatrixAdapter {
                 "run_tests": false
             }),
         )?;
+        let repository = repository.to_string_lossy().into_owned();
+        let mut evidence = vec![
+            fragment(
+                "WX-GRAPH",
+                EvidenceKind::GraphStats,
+                "weavatrix:graph_stats",
+                &graph_status,
+            ),
+            fragment(
+                "WX-MODULES",
+                EvidenceKind::ModuleMap,
+                "weavatrix:module_map",
+                &module_map,
+            ),
+            fragment(
+                "WX-VERIFY",
+                EvidenceKind::ChangePlan,
+                "weavatrix:verified_change",
+                &verification,
+            ),
+        ];
+        if let Some(symbol_context) = &symbol_context {
+            evidence.push(fragment(
+                "WX-SYMBOL",
+                EvidenceKind::SymbolContext,
+                "weavatrix:context_bundle",
+                symbol_context,
+            ));
+        }
         Ok(EvidenceBundle {
-            repository: repository.to_string_lossy().into_owned(),
-            graph_status: extract_text(&graph_status),
-            module_map: extract_text(&module_map),
-            symbol_context: symbol_context.as_ref().map(extract_text),
-            verification: extract_text(&verification),
+            repository,
+            evidence,
             warnings: refreshed
                 .then(|| "native Weavatrix graph refreshed from changed source evidence".to_owned())
                 .into_iter()
@@ -194,21 +235,29 @@ impl WeavatrixAdapter {
         &self,
         repository: &Path,
         operation: RefactorOperation,
-        arguments: Value,
+        arguments: &Value,
     ) -> Result<String, WeavatrixError> {
-        let mut arguments = arguments.as_object().cloned().ok_or_else(|| {
+        let arguments = arguments.as_object().cloned().ok_or_else(|| {
             WeavatrixError::InvalidArguments("refactor arguments must be a JSON object".to_owned())
         })?;
-        arguments.remove("confirm_token");
-        if operation.uses_preview_envelope() {
-            arguments.insert("mode".to_owned(), Value::String("preview".to_owned()));
+        let mut arguments = Value::Object(arguments);
+        strip_confirmation_fields(&mut arguments);
+        {
+            let object = arguments.as_object_mut().ok_or_else(|| {
+                WeavatrixError::InvalidArguments(
+                    "refactor arguments must be a JSON object".to_owned(),
+                )
+            })?;
+            if operation.uses_preview_envelope() {
+                object.insert("mode".to_owned(), Value::String("preview".to_owned()));
+            }
+            object.insert("output_format".to_owned(), Value::String("json".to_owned()));
         }
-        arguments.insert("output_format".to_owned(), Value::String("json".to_owned()));
 
         let mut client = self.refactor_client(repository)?;
         client.call_tool(
             "open_repo",
-            json!({
+            &json!({
                 "path": repository.to_string_lossy(),
                 "build": true,
                 "mode": "full",
@@ -216,7 +265,9 @@ impl WeavatrixAdapter {
                 "output_format": "json"
             }),
         )?;
-        let result = client.call_tool(operation.tool_name(), Value::Object(arguments))?;
+        let result = client.call_tool(operation.tool_name(), &arguments)?;
+        let mut result = result;
+        strip_confirmation_fields(&mut result);
         Ok(extract_text(&result))
     }
 
@@ -239,6 +290,60 @@ impl WeavatrixAdapter {
         client.initialize()?;
         Ok(client)
     }
+}
+
+fn fragment(id: &str, kind: EvidenceKind, source: &str, value: &Value) -> EvidenceFragment {
+    EvidenceFragment {
+        id: id.to_owned(),
+        kind,
+        source: source.to_owned(),
+        content: extract_text(value),
+    }
+}
+
+fn strip_confirmation_fields(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            object.retain(|key, _| !is_confirmation_key(key));
+            for child in object.values_mut() {
+                strip_confirmation_fields(child);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                strip_confirmation_fields(item);
+            }
+        }
+        Value::String(text) => {
+            if let Ok(mut nested) = serde_json::from_str::<Value>(text) {
+                strip_confirmation_fields(&mut nested);
+                *text = nested.to_string();
+            } else if text.lines().any(contains_confirmation_label) {
+                *text = text
+                    .lines()
+                    .filter(|line| !contains_confirmation_label(line))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) => {}
+    }
+}
+
+fn is_confirmation_key(key: &str) -> bool {
+    matches!(
+        key.to_ascii_lowercase()
+            .replace(['_', '-', ' '], "")
+            .as_str(),
+        "confirmtoken" | "confirmationtoken" | "applytoken"
+    )
+}
+
+fn contains_confirmation_label(value: &str) -> bool {
+    let normalized = value.to_ascii_lowercase().replace(['_', '-'], " ");
+    ["confirm token", "confirmation token", "apply token"]
+        .iter()
+        .any(|label| normalized.contains(label))
 }
 
 fn discover_refactor_script() -> Option<PathBuf> {
@@ -314,5 +419,21 @@ mod tests {
             "structuredContent": {"result": {"text": "structured"}}
         });
         assert_eq!(extract_text(&value), "structured");
+    }
+
+    #[test]
+    fn preview_results_strip_nested_confirmation_tokens() {
+        let mut value = json!({
+            "confirm_token": "outer-secret",
+            "content": [{
+                "type": "text",
+                "text": "{\"plan\":1,\"confirmationToken\":\"inner-secret\"}"
+            }]
+        });
+        strip_confirmation_fields(&mut value);
+        let rendered = value.to_string();
+        assert!(!rendered.contains("outer-secret"));
+        assert!(!rendered.contains("inner-secret"));
+        assert_eq!(value["content"][0]["text"], "{\"plan\":1}");
     }
 }

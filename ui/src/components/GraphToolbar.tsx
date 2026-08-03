@@ -1,16 +1,20 @@
-import type { SaveState } from '../types'
+import type { GraphSummary, SaveState } from '../types'
 
 interface GraphToolbarProps {
   connectActive: boolean
   connectMessage: string
   dirty: boolean
+  graphId: string
+  graphs: GraphSummary[]
   saveState: SaveState
   zoom: number
   onAddNode: () => void
   onAutoLayout: () => void
   onConnect: () => void
+  onExport: () => void
   onImport: () => void
   onReload: () => void
+  onSelectGraph: (id: string) => void
   onSave: () => void
   onZoom: (zoom: number) => void
 }
@@ -21,6 +25,17 @@ export function GraphToolbar(props: GraphToolbarProps) {
   return (
     <div className="graph-toolbar" aria-label="Graph controls">
       <div className="toolbar-group">
+        <label className="graph-picker">
+          <span className="sr-only">Workflow graph</span>
+          <select value={props.graphId} onChange={event => props.onSelectGraph(event.target.value)}>
+            {props.graphs.map(graph => (
+              <option key={graph.id} value={graph.id}>{graph.name} · r{graph.revision}</option>
+            ))}
+            {!props.graphs.some(graph => graph.id === props.graphId) && (
+              <option value={props.graphId}>Unsaved · {props.graphId}</option>
+            )}
+          </select>
+        </label>
         <button type="button" className="primary-button" onClick={props.onAddNode}>+ Node</button>
         <button
           type="button"
@@ -32,6 +47,7 @@ export function GraphToolbar(props: GraphToolbarProps) {
         </button>
         <button type="button" className="tool-button" onClick={props.onAutoLayout}>Auto-layout</button>
         <button type="button" className="tool-button" onClick={props.onImport}>Import Markdown</button>
+        <button type="button" className="tool-button" onClick={props.onExport}>Export Markdown</button>
       </div>
       {connectActive && <span className="connect-hint" role="status">{connectMessage}</span>}
       <div className="toolbar-spacer" />

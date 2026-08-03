@@ -1,19 +1,71 @@
 import type { GraphDocument, GraphEdge, GraphNode, Position } from '../types'
 
-export const CANVAS_WIDTH = 1440
+export const CANVAS_WIDTH = 1500
 export const CANVAS_HEIGHT = 760
-export const NODE_WIDTH = 210
-export const NODE_HEIGHT = 88
+export const NODE_WIDTH = 224
+export const NODE_HEIGHT = 104
+
+export interface CanvasViewport {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export function canvasViewport(clientWidth: number, clientHeight: number): CanvasViewport {
+  if (clientWidth <= 0 || clientHeight <= 0) {
+    return { x: 0, y: 0, width: CANVAS_WIDTH, height: CANVAS_HEIGHT }
+  }
+  const clientAspect = clientWidth / clientHeight
+  const canvasAspect = CANVAS_WIDTH / CANVAS_HEIGHT
+  const width = clientAspect >= canvasAspect ? CANVAS_HEIGHT * clientAspect : CANVAS_WIDTH
+  const height = clientAspect >= canvasAspect ? CANVAS_HEIGHT : CANVAS_WIDTH / clientAspect
+  return {
+    x: (CANVAS_WIDTH - width) / 2,
+    y: (CANVAS_HEIGHT - height) / 2,
+    width,
+    height,
+  }
+}
 
 export function clampPosition(
   position: Position,
   width = CANVAS_WIDTH,
   height = CANVAS_HEIGHT,
+  originX = 0,
+  originY = 0,
 ): Position {
   return {
-    x: Math.max(12, Math.min(width - NODE_WIDTH - 12, position.x)),
-    y: Math.max(12, Math.min(height - NODE_HEIGHT - 12, position.y)),
+    x: Math.max(originX + 12, Math.min(originX + width - NODE_WIDTH - 12, position.x)),
+    y: Math.max(originY + 12, Math.min(originY + height - NODE_HEIGHT - 12, position.y)),
   }
+}
+
+export function viewportForNodes(
+  viewport: CanvasViewport,
+  nodes: GraphNode[],
+  padding = 24,
+): CanvasViewport {
+  if (nodes.length === 0) return viewport
+  const right = viewport.x + viewport.width
+  const bottom = viewport.y + viewport.height
+  let x = Math.min(viewport.x, ...nodes.map(node => node.position.x - padding))
+  let y = Math.min(viewport.y, ...nodes.map(node => node.position.y - padding))
+  let maxX = Math.max(right, ...nodes.map(node => node.position.x + NODE_WIDTH + padding))
+  let maxY = Math.max(bottom, ...nodes.map(node => node.position.y + NODE_HEIGHT + padding))
+  const aspect = viewport.width / viewport.height
+  const width = maxX - x
+  const height = maxY - y
+  if (width / height > aspect) {
+    const expandedHeight = width / aspect
+    y -= (expandedHeight - height) / 2
+    maxY = y + expandedHeight
+  } else {
+    const expandedWidth = height * aspect
+    x -= (expandedWidth - width) / 2
+    maxX = x + expandedWidth
+  }
+  return { x, y, width: maxX - x, height: maxY - y }
 }
 
 function assignLayers(nodes: GraphNode[], edges: GraphEdge[]): Map<string, number> {
@@ -61,19 +113,33 @@ export function autoLayout(
     groups.set(layer, [...(groups.get(layer) ?? []), node])
   }
   const orderedLayers = [...groups.entries()].sort(([left], [right]) => left - right)
-  const usableWidth = width - NODE_WIDTH - 64
-  const xStep = orderedLayers.length > 1 ? usableWidth / (orderedLayers.length - 1) : 0
-  const positions: Record<string, Position> = {}
+  const minimumColumnGap = 72
+  const maximumColumns = Math.max(
+    1,
+    Math.floor((width - 64 + minimumColumnGap) / (NODE_WIDTH + minimumColumnGap)),
+  )
+  const columnCount = Math.min(maximumColumns, orderedLayers.length)
+  const columns = new Map<number, GraphNode[]>()
   orderedLayers.forEach(([, layerNodes], layerIndex) => {
-    const usableHeight = height - NODE_HEIGHT - 48
-    const yStep = layerNodes.length > 1 ? usableHeight / (layerNodes.length - 1) : 0
-    layerNodes
+    const column = Math.min(layerIndex, columnCount - 1)
+    columns.set(column, [...(columns.get(column) ?? []), ...layerNodes])
+  })
+  const usableWidth = width - NODE_WIDTH - 64
+  const xStep = columnCount > 1 ? usableWidth / (columnCount - 1) : 0
+  const positions: Record<string, Position> = {}
+  columns.forEach((columnNodes, columnIndex) => {
+    const verticalMargin = Math.min(96, Math.max(24, (height - NODE_HEIGHT) / 4))
+    const usableHeight = height - NODE_HEIGHT - verticalMargin * 2
+    const yStep = columnNodes.length > 1 ? usableHeight / (columnNodes.length - 1) : 0
+    columnNodes
       .slice()
       .sort((left, right) => left.position.y - right.position.y || left.id.localeCompare(right.id))
       .forEach((node, nodeIndex) => {
         positions[node.id] = clampPosition({
-          x: orderedLayers.length > 1 ? 32 + layerIndex * xStep : (width - NODE_WIDTH) / 2,
-          y: layerNodes.length > 1 ? 24 + nodeIndex * yStep : (height - NODE_HEIGHT) / 2,
+          x: columnCount > 1 ? 32 + columnIndex * xStep : (width - NODE_WIDTH) / 2,
+          y: columnNodes.length > 1
+            ? verticalMargin + nodeIndex * yStep
+            : (height - NODE_HEIGHT) / 2,
         }, width, height)
       })
   })

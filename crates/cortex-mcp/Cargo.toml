@@ -8,7 +8,9 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+cortex-context = { path = "../cortex-context" }
 cortex-domain = { path = "../cortex-domain" }
+cortex-run = { path = "../cortex-run" }
 cortex-router = { path = "../cortex-router" }
 cortex-skills = { path = "../cortex-skills" }
 cortex-store = { path = "../cortex-store" }
@@ -19,4 +21,3 @@ serde_json.workspace = true
 
 [lints]
 workspace = true
-

@@ -1,5 +1,5 @@
 import { EDGE_KINDS, NODE_KINDS } from '../types'
-import type { GraphDocument, GraphEdge, GraphNode, JsonValue, Position } from '../types'
+import type { ExecutionPolicy, GraphDocument, GraphEdge, GraphNode, JsonValue, Position } from '../types'
 
 const objectValue = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -17,6 +17,20 @@ const positionValue = (value: unknown): value is Position =>
   && typeof value.y === 'number'
   && Number.isFinite(value.y)
 
+const executionValue = (value: unknown): value is ExecutionPolicy => {
+  if (!objectValue(value)) return false
+  return ['deterministic', 'weavatrix', 'ollama', 'upstream', 'human'].includes(String(value.target))
+    && ['low', 'medium', 'high', 'critical'].includes(String(value.risk))
+    && Number.isSafeInteger(value.maxInputTokens)
+    && (value.maxInputTokens as number) > 0
+    && Number.isSafeInteger(value.maxOutputTokens)
+    && (value.maxOutputTokens as number) > 0
+    && typeof value.requireEvidence === 'boolean'
+    && typeof value.requireUpstreamReview === 'boolean'
+    && typeof value.allowMutation === 'boolean'
+    && (value.modelProfile === undefined || value.modelProfile === null || typeof value.modelProfile === 'string')
+}
+
 const nodeValue = (value: unknown): value is GraphNode => {
   if (!objectValue(value)) return false
   return typeof value.id === 'string'
@@ -24,6 +38,7 @@ const nodeValue = (value: unknown): value is GraphNode => {
     && typeof value.label === 'string'
     && typeof value.description === 'string'
     && positionValue(value.position)
+    && (value.execution === undefined || value.execution === null || executionValue(value.execution))
     && Array.isArray(value.provenance)
     && objectValue(value.config)
     && Object.values(value.config).every(jsonValue)
@@ -159,9 +174,18 @@ export function graphProblems(document: GraphDocument): string[] {
   for (const node of document.nodes) {
     if (!node.id.trim()) problems.push('Every node needs an ID.')
     else if (nodeIds.has(node.id)) problems.push(`Duplicate node ID: ${node.id}`)
+    if (!node.label.trim()) problems.push(`Node ${node.id || '(missing ID)'} needs a label.`)
+    if (!Number.isFinite(node.position.x) || !Number.isFinite(node.position.y)) problems.push(`Node ${node.id} has an invalid position.`)
+    if (node.execution?.allowMutation && !['upstream', 'human'].includes(node.execution.target)) {
+      problems.push(`Node ${node.id} grants mutation authority to ${node.execution.target}.`)
+    }
+    if (node.execution?.target === 'ollama' && !node.execution.requireUpstreamReview) {
+      problems.push(`Node ${node.id} must require upstream review for Ollama output.`)
+    }
     nodeIds.add(node.id)
   }
   for (const edge of document.edges) {
+    if (!edge.id.trim()) problems.push('Every edge needs an ID.')
     if (edgeIds.has(edge.id)) problems.push(`Duplicate edge ID: ${edge.id}`)
     edgeIds.add(edge.id)
     if (edge.from === edge.to) problems.push(`Self edge is not allowed: ${edge.id}`)

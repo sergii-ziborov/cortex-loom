@@ -1,10 +1,16 @@
 import { useCallback, useEffect, useState } from 'react'
+import type { CSSProperties } from 'react'
 import { AppHeader } from './components/AppHeader'
 import { GraphCanvas } from './components/GraphCanvas'
 import { GraphToolbar } from './components/GraphToolbar'
+import { RunControls } from './components/RunControls'
+import { ExportDialog } from './components/ExportDialog'
 import { ImportDialog } from './components/ImportDialog'
 import { Inspector } from './components/Inspector'
+import { InspectorResizeHandle } from './components/InspectorResizeHandle'
 import { useGraphDocument } from './hooks/useGraphDocument'
+import { useRunDocument } from './hooks/useRunDocument'
+import { useResizableInspector } from './hooks/useResizableInspector'
 import { addEdge, addNode, deleteEdge, deleteNode, setNodePosition, updateEdge, updateNode } from './model/graph'
 import { CANVAS_HEIGHT, CANVAS_WIDTH, NODE_HEIGHT, NODE_WIDTH, clampPosition, layoutDocument } from './model/layout'
 import type { GraphDocument, GraphEdge, GraphNode, GraphSelection, Position } from './types'
@@ -17,11 +23,14 @@ function initialTheme(): 'dark' | 'light' {
 
 export default function App() {
   const graphState = useGraphDocument()
+  const runState = useRunDocument(graphState.graph)
+  const inspectorSize = useResizableInspector()
   const [selection, setSelection] = useState<GraphSelection>(null)
   const [connectState, setConnectState] = useState<ConnectState>(undefined)
   const [zoom, setZoom] = useState(100)
   const [theme, setTheme] = useState<'dark' | 'light'>(initialTheme)
   const [importOpen, setImportOpen] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
   const graph = graphState.graph
 
   useEffect(() => {
@@ -117,6 +126,8 @@ export default function App() {
         connectActive={connectState !== undefined}
         connectMessage={connectMessage}
         dirty={graphState.dirty}
+        graphId={graph.id}
+        graphs={graphState.graphs}
         saveState={graphState.saveState}
         zoom={zoom}
         onAddNode={addNewNode}
@@ -126,15 +137,56 @@ export default function App() {
           setConnectState(undefined)
         }}
         onConnect={() => setConnectState(value => value === undefined ? null : undefined)}
+        onExport={() => setExportOpen(true)}
         onImport={() => setImportOpen(true)}
         onReload={reload}
+        onSelectGraph={id => {
+          if (graphState.dirty && !window.confirm('Discard unsaved changes and switch graphs?')) return
+          setSelection(null)
+          setConnectState(undefined)
+          void graphState.selectGraph(id)
+        }}
         onSave={() => void graphState.save()}
         onZoom={setZoom}
       />
-      <main className="editor-main" aria-busy={graphState.saveState.phase === 'saving'}>
+      <RunControls
+        graph={graph}
+        runGraph={runState.runGraph}
+        run={runState.run}
+        runs={runState.runs}
+        replay={runState.replay}
+        busy={runState.busy}
+        dirty={graphState.dirty}
+        error={runState.error}
+        onCreate={() => void runState.create()}
+        onSelect={id => void runState.select(id)}
+        onStartNode={id => void runState.startNode(id)}
+        onSubmitEvidence={(id, actor, source, locator, summary, digest) => {
+          void runState.submitEvidence(id, actor, source, locator, summary, digest)
+        }}
+        onCompleteNode={(id, outcome, edges, evidence, detail) => {
+          void runState.completeNode(id, outcome, edges, evidence, detail)
+        }}
+        onDecideHumanGate={(id, decision, actor, reason, edges, evidence) => {
+          void runState.decideHumanGate(id, decision, actor, reason, edges, evidence)
+        }}
+        onTriggerRetry={(id, reason) => void runState.triggerRetry(id, reason)}
+        onVerifyReplay={() => void runState.verifyReplay()}
+        onCancel={() => void runState.cancel()}
+      />
+      <main
+        className="editor-main"
+        aria-busy={graphState.saveState.phase === 'saving'}
+        style={{ '--inspector-width': `${inspectorSize.width}px` } as CSSProperties}
+      >
         <section className="canvas-panel" aria-label="Graph workspace">
           <GraphCanvas
             graph={graph}
+            run={!graphState.dirty
+              && runState.run?.graphId === graph.id
+              && runState.run.graphRevision === graph.revision
+              ? runState.run
+              : null}
             selection={selection}
             connectActive={connectState !== undefined}
             connectFrom={typeof connectState === 'string' ? connectState : null}
@@ -144,6 +196,12 @@ export default function App() {
             onSelect={setSelection}
           />
         </section>
+        <InspectorResizeHandle
+          width={inspectorSize.width}
+          onPointerDown={inspectorSize.startResize}
+          onResizeBy={inspectorSize.resizeBy}
+          onReset={inspectorSize.reset}
+        />
         <Inspector
           graph={graph}
           selection={selection}
@@ -162,6 +220,7 @@ export default function App() {
         />
       </main>
       {importOpen && <ImportDialog onClose={() => setImportOpen(false)} onImport={importGraph} />}
+      {exportOpen && <ExportDialog graph={graph} onClose={() => setExportOpen(false)} />}
     </div>
   )
 }

@@ -1,10 +1,28 @@
 # Cortex Loom
 
-Cortex Loom is a local, graph-native control plane in front of Codex and Claude. It selects evidence with deterministic tools and Weavatrix, delegates bounded low-risk transformations to local models, verifies their output, and leaves ambiguous or high-risk engineering decisions to the upstream coding agent.
+Cortex Loom is a local, graph-native process control plane in front of Codex, Claude, and Copilot. It selects evidence with deterministic tools and Weavatrix, delegates bounded low-risk transformations to explicit local-model profiles, verifies their output, and leaves ambiguous, mutating, or high-risk engineering decisions to the upstream coding agent.
 
-The first milestone contains a Rust domain model, skill-to-graph compiler, hardware-aware local-model router, Weavatrix/Refactor adapter, bounded MCP server, and a browser-based editable graph extracted from AI Dev System's custom SVG workflow editor.
+The first milestone contains:
+
+- a typed, editable process graph with human, evidence, test, review, retry, handoff, local-model, and upstream-agent nodes;
+- round-trip `SKILL.md` import/export with source provenance;
+- SQLite persistence with optimistic revisions and graph history;
+- executable run snapshots with immutable evidence, audited human decisions, bounded retries, and deterministic replay verification;
+- deterministic evidence selection and token-budget reporting, including one-step compilation of typed Weavatrix evidence;
+- inspectable model/context routing with fail-closed escalation;
+- native `weavatrix-rust` repository evidence and preview-only Weavatrix Refactor integration;
+- bounded MCP tools plus a browser-based React/SVG editor extracted from AI Dev System.
 
 This repository is private. Candidate reusable crates remain in the workspace until their APIs, tests, security boundaries, and licensing are reviewed for separate public release.
 
-Design notes: [architecture](docs/architecture.md), [research](docs/research.md), and [evaluation gates](docs/evaluation.md).
+## Run locally
 
+```powershell
+npm.cmd --prefix ui ci
+npm.cmd --prefix ui run build
+cargo run -p cortex-server
+```
+
+The editor opens at `http://127.0.0.1:43817`. Save a graph before creating a run; ready/running/completed node and edge states are rendered directly on the SVG. The run workbench submits provenance-bearing evidence, records approve/reject decisions, triggers graph-configured retries, and verifies replay without repeating external work. Run the stdio MCP server with `cargo run -p cortex-mcp`.
+
+Design notes: [architecture](docs/architecture.md), [research](docs/research.md), [evaluation gates](docs/evaluation.md), and [roadmap](docs/roadmap.md).

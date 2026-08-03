@@ -3,14 +3,19 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use cortex_context::{ContextRequest, compile_context};
 use cortex_domain::{GraphDocument, default_control_plane};
 use cortex_router::{RoutingRequest, route};
-use cortex_skills::import_skill_markdown;
+use cortex_skills::{export_skill_markdown, import_skill_markdown};
 use cortex_store::GraphStore;
-use cortex_weavatrix::{RefactorOperation, WeavatrixAdapter, WeavatrixConfig};
+use cortex_weavatrix::{
+    RefactorOperation, WeavatrixAdapter, WeavatrixConfig, compile_evidence_bundle,
+};
 use mcport::{ConcurrentMcpServer, FlushPolicy, RuntimeConfig, ToolReply, TransportLimits, json};
 use serde::Deserialize;
 use serde_json::Value;
+
+mod run_tools;
 
 const DEFAULT_GRAPH_ID: &str = "default-control-plane";
 const MAX_SKILL_BYTES: usize = 2 * 1024 * 1024;
@@ -36,10 +41,37 @@ struct SkillCompileArgs {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct SkillExportArgs {
+    graph: GraphDocument,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GraphSaveArgs {
+    graph: GraphDocument,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GraphListArgs {
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct WeavatrixPrepareArgs {
     repository: PathBuf,
     task: String,
     symbol: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WeavatrixContextArgs {
+    repository: PathBuf,
+    task: String,
+    symbol: Option<String>,
+    max_tokens: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -65,17 +97,103 @@ impl CortexMcpState {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 pub fn serve(state: CortexMcpState) -> io::Result<()> {
     let state = Arc::new(state);
     let graph_state = Arc::clone(&state);
+    let graph_list_state = Arc::clone(&state);
+    let graph_save_state = Arc::clone(&state);
     let prepare_state = Arc::clone(&state);
+    let context_state = Arc::clone(&state);
     let refactor_state = Arc::clone(&state);
 
     let server = ConcurrentMcpServer::new("cortex-loom", env!("CARGO_PKG_VERSION"))
         .instructions(
-            "Cortex Loom reduces repository context before Codex or Claude reasons about it. Use route_work first, then weavatrix_prepare for revision-bound evidence. Local-model results are advisory and must retain evidence IDs. High-risk or ambiguous work stays upstream. Refactor is preview-only: this server never applies a plan. Graphs are canonical in the local store; generated Markdown is only a view.",
+            "Cortex Loom reduces repository context before Codex or Claude reasons about it. Use route_work first, then weavatrix_context_compile for revision-bound, budgeted evidence. Local-model results are advisory and must retain evidence IDs. High-risk or ambiguous work stays upstream. Refactor is preview-only: this server never applies a plan. Graphs are canonical in the local store; generated Markdown is only a view.",
         )
         .tool_page_size(16)
+        .typed_tool(
+            "context_compile",
+            "Select bounded evidence deterministically and report omitted IDs and token savings.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "items": {"type": "array", "maxItems": 4096},
+                    "maxTokens": {"type": "integer", "minimum": 1}
+                },
+                "required": ["items", "maxTokens"],
+                "additionalProperties": false
+            }),
+            move |context, arguments: ContextRequest| {
+                if context.is_cancelled() {
+                    return ToolReply::error("cancelled");
+                }
+                match compile_context(&arguments) {
+                    Ok(packet) => ToolReply::structured(packet),
+                    Err(error) => ToolReply::error(error.to_string()),
+                }
+            },
+        )
+        .typed_tool(
+            "weavatrix_context_compile",
+            "Build native Weavatrix evidence and compile it into one deterministic, budgeted context packet with stable citation IDs.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "repository": {"type": "string", "maxLength": 4096},
+                    "task": {"type": "string", "maxLength": 16384},
+                    "symbol": {"type": "string", "maxLength": 4096},
+                    "maxTokens": {"type": "integer", "minimum": 1, "maximum": 100_000}
+                },
+                "required": ["repository", "task", "maxTokens"],
+                "additionalProperties": false
+            }),
+            move |context, arguments: WeavatrixContextArgs| {
+                if context.is_cancelled() {
+                    return ToolReply::error("cancelled");
+                }
+                let bundle = match context_state.weavatrix.prepare_context(
+                    &arguments.repository,
+                    &arguments.task,
+                    arguments.symbol.as_deref(),
+                ) {
+                    Ok(bundle) => bundle,
+                    Err(error) => return ToolReply::error(error.to_string()),
+                };
+                if context.is_cancelled() {
+                    return ToolReply::error("cancelled");
+                }
+                match compile_evidence_bundle(bundle, &arguments.task, arguments.max_tokens) {
+                    Ok(packet) => ToolReply::structured(packet),
+                    Err(error) => ToolReply::error(error.to_string()),
+                }
+            },
+        )
+        .typed_tool(
+            "graph_list",
+            "List bounded metadata for canonical workflow graphs.",
+            json!({
+                "type": "object",
+                "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 100}},
+                "additionalProperties": false
+            }),
+            move |context, arguments: GraphListArgs| {
+                if context.is_cancelled() {
+                    return ToolReply::error("cancelled");
+                }
+                let limit = arguments.limit.unwrap_or(50).clamp(1, 100);
+                match graph_list_state.store.list() {
+                    Ok(graphs) => ToolReply::structured(
+                        graphs
+                            .iter()
+                            .take(limit)
+                            .map(graph_summary)
+                            .collect::<Vec<_>>(),
+                    ),
+                    Err(error) => ToolReply::error(error.to_string()),
+                }
+            },
+        )
         .typed_tool(
             "graph_get",
             "Read one canonical editable workflow graph by id.",
@@ -92,6 +210,25 @@ pub fn serve(state: CortexMcpState) -> io::Result<()> {
                 match graph_state.store.get(id) {
                     Ok(Some(graph)) => ToolReply::structured(graph),
                     Ok(None) => ToolReply::error(format!("graph not found: {id}")),
+                    Err(error) => ToolReply::error(error.to_string()),
+                }
+            },
+        )
+        .typed_tool(
+            "graph_save",
+            "Create or revision-safely update one canonical workflow graph.",
+            json!({
+                "type": "object",
+                "properties": {"graph": {"type": "object"}},
+                "required": ["graph"],
+                "additionalProperties": false
+            }),
+            move |context, arguments: GraphSaveArgs| {
+                if context.is_cancelled() {
+                    return ToolReply::error("cancelled");
+                }
+                match graph_save_state.store.save(&arguments.graph) {
+                    Ok(graph) => ToolReply::structured(graph),
                     Err(error) => ToolReply::error(error.to_string()),
                 }
             },
@@ -117,6 +254,27 @@ pub fn serve(state: CortexMcpState) -> io::Result<()> {
                 }
                 match import_skill_markdown(&arguments.source, &arguments.markdown) {
                     Ok(graph) => ToolReply::structured(graph),
+                    Err(error) => ToolReply::error(error.to_string()),
+                }
+            },
+        )
+        .typed_tool(
+            "skill_export",
+            "Render a cortex-skills graph as readable SKILL.md Markdown without executing it.",
+            json!({
+                "type": "object",
+                "properties": {"graph": {"type": "object"}},
+                "required": ["graph"],
+                "additionalProperties": false
+            }),
+            move |context, arguments: SkillExportArgs| {
+                if context.is_cancelled() {
+                    return ToolReply::error("cancelled");
+                }
+                match export_skill_markdown(&arguments.graph) {
+                    Ok(markdown) => ToolReply::structured(serde_json::json!({
+                        "markdown": markdown
+                    })),
                     Err(error) => ToolReply::error(error.to_string()),
                 }
             },
@@ -195,7 +353,7 @@ pub fn serve(state: CortexMcpState) -> io::Result<()> {
                 match refactor_state.weavatrix.preview_refactor(
                     &arguments.repository,
                     arguments.operation,
-                    arguments.arguments,
+                    &arguments.arguments,
                 ) {
                     Ok(plan) => ToolReply::structured(serde_json::json!({
                         "mode": "preview",
@@ -206,6 +364,7 @@ pub fn serve(state: CortexMcpState) -> io::Result<()> {
                 }
             },
         );
+    let server = run_tools::register(server, Arc::clone(&state));
     server.serve(RuntimeConfig {
         transport: TransportLimits::new(4 * 1024 * 1024, 8 * 1024 * 1024),
         max_in_flight: 4,

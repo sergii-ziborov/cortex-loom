@@ -3,7 +3,13 @@ use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Serialize};
 
+mod default_graph;
+
+pub use default_graph::default_control_plane;
+
 pub const GRAPH_SCHEMA_VERSION: &str = "cortex-loom.graph.v1";
+pub const MAX_GRAPH_NODES: usize = 4_096;
+pub const MAX_GRAPH_EDGES: usize = 16_384;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -42,8 +48,17 @@ pub enum NodeKind {
     Deterministic,
     Weavatrix,
     Skill,
+    AgentTask,
     LocalModel,
     QualityGate,
+    HumanGate,
+    TestGate,
+    ReviewGate,
+    EvidenceGate,
+    Branch,
+    Retry,
+    Handoff,
+    Terminal,
     UpstreamAgent,
     Output,
 }
@@ -120,17 +135,28 @@ pub enum EdgeKind {
     Conditional,
     Fallback,
     Approval,
+    Requires,
+    Reject,
+    Blocks,
+    Escalates,
+    Invalidates,
+    Supersedes,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GraphError {
     UnsupportedSchema(String),
     EmptyField(&'static str),
+    EmptyNodeField { node: String, field: &'static str },
+    EmptyEdgeField { edge: String, field: &'static str },
+    TooManyNodes(usize),
+    TooManyEdges(usize),
     DuplicateNode(String),
     DuplicateEdge(String),
     MissingEndpoint { edge: String, node: String },
     SelfEdge(String),
     InvalidPosition(String),
+    InvalidExecution { node: String, message: &'static str },
 }
 
 impl Display for GraphError {
@@ -140,6 +166,24 @@ impl Display for GraphError {
                 write!(formatter, "unsupported graph schema: {value}")
             }
             Self::EmptyField(field) => write!(formatter, "graph field must not be empty: {field}"),
+            Self::EmptyNodeField { node, field } => {
+                write!(formatter, "node {node} has an empty {field}")
+            }
+            Self::EmptyEdgeField { edge, field } => {
+                write!(formatter, "edge {edge} has an empty {field}")
+            }
+            Self::TooManyNodes(count) => {
+                write!(
+                    formatter,
+                    "graph has {count} nodes; limit is {MAX_GRAPH_NODES}"
+                )
+            }
+            Self::TooManyEdges(count) => {
+                write!(
+                    formatter,
+                    "graph has {count} edges; limit is {MAX_GRAPH_EDGES}"
+                )
+            }
             Self::DuplicateNode(id) => write!(formatter, "duplicate node id: {id}"),
             Self::DuplicateEdge(id) => write!(formatter, "duplicate edge id: {id}"),
             Self::MissingEndpoint { edge, node } => {
@@ -147,6 +191,12 @@ impl Display for GraphError {
             }
             Self::SelfEdge(id) => write!(formatter, "self edge is not allowed: {id}"),
             Self::InvalidPosition(id) => write!(formatter, "node has a non-finite position: {id}"),
+            Self::InvalidExecution { node, message } => {
+                write!(
+                    formatter,
+                    "node {node} has an invalid execution policy: {message}"
+                )
+            }
         }
     }
 }
@@ -164,22 +214,52 @@ impl GraphDocument {
         if self.name.trim().is_empty() {
             return Err(GraphError::EmptyField("name"));
         }
+        if self.nodes.len() > MAX_GRAPH_NODES {
+            return Err(GraphError::TooManyNodes(self.nodes.len()));
+        }
+        if self.edges.len() > MAX_GRAPH_EDGES {
+            return Err(GraphError::TooManyEdges(self.edges.len()));
+        }
 
         let mut node_ids = HashSet::with_capacity(self.nodes.len());
         for node in &self.nodes {
+            for (field, value) in [("id", node.id.as_str()), ("label", node.label.as_str())] {
+                if value.trim().is_empty() {
+                    return Err(GraphError::EmptyNodeField {
+                        node: node.id.clone(),
+                        field,
+                    });
+                }
+            }
             if !node_ids.insert(node.id.as_str()) {
                 return Err(GraphError::DuplicateNode(node.id.clone()));
             }
             if !node.position.x.is_finite() || !node.position.y.is_finite() {
                 return Err(GraphError::InvalidPosition(node.id.clone()));
             }
+            if let Some(policy) = &node.execution {
+                validate_execution(&node.id, policy)?;
+            }
         }
 
         let mut edge_ids = HashSet::with_capacity(self.edges.len());
         for edge in &self.edges {
+            for (field, value) in [
+                ("id", edge.id.as_str()),
+                ("from", edge.from.as_str()),
+                ("to", edge.to.as_str()),
+            ] {
+                if value.trim().is_empty() {
+                    return Err(GraphError::EmptyEdgeField {
+                        edge: edge.id.clone(),
+                        field,
+                    });
+                }
+            }
             if !edge_ids.insert(edge.id.as_str()) {
                 return Err(GraphError::DuplicateEdge(edge.id.clone()));
             }
+
             if edge.from == edge.to {
                 return Err(GraphError::SelfEdge(edge.id.clone()));
             }
@@ -215,157 +295,50 @@ impl GraphDocument {
     }
 }
 
-#[must_use]
-pub fn default_control_plane() -> GraphDocument {
-    let nodes = vec![
-        node(
-            "request",
-            NodeKind::Input,
-            "Engineering request",
-            40.0,
-            210.0,
-        ),
-        node(
-            "scan",
-            NodeKind::Deterministic,
-            "Deterministic scan",
-            250.0,
-            80.0,
-        ),
-        node(
-            "weavatrix",
-            NodeKind::Weavatrix,
-            "Weavatrix evidence",
-            250.0,
-            260.0,
-        ),
-        node("skill", NodeKind::Skill, "Skill workflow", 500.0, 80.0),
-        node(
-            "local",
-            NodeKind::LocalModel,
-            "Local bounded draft",
-            500.0,
-            260.0,
-        ),
-        node(
-            "gate",
-            NodeKind::QualityGate,
-            "Evidence + risk gate",
-            760.0,
-            170.0,
-        ),
-        node(
-            "upstream",
-            NodeKind::UpstreamAgent,
-            "Codex / Claude",
-            1010.0,
-            170.0,
-        ),
-        node("result", NodeKind::Output, "Verified result", 1250.0, 170.0),
-    ];
-    let edges = vec![
-        edge("e1", "request", "scan", EdgeKind::Tool, "facts"),
-        edge("e2", "request", "weavatrix", EdgeKind::Tool, "repo graph"),
-        edge("e3", "scan", "skill", EdgeKind::Context, "structured input"),
-        edge(
-            "e4",
-            "weavatrix",
-            "local",
-            EdgeKind::Context,
-            "bounded evidence",
-        ),
-        edge("e5", "skill", "gate", EdgeKind::Context, "workflow rules"),
-        edge(
-            "e6",
-            "local",
-            "gate",
-            EdgeKind::Success,
-            "draft + citations",
-        ),
-        edge(
-            "e7",
-            "local",
-            "upstream",
-            EdgeKind::Fallback,
-            "invalid or uncertain",
-        ),
-        edge(
-            "e8",
-            "gate",
-            "upstream",
-            EdgeKind::Approval,
-            "decision context",
-        ),
-        edge(
-            "e9",
-            "upstream",
-            "result",
-            EdgeKind::Success,
-            "implementation",
-        ),
-    ];
-    GraphDocument {
-        schema_version: GRAPH_SCHEMA_VERSION.to_owned(),
-        id: "default-control-plane".to_owned(),
-        name: "Cortex Loom control plane".to_owned(),
-        revision: 1,
-        nodes,
-        edges,
-        metadata: HashMap::from([
-            (
-                "source".to_owned(),
-                "AI Dev System graph editor extraction".to_owned(),
-            ),
-            (
-                "localModelPolicy".to_owned(),
-                "bounded-and-reviewable".to_owned(),
-            ),
-        ]),
+fn validate_execution(node: &str, policy: &ExecutionPolicy) -> Result<(), GraphError> {
+    let invalid = |message| GraphError::InvalidExecution {
+        node: node.to_owned(),
+        message,
+    };
+    if policy.max_input_tokens == 0 || policy.max_output_tokens == 0 {
+        return Err(invalid("token budgets must be greater than zero"));
     }
-}
-
-fn node(id: &str, kind: NodeKind, label: &str, x: f64, y: f64) -> GraphNode {
-    GraphNode {
-        id: id.to_owned(),
-        kind,
-        label: label.to_owned(),
-        description: String::new(),
-        position: Position { x, y },
-        execution: None,
-        provenance: Vec::new(),
-        config: HashMap::new(),
+    if policy
+        .model_profile
+        .as_ref()
+        .is_some_and(|value| value.trim().is_empty())
+    {
+        return Err(invalid("model profile must not be empty"));
     }
-}
-
-fn edge(id: &str, from: &str, to: &str, kind: EdgeKind, label: &str) -> GraphEdge {
-    GraphEdge {
-        id: id.to_owned(),
-        from: from.to_owned(),
-        to: to.to_owned(),
-        kind,
-        label: label.to_owned(),
-        condition: None,
+    if policy.allow_mutation
+        && !matches!(
+            policy.target,
+            ExecutionTarget::Upstream | ExecutionTarget::Human
+        )
+    {
+        return Err(invalid(
+            "only upstream or human targets may receive mutation authority",
+        ));
     }
+    if policy.risk >= RiskLevel::High
+        && !matches!(
+            policy.target,
+            ExecutionTarget::Upstream | ExecutionTarget::Human
+        )
+    {
+        return Err(invalid(
+            "high-risk work must target an upstream agent or human",
+        ));
+    }
+    if policy.target == ExecutionTarget::Ollama
+        && (!policy.require_upstream_review || policy.allow_mutation)
+    {
+        return Err(invalid(
+            "Ollama work must be advisory and require upstream review",
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn default_graph_is_valid_and_connected() {
-        let graph = default_control_plane();
-        graph.validate().expect("default graph must remain valid");
-        assert_eq!(graph.reachable_from("request").len(), graph.nodes.len());
-    }
-
-    #[test]
-    fn rejects_an_edge_to_a_missing_node() {
-        let mut graph = default_control_plane();
-        graph.edges[0].to = "missing".to_owned();
-        assert!(matches!(
-            graph.validate(),
-            Err(GraphError::MissingEndpoint { node, .. }) if node == "missing"
-        ));
-    }
-}
+mod tests;

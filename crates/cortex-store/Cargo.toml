@@ -9,9 +9,9 @@ publish = false
 
 [dependencies]
 cortex-domain = { path = "../cortex-domain" }
+cortex-run = { path = "../cortex-run" }
 rusqlite.workspace = true
 serde_json.workspace = true
 
 [lints]
 workspace = true
-

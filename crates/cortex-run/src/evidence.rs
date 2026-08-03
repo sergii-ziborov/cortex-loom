@@ -3,8 +3,9 @@ use std::collections::HashSet;
 use cortex_domain::GraphDocument;
 
 use crate::{
-    EvidenceSubmission, MAX_EVIDENCE_FIELD_BYTES, MAX_EVIDENCE_ID_BYTES, MAX_EVIDENCE_IDS,
-    MAX_EVIDENCE_SUBMISSIONS, MAX_EVIDENCE_SUMMARY_BYTES, NodeRunStatus, RunDocument, RunError,
+    EvidenceInvalidation, EvidenceSubmission, MAX_EVIDENCE_FIELD_BYTES, MAX_EVIDENCE_ID_BYTES,
+    MAX_EVIDENCE_IDS, MAX_EVIDENCE_SUBMISSIONS, MAX_EVIDENCE_SUMMARY_BYTES, MAX_RUN_DETAIL_BYTES,
+    NodeRunStatus, RunDocument, RunError,
 };
 
 pub(super) struct EvidenceInput<'a> {
@@ -49,6 +50,49 @@ pub(super) fn submit_evidence(
         digest: input.digest.cloned(),
         summary: input.summary.to_owned(),
         submitted_at: now,
+        invalidated: None,
+    });
+    Ok(())
+}
+
+/// Record that a submission may no longer be cited. The submission stays in
+/// the audit record; already-completed decisions that cited it are historical
+/// facts and are never rewritten — reacting to a late invalidation is review
+/// or retry work.
+pub(super) fn invalidate_evidence(
+    run: &mut RunDocument,
+    evidence_id: &str,
+    actor: &str,
+    reason: &str,
+    now: i64,
+) -> Result<(), RunError> {
+    if actor.trim().is_empty() {
+        return Err(RunError::EmptyEvidenceField("actor"));
+    }
+    if actor.len() > MAX_EVIDENCE_FIELD_BYTES {
+        return Err(RunError::EvidenceFieldTooLarge {
+            field: "actor",
+            size: actor.len(),
+        });
+    }
+    if reason.trim().is_empty() {
+        return Err(RunError::EmptyEvidenceField("reason"));
+    }
+    if reason.len() > MAX_RUN_DETAIL_BYTES {
+        return Err(RunError::DetailTooLarge(reason.len()));
+    }
+    let submission = run
+        .evidence
+        .iter_mut()
+        .find(|submission| submission.id == evidence_id)
+        .ok_or_else(|| RunError::UnknownEvidence(evidence_id.to_owned()))?;
+    if submission.invalidated.is_some() {
+        return Err(RunError::EvidenceAlreadyInvalidated(evidence_id.to_owned()));
+    }
+    submission.invalidated = Some(EvidenceInvalidation {
+        actor: actor.to_owned(),
+        reason: reason.to_owned(),
+        invalidated_at: now,
     });
     Ok(())
 }
@@ -72,6 +116,9 @@ pub(super) fn validate_evidence_references(
             .iter()
             .find(|submission| submission.id == *id)
             .ok_or_else(|| RunError::UnknownEvidence(id.clone()))?;
+        if submission.invalidated.is_some() {
+            return Err(RunError::EvidenceInvalidatedError(id.clone()));
+        }
         if submission.node_id != node_id {
             return Err(RunError::EvidenceNodeMismatch {
                 id: id.clone(),

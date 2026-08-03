@@ -7,7 +7,7 @@ The first milestone contains:
 - a typed, editable process graph with human, evidence, test, review, retry, handoff, local-model, and upstream-agent nodes;
 - round-trip `SKILL.md` import/export with source provenance;
 - SQLite persistence with optimistic revisions and graph history;
-- executable run snapshots with immutable evidence, audited human decisions, bounded retries, and deterministic replay verification;
+- executable run snapshots with immutable evidence, audited human decisions, bounded retries, deterministic replay verification, expiring executor leases with explicit identity, and audited evidence invalidation;
 - deterministic evidence selection and token-budget reporting, including one-step compilation of typed Weavatrix evidence;
 - inspectable model/context routing with fail-closed escalation;
 - an offline model-profile calibration harness (`cortex-eval`) with typed fixtures, fail-closed verdicts, and no hidden model pulls;

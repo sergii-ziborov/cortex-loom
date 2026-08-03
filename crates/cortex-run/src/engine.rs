@@ -2,15 +2,18 @@ use std::collections::HashSet;
 
 use cortex_domain::{EdgeKind, GraphDocument, NodeKind};
 
-use crate::evidence::{EvidenceInput, submit_evidence, validate_evidence_references};
+use crate::evidence::{
+    EvidenceInput, invalidate_evidence, submit_evidence, validate_evidence_references,
+};
 use crate::flow::{ensure_acyclic_flow, incoming_flow, is_flow_edge};
 use crate::human::{HumanDecisionInput, decide_human_gate};
+use crate::lease::{claim_lease, clear_lease, enforce_lease, release_lease};
 use crate::retry::{trigger_retry, validate_retry_nodes};
 use crate::transition::{cancel_run, complete_node};
 use crate::{
-    EdgeRunState, EdgeRunStatus, HumanDecision, MAX_RUN_DETAIL_BYTES, MAX_RUN_ID_BYTES,
-    NodeOutcome, NodeRunState, NodeRunStatus, RUN_SCHEMA_VERSION, RunCommand, RunDocument,
-    RunError, RunEvent, RunEventKind, RunStatus,
+    EdgeRunState, EdgeRunStatus, ExecutorIdentity, HumanDecision, MAX_RUN_DETAIL_BYTES,
+    MAX_RUN_ID_BYTES, NodeOutcome, NodeRunState, NodeRunStatus, RUN_SCHEMA_VERSION, RunCommand,
+    RunDocument, RunError, RunEvent, RunEventKind, RunStatus,
 };
 
 struct Applied {
@@ -45,6 +48,7 @@ pub fn create_run(
             evidence_ids: Vec::new(),
             detail: None,
             human_decision: None,
+            lease: None,
         })
         .collect();
     let edges = graph
@@ -95,6 +99,8 @@ pub fn apply_command(
     ))
 }
 
+// A pure delegation match: every arm forwards to one apply_* helper.
+#[allow(clippy::too_many_lines)]
 fn dispatch_command(
     run: &mut RunDocument,
     graph: &GraphDocument,
@@ -102,7 +108,10 @@ fn dispatch_command(
     now: i64,
 ) -> Result<Applied, RunError> {
     match command {
-        RunCommand::StartNode { node_id, .. } => {
+        RunCommand::StartNode {
+            node_id, executor, ..
+        } => {
+            enforce_lease(run, node_id, executor.as_ref(), now)?;
             start_node(run, graph, node_id)?;
             Ok(Applied::node(RunEventKind::NodeStarted, node_id))
         }
@@ -114,6 +123,7 @@ fn dispatch_command(
             locator,
             digest,
             summary,
+            executor,
             ..
         } => apply_evidence(
             run,
@@ -127,6 +137,7 @@ fn dispatch_command(
                 digest: digest.as_ref(),
                 summary,
             },
+            executor.as_ref(),
             now,
         ),
         RunCommand::CompleteNode {
@@ -135,6 +146,7 @@ fn dispatch_command(
             selected_edge_ids,
             evidence_ids,
             detail,
+            executor,
             ..
         } => apply_completion(
             run,
@@ -144,6 +156,8 @@ fn dispatch_command(
             selected_edge_ids,
             evidence_ids,
             detail.as_ref(),
+            executor.as_ref(),
+            now,
         ),
         RunCommand::DecideHumanGate {
             node_id,
@@ -152,6 +166,7 @@ fn dispatch_command(
             reason,
             selected_edge_ids,
             evidence_ids,
+            executor,
             ..
         } => apply_human_decision(
             run,
@@ -162,8 +177,36 @@ fn dispatch_command(
             reason,
             selected_edge_ids,
             evidence_ids,
+            executor.as_ref(),
             now,
         ),
+        RunCommand::ClaimLease {
+            node_id,
+            executor,
+            ttl_seconds,
+            ..
+        } => apply_lease_claim(run, graph, node_id, executor, *ttl_seconds, now),
+        RunCommand::ReleaseLease {
+            node_id, executor, ..
+        } => {
+            release_lease(run, node_id, executor)?;
+            Ok(Applied::node(RunEventKind::LeaseReleased, node_id))
+        }
+        RunCommand::InvalidateEvidence {
+            evidence_id,
+            actor,
+            reason,
+            ..
+        } => {
+            invalidate_evidence(run, evidence_id, actor, reason, now)?;
+            Ok(Applied {
+                kind: RunEventKind::EvidenceInvalidated,
+                node_id: None,
+                edge_ids: Vec::new(),
+                evidence_ids: vec![evidence_id.clone()],
+                detail: Some(reason.clone()),
+            })
+        }
         RunCommand::TriggerRetry {
             retry_node_id,
             reason,
@@ -173,12 +216,32 @@ fn dispatch_command(
     }
 }
 
+fn apply_lease_claim(
+    run: &mut RunDocument,
+    graph: &GraphDocument,
+    node_id: &str,
+    executor: &ExecutorIdentity,
+    ttl_seconds: u32,
+    now: i64,
+) -> Result<Applied, RunError> {
+    claim_lease(run, graph, node_id, executor, ttl_seconds, now)?;
+    Ok(Applied {
+        kind: RunEventKind::LeaseClaimed,
+        node_id: Some(node_id.to_owned()),
+        edge_ids: Vec::new(),
+        evidence_ids: Vec::new(),
+        detail: Some(format!("{:?}:{}", executor.kind, executor.id)),
+    })
+}
+
 fn apply_evidence(
     run: &mut RunDocument,
     graph: &GraphDocument,
     input: &EvidenceInput<'_>,
+    executor: Option<&ExecutorIdentity>,
     now: i64,
 ) -> Result<Applied, RunError> {
+    enforce_lease(run, input.node_id, executor, now)?;
     submit_evidence(run, graph, input, now)?;
     Ok(Applied {
         kind: RunEventKind::EvidenceSubmitted,
@@ -277,6 +340,7 @@ fn start_node(run: &mut RunDocument, graph: &GraphDocument, node_id: &str) -> Re
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn apply_completion(
     run: &mut RunDocument,
     graph: &GraphDocument,
@@ -285,7 +349,10 @@ fn apply_completion(
     selected: &[String],
     evidence_ids: &[String],
     detail: Option<&String>,
+    executor: Option<&ExecutorIdentity>,
+    now: i64,
 ) -> Result<Applied, RunError> {
+    enforce_lease(run, node_id, executor, now)?;
     let node = graph
         .nodes
         .iter()
@@ -318,6 +385,7 @@ fn apply_completion(
         evidence_ids,
         detail.cloned(),
     )?;
+    clear_lease(run, node_id);
     Ok(Applied {
         kind: match outcome {
             NodeOutcome::Succeeded => RunEventKind::NodeSucceeded,
@@ -340,8 +408,10 @@ fn apply_human_decision(
     reason: &str,
     selected: &[String],
     evidence_ids: &[String],
+    executor: Option<&ExecutorIdentity>,
     now: i64,
 ) -> Result<Applied, RunError> {
+    enforce_lease(run, node_id, executor, now)?;
     let node = graph
         .nodes
         .iter()
@@ -361,6 +431,7 @@ fn apply_human_decision(
         },
         now,
     )?;
+    clear_lease(run, node_id);
     Ok(Applied {
         kind: match decision {
             HumanDecision::Approved => RunEventKind::HumanApproved,

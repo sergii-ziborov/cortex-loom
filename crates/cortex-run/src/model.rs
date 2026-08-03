@@ -42,6 +42,37 @@ pub struct NodeRunState {
     pub detail: Option<String>,
     #[serde(default)]
     pub human_decision: Option<HumanDecisionRecord>,
+    /// Current executor lease; history lives in the append-only events.
+    #[serde(default)]
+    pub lease: Option<NodeLeaseState>,
+}
+
+/// Who executes work on behalf of a run node. Explicit identity is required
+/// to claim a lease; command actors remain free-form audit strings.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecutorIdentity {
+    pub kind: ExecutorKind,
+    pub id: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutorKind {
+    Human,
+    UpstreamAgent,
+    LocalModel,
+    Service,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeLeaseState {
+    pub executor: ExecutorIdentity,
+    pub claimed_at: i64,
+    /// Expiry is evaluated lazily against each command's timestamp, so it is
+    /// deterministic under replay; no background timer exists.
+    pub expires_at: i64,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -92,6 +123,18 @@ pub struct EvidenceSubmission {
     pub digest: Option<String>,
     pub summary: String,
     pub submitted_at: i64,
+    /// Recorded invalidation; the submission itself is never deleted, but an
+    /// invalidated id can no longer be cited by later commands.
+    #[serde(default)]
+    pub invalidated: Option<EvidenceInvalidation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct EvidenceInvalidation {
+    pub actor: String,
+    pub reason: String,
+    pub invalidated_at: i64,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -145,6 +188,9 @@ pub enum RunEventKind {
     NodeSucceeded,
     NodeFailed,
     EvidenceSubmitted,
+    EvidenceInvalidated,
+    LeaseClaimed,
+    LeaseReleased,
     HumanApproved,
     HumanRejected,
     RetryTriggered,

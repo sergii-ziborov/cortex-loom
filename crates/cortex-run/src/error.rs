@@ -4,8 +4,8 @@ use cortex_domain::GraphError;
 
 use crate::{
     MAX_EVIDENCE_FIELD_BYTES, MAX_EVIDENCE_ID_BYTES, MAX_EVIDENCE_IDS, MAX_EVIDENCE_SUBMISSIONS,
-    MAX_REPLAY_EVENTS, MAX_RETRY_ATTEMPTS, MAX_RUN_DETAIL_BYTES, MAX_RUN_ID_BYTES, NodeRunStatus,
-    RunStatus,
+    MAX_LEASE_TTL_SECONDS, MAX_REPLAY_EVENTS, MAX_RETRY_ATTEMPTS, MAX_RUN_DETAIL_BYTES,
+    MAX_RUN_ID_BYTES, MIN_LEASE_TTL_SECONDS, NodeRunStatus, RunStatus,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,6 +48,17 @@ pub enum RunError {
         id: String,
         attempt: u32,
     },
+    EvidenceInvalidatedError(String),
+    EvidenceAlreadyInvalidated(String),
+    LeaseHeld {
+        node: String,
+        holder: String,
+        expires_at: i64,
+    },
+    LeaseNotFound(String),
+    InvalidLeaseTtl(u32),
+    InvalidExecutor(&'static str),
+    LeaseUnsupportedNode(String),
     HumanDecisionRequired(String),
     InvalidHumanGate(String),
     RetryCommandRequired(String),
@@ -79,7 +90,14 @@ impl Display for RunError {
             | Self::DuplicateEvidence(_)
             | Self::UnknownEvidence(_)
             | Self::EvidenceNodeMismatch { .. }
-            | Self::EvidenceAttemptMismatch { .. } => self.fmt_evidence(formatter),
+            | Self::EvidenceAttemptMismatch { .. }
+            | Self::EvidenceInvalidatedError(_)
+            | Self::EvidenceAlreadyInvalidated(_) => self.fmt_evidence(formatter),
+            Self::LeaseHeld { .. }
+            | Self::LeaseNotFound(_)
+            | Self::InvalidLeaseTtl(_)
+            | Self::InvalidExecutor(_)
+            | Self::LeaseUnsupportedNode(_) => self.fmt_lease(formatter),
             Self::HumanDecisionRequired(_)
             | Self::InvalidHumanGate(_)
             | Self::RetryCommandRequired(_)
@@ -178,7 +196,39 @@ impl RunError {
                     "evidence {id} was not submitted for attempt {attempt}"
                 )
             }
+            Self::EvidenceInvalidatedError(id) => {
+                write!(
+                    formatter,
+                    "evidence {id} was invalidated and cannot be cited"
+                )
+            }
+            Self::EvidenceAlreadyInvalidated(id) => {
+                write!(formatter, "evidence {id} is already invalidated")
+            }
             _ => unreachable!("non-evidence run error"),
+        }
+    }
+
+    fn fmt_lease(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::LeaseHeld {
+                node,
+                holder,
+                expires_at,
+            } => write!(
+                formatter,
+                "node {node} is leased by {holder} until {expires_at}"
+            ),
+            Self::LeaseNotFound(node) => write!(formatter, "node {node} has no lease"),
+            Self::InvalidLeaseTtl(ttl) => write!(
+                formatter,
+                "lease ttl {ttl}s is outside {MIN_LEASE_TTL_SECONDS}..={MAX_LEASE_TTL_SECONDS}"
+            ),
+            Self::InvalidExecutor(message) => write!(formatter, "invalid executor: {message}"),
+            Self::LeaseUnsupportedNode(node) => {
+                write!(formatter, "retry controller {node} cannot be leased")
+            }
+            _ => unreachable!("non-lease run error"),
         }
     }
 

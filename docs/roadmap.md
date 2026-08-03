@@ -16,7 +16,7 @@
 
 ## Next implementation milestones
 
-1. Extend durable runs with evidence invalidation, executor leases, lease expiry, and explicit external-executor identity.
+1. ~~Extend durable runs with evidence invalidation, executor leases, lease expiry, and explicit external-executor identity.~~ Done: typed `ExecutorIdentity`, `claim_lease`/`release_lease` commands with bounded TTL and lazy replay-deterministic expiry, lease enforcement on node commands, retry/completion lease clearing, and `invalidate_evidence` that blocks future citations while keeping the audit record. UI surfaces for leases remain future work.
 2. ~~Add graph-to-agent adapters for Codex, Claude Code, and Copilot while keeping the canonical graph vendor-neutral.~~ Done (iteration 1): `cortex-adapters` renders preview-only vendor wiring (skill instructions plus MCP registration) from one canonical graph via the `adapter_export` MCP tool and `GET /api/adapters/{agent}`. Remaining: run-node execution by external agents stays gated on milestone 1 leases and executor identity.
 3. ~~Wire evaluated Ollama profiles into the MCP host behind explicit runtime configuration and shadow-mode metrics.~~ Done (iteration 1): `cortex-shadow` observes `route_work` and `weavatrix_context_compile` behind `CORTEX_SHADOW=1`, with append-only samples, `shadow_metrics_read`, and `/api/shadow/*`; see [shadow-mode.md](shadow-mode.md). Remaining: promotion criteria stay gated on calibration verdicts and shadow agreement data.
 4. Add embeddings and retrieval evaluation before permitting semantic evidence selection.

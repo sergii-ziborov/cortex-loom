@@ -48,6 +48,8 @@ The protocol-independent crates do not depend on MCP, HTTP, or the UI. `cortex-m
 - Runs retain the exact graph revision and snapshot from which they were created; graph edits never rewrite an active run.
 - Every run command requires the current run revision and appends one durable event in the same SQLite transaction.
 - Evidence is an immutable submission scoped to one node attempt. A later retry preserves it for audit but cannot cite it as evidence for the new attempt.
+- Evidence can be invalidated with an audited actor and reason; the submission record is never deleted, but an invalidated id can no longer be cited by later commands. Historical decisions that cited it before invalidation are never rewritten.
+- Executor leases give one explicit, typed identity (human, upstream agent, local model, or service) exclusive execution of a node. Expiry is evaluated lazily against each command's recorded timestamp, so it is deterministic under replay; an expired lease is claimable and a reopened retry attempt is never pinned to the previous executor. A node without a lease stays open: leases add exclusivity, never authority.
 - Human and review gates reject generic completion. They require an explicit `approved` or `rejected` decision with actor, reason, and same-attempt evidence references.
 - Successful completion traverses sequence/context/tool/success/approval/requires edges; failure traverses failure/fallback/reject/escalation edges.
 - Conditional edges are never inferred from free-form expressions. A branch transition requires an explicit edge ID.

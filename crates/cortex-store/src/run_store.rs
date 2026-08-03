@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex, MutexGuard};
+﻿use std::sync::{Arc, Mutex, MutexGuard};
 
 use cortex_domain::GraphDocument;
 use cortex_run::{
@@ -239,6 +239,7 @@ mod tests {
                 &RunCommand::StartNode {
                     expected_revision: created.revision,
                     node_id: "request".to_owned(),
+                    executor: None,
                 },
             )
             .expect("start node");
@@ -272,6 +273,7 @@ mod tests {
                 &RunCommand::StartNode {
                     expected_revision: 0,
                     node_id: "request".to_owned(),
+                    executor: None,
                 },
             )
             .expect_err("stale command");
@@ -332,6 +334,7 @@ mod tests {
             &RunCommand::StartNode {
                 expected_revision: created.revision,
                 node_id: "request".to_owned(),
+                executor: None,
             },
         )
         .expect("start node");
@@ -354,6 +357,7 @@ mod tests {
                 &RunCommand::StartNode {
                     expected_revision: created.revision,
                     node_id: "request".to_owned(),
+                    executor: None,
                 },
             )
             .expect("start node");
@@ -392,6 +396,7 @@ mod tests {
                 &RunCommand::StartNode {
                     expected_revision: 1,
                     node_id: "request".to_owned(),
+                    executor: None,
                 },
             )
         })

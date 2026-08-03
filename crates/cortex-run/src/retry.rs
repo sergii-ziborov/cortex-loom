@@ -154,6 +154,8 @@ fn rewind(run: &mut RunDocument, graph: &GraphDocument, target_id: &str) -> Resu
         state.evidence_ids.clear();
         state.detail = None;
         state.human_decision = None;
+        // A reopened attempt must not stay pinned to the previous executor.
+        state.lease = None;
     }
     for edge in &mut run.edges {
         let definition = graph

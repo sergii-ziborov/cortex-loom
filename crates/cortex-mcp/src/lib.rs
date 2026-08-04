@@ -11,7 +11,7 @@ use cortex_shadow::{
     CompressionSnapshot, RoutingSnapshot, ShadowConfig, ShadowEvidence, ShadowHandle, ShadowTask,
 };
 use cortex_skills::{export_skill_markdown, import_skill_markdown};
-use cortex_store::{GraphStore, ShadowOperation, UsageOperation, UsageSample};
+use cortex_store::{GraphStore, ShadowOperation, UsageOperation, UsageReport, UsageSample};
 use cortex_weavatrix::{
     RefactorOperation, WeavatrixAdapter, WeavatrixConfig, compile_evidence_bundle,
 };
@@ -116,6 +116,16 @@ struct UsageReadArgs {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct UsageReportArgs {
+    run_id: Option<String>,
+    agent: String,
+    input_tokens: u64,
+    output_tokens: u64,
+    note: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct AdapterExportArgs {
     graph_id: Option<String>,
     agent: AgentKind,
@@ -162,6 +172,7 @@ pub fn serve(state: CortexMcpState) -> io::Result<()> {
     let shadow_state = Arc::clone(&state);
     let adapter_state = Arc::clone(&state);
     let usage_state = Arc::clone(&state);
+    let report_state = Arc::clone(&state);
 
     let server = ConcurrentMcpServer::new("cortex-loom", env!("CARGO_PKG_VERSION"))
         .instructions(
@@ -535,6 +546,41 @@ pub fn serve(state: CortexMcpState) -> io::Result<()> {
                     "quality": quality,
                     "samples": samples,
                 }))
+            },
+        )
+        .typed_tool(
+            "usage_report",
+            "Self-report upstream token consumption into the append-only ledger, optionally attributed to a run. Closes the token balance; it is honest self-reporting, not verification.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "runId": {"type": "string", "maxLength": 256},
+                    "agent": {"type": "string", "maxLength": 256},
+                    "inputTokens": {"type": "integer", "minimum": 0, "maximum": 100_000_000},
+                    "outputTokens": {"type": "integer", "minimum": 0, "maximum": 100_000_000},
+                    "note": {"type": "string", "maxLength": 2048}
+                },
+                "required": ["agent", "inputTokens", "outputTokens"],
+                "additionalProperties": false
+            }),
+            move |context, arguments: UsageReportArgs| {
+                if context.is_cancelled() {
+                    return ToolReply::error("cancelled");
+                }
+                if arguments.agent.trim().is_empty() {
+                    return ToolReply::error("agent must not be empty");
+                }
+                let report = UsageReport {
+                    run_id: arguments.run_id,
+                    agent: arguments.agent,
+                    input_tokens: arguments.input_tokens,
+                    output_tokens: arguments.output_tokens,
+                    note: arguments.note,
+                };
+                match report_state.store.usage().insert_report(&report) {
+                    Ok(id) => ToolReply::structured(serde_json::json!({"recorded": true, "id": id})),
+                    Err(error) => ToolReply::error(error.to_string()),
+                }
             },
         )
         .typed_tool(

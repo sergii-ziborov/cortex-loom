@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 pub const MCP_SERVER_NAME: &str = "cortex-loom";
 
 /// Shared usage contract embedded into every vendor instruction file.
-const USAGE_NOTE: &str = "Use `route_work` before acting on a task. Fetch bounded, citable repository evidence with `weavatrix_context_compile` and keep every `TASK`/`WX-*` citation ID in derived output. Local-model output is advisory only. High-risk, ambiguous, unverified, or mutating work stays with the upstream agent or a human gate, and Weavatrix Refactor remains preview-only.";
+const USAGE_NOTE: &str = "Use `route_work` before acting on a task, passing `runId` when you execute a run node. Fetch bounded, citable repository evidence with `weavatrix_context_compile` (default `maxTokens: 4000` — the measured sweet spot; large fragments arrive as split `WX-*-n` sub-citations) and keep every `TASK`/`WX-*` citation ID in derived output. When you finish a task, self-report your consumption with `usage_report { runId, agent, inputTokens, outputTokens }` so savings can be credited against real upstream cost. Local-model output is advisory only. High-risk, ambiguous, unverified, or mutating work stays with the upstream agent or a human gate, and Weavatrix Refactor remains preview-only.";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]

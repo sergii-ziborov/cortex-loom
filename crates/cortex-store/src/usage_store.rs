@@ -72,6 +72,28 @@ pub struct UsageSampleRow {
     pub sample: UsageSample,
 }
 
+/// Upstream-side consumption self-reported by an executor agent. This closes
+/// the token balance without access to vendor billing; it is honest
+/// self-reporting, not verification.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageReport {
+    pub run_id: Option<String>,
+    pub agent: String,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageReportRow {
+    pub id: i64,
+    pub created_at: i64,
+    #[serde(flatten)]
+    pub report: UsageReport,
+}
+
 /// Bounded roll-up over the most recent samples.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -87,6 +109,10 @@ pub struct UsageSummary {
     pub requires_upstream_count: u32,
     pub compile_latency_p50_ms: u64,
     pub compile_latency_p95_ms: u64,
+    /// Self-reported upstream consumption over the report window.
+    pub upstream_reports: u32,
+    pub upstream_input_tokens_total: u64,
+    pub upstream_output_tokens_total: u64,
 }
 
 /// Quality signals for one run the ledger attributes savings to.
@@ -106,6 +132,10 @@ pub struct RunQuality {
     pub compile_calls: u32,
     pub selected_tokens: u64,
     pub saved_tokens: u64,
+    /// Self-reported upstream consumption attributed to this run.
+    pub upstream_reports: u32,
+    pub upstream_input_tokens: u64,
+    pub upstream_output_tokens: u64,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -170,6 +200,31 @@ impl UsageStore {
         self.query(operation, limit)
     }
 
+    /// Append one immutable upstream report and return its row id.
+    pub fn insert_report(&self, report: &UsageReport) -> Result<i64, StoreError> {
+        let connection = self.lock()?;
+        connection.execute(
+            "INSERT INTO usage_reports
+             (created_at, run_id, agent, input_tokens, output_tokens, note)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                unix_timestamp(),
+                report.run_id,
+                report.agent,
+                i64::try_from(report.input_tokens).unwrap_or(i64::MAX),
+                i64::try_from(report.output_tokens).unwrap_or(i64::MAX),
+                report.note,
+            ],
+        )?;
+        Ok(connection.last_insert_rowid())
+    }
+
+    /// Most recent upstream reports, newest first, bounded to 100 rows.
+    pub fn list_reports(&self, limit: usize) -> Result<Vec<UsageReportRow>, StoreError> {
+        let limit = i64::try_from(limit.clamp(1, 100)).unwrap_or(100);
+        self.query_reports(limit)
+    }
+
     /// Roll up the most recent samples into one bounded summary.
     pub fn summary(&self) -> Result<UsageSummary, StoreError> {
         let window = i64::try_from(SUMMARY_WINDOW).unwrap_or(10_000);
@@ -185,6 +240,9 @@ impl UsageStore {
             requires_upstream_count: 0,
             compile_latency_p50_ms: 0,
             compile_latency_p95_ms: 0,
+            upstream_reports: 0,
+            upstream_input_tokens_total: 0,
+            upstream_output_tokens_total: 0,
         };
         let mut latencies = Vec::new();
         for row in &rows {
@@ -213,6 +271,11 @@ impl UsageStore {
         latencies.sort_unstable();
         summary.compile_latency_p50_ms = percentile(&latencies, 50);
         summary.compile_latency_p95_ms = percentile(&latencies, 95);
+        for row in self.query_reports(window)? {
+            summary.upstream_reports += 1;
+            summary.upstream_input_tokens_total += row.report.input_tokens;
+            summary.upstream_output_tokens_total += row.report.output_tokens;
+        }
         Ok(summary)
     }
 
@@ -237,6 +300,19 @@ impl UsageStore {
             entry.1 += u64::from(row.sample.selected_tokens.unwrap_or(0));
             entry.2 += u64::from(row.sample.saved_tokens.unwrap_or(0));
         }
+        let mut per_run_reports: BTreeMap<String, (u32, u64, u64)> = BTreeMap::new();
+        for row in self.query_reports(window)? {
+            let Some(run_id) = &row.report.run_id else {
+                continue;
+            };
+            if !per_run.contains_key(run_id) && !per_run_reports.contains_key(run_id) {
+                order.push(run_id.clone());
+            }
+            let entry = per_run_reports.entry(run_id.clone()).or_insert((0, 0, 0));
+            entry.0 += 1;
+            entry.1 += row.report.input_tokens;
+            entry.2 += row.report.output_tokens;
+        }
 
         let mut summary = QualitySummary {
             attributed_runs: 0,
@@ -247,7 +323,10 @@ impl UsageStore {
             runs: Vec::new(),
         };
         for run_id in order.into_iter().take(MAX_QUALITY_RUNS) {
-            let (compile_calls, selected_tokens, saved_tokens) = per_run[&run_id];
+            let (compile_calls, selected_tokens, saved_tokens) =
+                per_run.get(&run_id).copied().unwrap_or((0, 0, 0));
+            let (upstream_reports, upstream_input_tokens, upstream_output_tokens) =
+                per_run_reports.get(&run_id).copied().unwrap_or((0, 0, 0));
             let document = self
                 .lock()?
                 .query_row(
@@ -291,6 +370,9 @@ impl UsageStore {
                 compile_calls,
                 selected_tokens,
                 saved_tokens,
+                upstream_reports,
+                upstream_input_tokens,
+                upstream_output_tokens,
             });
         }
         Ok(summary)
@@ -357,6 +439,34 @@ impl UsageStore {
                 })
             })
             .collect()
+    }
+
+    fn query_reports(&self, limit: i64) -> Result<Vec<UsageReportRow>, StoreError> {
+        let connection = self.lock()?;
+        let mut statement = connection.prepare(
+            "SELECT id, created_at, run_id, agent, input_tokens, output_tokens, note
+             FROM usage_reports ORDER BY id DESC LIMIT ?1",
+        )?;
+        let rows = statement
+            .query_map([limit], |row| {
+                Ok(UsageReportRow {
+                    id: row.get(0)?,
+                    created_at: row.get(1)?,
+                    report: UsageReport {
+                        run_id: row.get(2)?,
+                        agent: row.get(3)?,
+                        input_tokens: row
+                            .get::<_, i64>(4)
+                            .map(|value| u64::try_from(value).unwrap_or(0))?,
+                        output_tokens: row
+                            .get::<_, i64>(5)
+                            .map(|value| u64::try_from(value).unwrap_or(0))?,
+                        note: row.get(6)?,
+                    },
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
     }
 
     fn lock(&self) -> Result<MutexGuard<'_, Connection>, StoreError> {
@@ -514,6 +624,31 @@ mod tests {
         usage.insert(&attributed("ghost", 100, 50)).unwrap();
         usage.insert(&compile_sample(100, 50, 1)).unwrap();
 
+        usage
+            .insert_report(&UsageReport {
+                run_id: Some("clean".to_owned()),
+                agent: "claude-code".to_owned(),
+                input_tokens: 20_000,
+                output_tokens: 4_000,
+                note: Some("dogfood balance".to_owned()),
+            })
+            .unwrap();
+        usage
+            .insert_report(&UsageReport {
+                run_id: None,
+                agent: "claude-code".to_owned(),
+                input_tokens: 500,
+                output_tokens: 100,
+                note: None,
+            })
+            .unwrap();
+
+        let summary = usage.summary().unwrap();
+        assert_eq!(summary.upstream_reports, 2);
+        assert_eq!(summary.upstream_input_tokens_total, 20_500);
+        assert_eq!(summary.upstream_output_tokens_total, 4_100);
+        assert_eq!(usage.list_reports(1).unwrap().len(), 1);
+
         let quality = usage.quality_summary().unwrap();
         assert_eq!(quality.attributed_runs, 3);
         assert_eq!(quality.quality_equivalent_runs, 1);
@@ -527,6 +662,9 @@ mod tests {
             .unwrap();
         assert!(clean_row.quality_equivalent && !clean_row.retried && !clean_row.rejected);
         assert_eq!(clean_row.compile_calls, 2);
+        assert_eq!(clean_row.upstream_reports, 1);
+        assert_eq!(clean_row.upstream_input_tokens, 20_000);
+        assert_eq!(clean_row.upstream_output_tokens, 4_000);
         let ghost_row = quality
             .runs
             .iter()

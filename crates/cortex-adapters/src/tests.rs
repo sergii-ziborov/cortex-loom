@@ -27,6 +27,14 @@ fn every_agent_bundle_derives_from_the_canonical_graph() {
             "usage contract is present"
         );
         assert!(
+            instructions.contains("maxTokens: 4000"),
+            "measured default budget is recommended"
+        );
+        assert!(
+            instructions.contains("usage_report"),
+            "agents are told to close the token balance"
+        );
+        assert!(
             bundle
                 .notes
                 .iter()

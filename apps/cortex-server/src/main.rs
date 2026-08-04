@@ -12,7 +12,7 @@ use cortex_domain::{GraphDocument, default_control_plane};
 use cortex_skills::{export_skill_markdown, import_skill_markdown};
 use cortex_store::{
     GraphStore, QualitySummary, ShadowAggregate, ShadowOperation, ShadowSampleRow, StoreError,
-    UsageOperation, UsageSampleRow, UsageSummary,
+    UsageOperation, UsageReport, UsageReportRow, UsageSampleRow, UsageSummary,
 };
 use include_dir::{Dir, include_dir};
 use serde::{Deserialize, Serialize};
@@ -135,6 +135,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/usage/summary", get(usage_summary))
         .route("/api/usage/quality", get(usage_quality))
         .route("/api/usage/samples", get(usage_samples))
+        .route("/api/usage/reports", get(usage_reports).post(usage_report))
         .route("/api/adapters/{agent}", get(adapter_bundle))
         .merge(runs::routes())
         .with_state(state);
@@ -311,6 +312,26 @@ async fn usage_summary(State(state): State<AppState>) -> Result<Json<UsageSummar
 /// Savings joined with run outcomes: only clean succeeded runs are credited.
 async fn usage_quality(State(state): State<AppState>) -> Result<Json<QualitySummary>, ApiError> {
     Ok(Json(state.store.usage().quality_summary()?))
+}
+
+/// Append one self-reported upstream consumption record.
+async fn usage_report(
+    State(state): State<AppState>,
+    Json(report): Json<UsageReport>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    if report.agent.trim().is_empty() {
+        return Err(ApiError::BadRequest("agent must not be empty".to_owned()));
+    }
+    let id = state.store.usage().insert_report(&report)?;
+    Ok(Json(json!({"recorded": true, "id": id})))
+}
+
+async fn usage_reports(
+    State(state): State<AppState>,
+    Query(query): Query<ShadowQuery>,
+) -> Result<Json<Vec<UsageReportRow>>, ApiError> {
+    let limit = query.limit.unwrap_or(20).clamp(1, 100);
+    Ok(Json(state.store.usage().list_reports(limit)?))
 }
 
 async fn usage_samples(

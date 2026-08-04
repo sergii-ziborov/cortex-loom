@@ -16,8 +16,8 @@ pub use shadow_store::{
     ShadowAggregate, ShadowOperation, ShadowSample, ShadowSampleRow, ShadowStore,
 };
 pub use usage_store::{
-    QualitySummary, RunQuality, UsageOperation, UsageSample, UsageSampleRow, UsageStore,
-    UsageSummary,
+    QualitySummary, RunQuality, UsageOperation, UsageReport, UsageReportRow, UsageSample,
+    UsageSampleRow, UsageStore, UsageSummary,
 };
 
 #[derive(Clone)]
@@ -189,6 +189,15 @@ impl GraphStore {
                saved_tokens INTEGER,
                requires_upstream INTEGER,
                latency_ms INTEGER
+             );
+             CREATE TABLE IF NOT EXISTS usage_reports (
+               id INTEGER PRIMARY KEY AUTOINCREMENT,
+               created_at INTEGER NOT NULL,
+               run_id TEXT,
+               agent TEXT NOT NULL,
+               input_tokens INTEGER NOT NULL,
+               output_tokens INTEGER NOT NULL,
+               note TEXT
              );",
         )?;
         ensure_column(&connection, "usage_samples", "run_id", "run_id TEXT")?;

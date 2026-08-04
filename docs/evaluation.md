@@ -18,6 +18,14 @@ Promotion requires:
 
 ## Token accounting
 
+The `usage_samples` ledger records every routing decision and every context
+compilation (budget, raw/selected/saved tokens, `requiresUpstream`, latency);
+read it via the `usage_read` MCP tool or `GET /api/usage/summary`. First
+on-repo measurement: the dogfood task packet compressed from 7479 raw
+evidence tokens to 1461 under a 4k budget (80.5% saved, omission reported,
+fail-closed escalation unchanged), against roughly 9k tokens of naive file
+reading.
+
 Record, per workflow:
 
 - raw evidence bytes and estimated tokens;

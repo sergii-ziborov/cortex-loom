@@ -73,6 +73,7 @@ fn active_configuration_parses_bounds() {
     assert_eq!(config.timeout_ms, 1_500);
     assert_eq!(config.queue_capacity, 8);
     assert_eq!(config.medium_model, None);
+    assert_eq!(config.max_compression_input_tokens, 2_048, "default cap");
 }
 
 #[test]
@@ -209,6 +210,7 @@ fn a_full_queue_drops_samples_without_blocking_the_caller() {
         medium_model: None,
         timeout_ms: 1_000,
         queue_capacity: 1,
+        max_compression_input_tokens: 2_048,
     };
     let store = GraphStore::open_in_memory().unwrap().shadow();
     let handle = spawn_with_backend(config, store, backend)
@@ -233,4 +235,39 @@ fn a_full_queue_drops_samples_without_blocking_the_caller() {
     });
 
     drop(release);
+}
+
+#[test]
+fn oversize_compression_payloads_are_skipped_and_counted() {
+    let backend = ScriptedBackend::new(Vec::new(), vec![Ok("unused".to_owned())]);
+    let config = ShadowConfig {
+        enabled: true,
+        small_model: None,
+        medium_model: Some("qwen-test:9b".to_owned()),
+        timeout_ms: 1_000,
+        queue_capacity: 4,
+        max_compression_input_tokens: 100,
+    };
+    let store = GraphStore::open_in_memory().unwrap().shadow();
+    let handle = spawn_with_backend(config, store, backend)
+        .unwrap()
+        .expect("active configuration");
+
+    let oversized = ShadowTask::ContextCompression {
+        task: "Summarize".to_owned(),
+        evidence: vec![ShadowEvidence {
+            id: "WX-BIG".to_owned(),
+            source: "weavatrix:big".to_owned(),
+            content: "x".repeat(4_000),
+        }],
+        deterministic: CompressionSnapshot {
+            included_ids: vec!["WX-BIG".to_owned()],
+            omitted_ids: Vec::new(),
+            selected_estimated_tokens: 1_000,
+            requires_upstream: true,
+        },
+    };
+    handle.observe(oversized);
+    assert_eq!(handle.oversize_skipped(), 1);
+    assert_eq!(handle.dropped(), 0, "a skip is not a queue drop");
 }

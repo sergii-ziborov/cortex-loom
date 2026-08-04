@@ -10,7 +10,10 @@ use axum::{Json, Router};
 use cortex_adapters::{AdapterBundle, AgentKind, McpLaunch, export_adapter};
 use cortex_domain::{GraphDocument, default_control_plane};
 use cortex_skills::{export_skill_markdown, import_skill_markdown};
-use cortex_store::{GraphStore, ShadowAggregate, ShadowOperation, ShadowSampleRow, StoreError};
+use cortex_store::{
+    GraphStore, ShadowAggregate, ShadowOperation, ShadowSampleRow, StoreError, UsageOperation,
+    UsageSampleRow, UsageSummary,
+};
 use include_dir::{Dir, include_dir};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -129,6 +132,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/skills/export", post(export_skill))
         .route("/api/shadow/metrics", get(shadow_metrics))
         .route("/api/shadow/samples", get(shadow_samples))
+        .route("/api/usage/summary", get(usage_summary))
+        .route("/api/usage/samples", get(usage_samples))
         .route("/api/adapters/{agent}", get(adapter_bundle))
         .merge(runs::routes())
         .with_state(state);
@@ -295,6 +300,26 @@ async fn shadow_samples(
         query.model.as_deref(),
         limit,
     )?))
+}
+
+/// Bounded read of the append-only token-accounting ledger.
+async fn usage_summary(State(state): State<AppState>) -> Result<Json<UsageSummary>, ApiError> {
+    Ok(Json(state.store.usage().summary()?))
+}
+
+async fn usage_samples(
+    State(state): State<AppState>,
+    Query(query): Query<ShadowQuery>,
+) -> Result<Json<Vec<UsageSampleRow>>, ApiError> {
+    let operation = match query.operation.as_deref() {
+        None => None,
+        Some(raw) => Some(
+            UsageOperation::parse(raw)
+                .ok_or_else(|| ApiError::BadRequest(format!("unknown usage operation: {raw}")))?,
+        ),
+    };
+    let limit = query.limit.unwrap_or(20).clamp(1, 100);
+    Ok(Json(state.store.usage().list(operation, limit)?))
 }
 
 /// Serve one embedded UI asset; extensionless paths fall back to the SPA

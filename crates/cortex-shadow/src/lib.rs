@@ -33,6 +33,11 @@ pub struct ShadowConfig {
     pub medium_model: Option<String>,
     pub timeout_ms: u64,
     pub queue_capacity: usize,
+    /// Compression observations larger than this estimated input are skipped
+    /// and counted instead of queued: on-CPU latency for large payloads does
+    /// not produce comparable samples (dogfood finding — a real 7.5k-token
+    /// packet timed out where 200-token fixtures succeeded).
+    pub max_compression_input_tokens: u32,
 }
 
 impl ShadowConfig {
@@ -58,6 +63,9 @@ impl ShadowConfig {
             queue_capacity: non_empty("CORTEX_SHADOW_QUEUE")
                 .and_then(|value| value.parse().ok())
                 .unwrap_or(64),
+            max_compression_input_tokens: non_empty("CORTEX_SHADOW_MAX_COMPRESSION_TOKENS")
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(2_048),
         }
     }
 
@@ -134,14 +142,18 @@ impl std::error::Error for ShadowError {}
 pub struct ShadowHandle {
     sender: SyncSender<ShadowTask>,
     dropped: Arc<AtomicU64>,
+    oversize_skipped: Arc<AtomicU64>,
     small_model: Option<String>,
     medium_model: Option<String>,
+    max_compression_input_tokens: u32,
 }
 
 impl ShadowHandle {
     /// Enqueue an observation without ever blocking. A full queue drops the
     /// sample and increments the drop counter; an operation without a
-    /// configured model is ignored entirely.
+    /// configured model is ignored entirely; a compression payload above the
+    /// input cap is skipped and counted instead of producing an incomparable
+    /// slow sample.
     pub fn observe(&self, task: ShadowTask) {
         let configured = match &task {
             ShadowTask::RouteClassification { .. } => self.small_model.is_some(),
@@ -149,6 +161,16 @@ impl ShadowHandle {
         };
         if !configured {
             return;
+        }
+        if let ShadowTask::ContextCompression { task, evidence, .. } = &task {
+            let estimated = evidence
+                .iter()
+                .map(|item| cortex_context::estimate_tokens(&item.content))
+                .fold(cortex_context::estimate_tokens(task), u32::saturating_add);
+            if estimated > self.max_compression_input_tokens {
+                self.oversize_skipped.fetch_add(1, Ordering::Relaxed);
+                return;
+            }
         }
         if let Err(TrySendError::Full(_)) = self.sender.try_send(task) {
             self.dropped.fetch_add(1, Ordering::Relaxed);
@@ -159,6 +181,12 @@ impl ShadowHandle {
     #[must_use]
     pub fn dropped(&self) -> u64 {
         self.dropped.load(Ordering::Relaxed)
+    }
+
+    /// Compression observations skipped because the payload exceeded the cap.
+    #[must_use]
+    pub fn oversize_skipped(&self) -> u64 {
+        self.oversize_skipped.load(Ordering::Relaxed)
     }
 
     #[must_use]
@@ -224,8 +252,10 @@ where
     Ok(Some(ShadowHandle {
         sender,
         dropped: Arc::new(AtomicU64::new(0)),
+        oversize_skipped: Arc::new(AtomicU64::new(0)),
         small_model: config.small_model,
         medium_model: config.medium_model,
+        max_compression_input_tokens: config.max_compression_input_tokens,
     }))
 }
 

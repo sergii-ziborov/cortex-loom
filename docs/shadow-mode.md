@@ -13,8 +13,15 @@ $env:CORTEX_SHADOW_SMALL = "qwen3.5:4b"     # exact tag for route_classification
 $env:CORTEX_SHADOW_MEDIUM = "qwen3.5:9b"    # exact tag for context_compression
 $env:CORTEX_SHADOW_TIMEOUT_MS = "30000"     # optional, default 30000
 $env:CORTEX_SHADOW_QUEUE = "64"             # optional, default 64
+$env:CORTEX_SHADOW_MAX_COMPRESSION_TOKENS = "2048"  # optional payload cap
 cargo run -p cortex-mcp
 ```
+
+Compression observations whose estimated input exceeds the cap are skipped
+and counted (`oversizeSkipped` in `shadow_metrics_read`) instead of queued:
+a dogfood run showed that a real 7.5k-token packet times out on CPU where
+200-token calibration fixtures succeed, and a timed-out sample is not a
+comparable measurement.
 
 Without `CORTEX_SHADOW=1` plus at least one model tag there is no thread, no
 queue, and no samples. An operation whose model tag is unset is ignored

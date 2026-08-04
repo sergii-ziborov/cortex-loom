@@ -11,7 +11,7 @@ use cortex_shadow::{
     CompressionSnapshot, RoutingSnapshot, ShadowConfig, ShadowEvidence, ShadowHandle, ShadowTask,
 };
 use cortex_skills::{export_skill_markdown, import_skill_markdown};
-use cortex_store::{GraphStore, ShadowOperation};
+use cortex_store::{GraphStore, ShadowOperation, UsageOperation, UsageSample};
 use cortex_weavatrix::{
     RefactorOperation, WeavatrixAdapter, WeavatrixConfig, compile_evidence_bundle,
 };
@@ -99,6 +99,13 @@ struct ShadowMetricsArgs {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct UsageReadArgs {
+    operation: Option<String>,
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct AdapterExportArgs {
     graph_id: Option<String>,
     agent: AgentKind,
@@ -144,6 +151,7 @@ pub fn serve(state: CortexMcpState) -> io::Result<()> {
     let route_state = Arc::clone(&state);
     let shadow_state = Arc::clone(&state);
     let adapter_state = Arc::clone(&state);
+    let usage_state = Arc::clone(&state);
 
     let server = ConcurrentMcpServer::new("cortex-loom", env!("CARGO_PKG_VERSION"))
         .instructions(
@@ -214,8 +222,27 @@ pub fn serve(state: CortexMcpState) -> io::Result<()> {
                         })
                         .collect::<Vec<_>>()
                 });
+                let started = std::time::Instant::now();
                 match compile_evidence_bundle(bundle, &arguments.task, arguments.max_tokens) {
                     Ok(packet) => {
+                        record_usage(
+                            &context_state.store,
+                            &UsageSample {
+                                operation: UsageOperation::ContextCompile,
+                                target: None,
+                                model_tier: None,
+                                task_class: None,
+                                budget_tokens: Some(arguments.max_tokens),
+                                raw_tokens: Some(packet.context.raw_estimated_tokens),
+                                selected_tokens: Some(packet.context.selected_estimated_tokens),
+                                saved_tokens: Some(packet.context.saved_estimated_tokens),
+                                requires_upstream: Some(packet.context.requires_upstream),
+                                latency_ms: Some(
+                                    u64::try_from(started.elapsed().as_millis())
+                                        .unwrap_or(u64::MAX),
+                                ),
+                            },
+                        );
                         if let (Some(shadow), Some(evidence)) =
                             (&context_state.shadow, shadow_evidence)
                         {
@@ -379,6 +406,21 @@ pub fn serve(state: CortexMcpState) -> io::Result<()> {
                         },
                     });
                 }
+                record_usage(
+                    &route_state.store,
+                    &UsageSample {
+                        operation: UsageOperation::RouteWork,
+                        target: to_snake(&decision.target),
+                        model_tier: to_snake(&decision.model_tier),
+                        task_class: to_snake(&decision.class),
+                        budget_tokens: None,
+                        raw_tokens: None,
+                        selected_tokens: None,
+                        saved_tokens: None,
+                        requires_upstream: None,
+                        latency_ms: None,
+                    },
+                );
                 ToolReply::structured(decision)
             },
         )
@@ -430,7 +472,48 @@ pub fn serve(state: CortexMcpState) -> io::Result<()> {
                     "smallModel": handle.and_then(ShadowHandle::small_model),
                     "mediumModel": handle.and_then(ShadowHandle::medium_model),
                     "droppedSamples": handle.map_or(0, ShadowHandle::dropped),
+                    "oversizeSkipped": handle.map_or(0, ShadowHandle::oversize_skipped),
                     "aggregates": aggregates,
+                    "samples": samples,
+                }))
+            },
+        )
+        .typed_tool(
+            "usage_read",
+            "Read the append-only token-accounting ledger: routing decisions and context-compilation savings. Bounded and read-only.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "operation": {"type": "string", "enum": ["route_work", "context_compile"]},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 100}
+                },
+                "additionalProperties": false
+            }),
+            move |context, arguments: UsageReadArgs| {
+                if context.is_cancelled() {
+                    return ToolReply::error("cancelled");
+                }
+                let operation = match arguments.operation.as_deref() {
+                    None => None,
+                    Some(value) => match UsageOperation::parse(value) {
+                        Some(operation) => Some(operation),
+                        None => return ToolReply::error(format!("unknown operation: {value}")),
+                    },
+                };
+                let usage = usage_state.store.usage();
+                let summary = match usage.summary() {
+                    Ok(summary) => summary,
+                    Err(error) => return ToolReply::error(error.to_string()),
+                };
+                let samples = match arguments.limit {
+                    None => Vec::new(),
+                    Some(limit) => match usage.list(operation, limit.clamp(1, 100)) {
+                        Ok(samples) => samples,
+                        Err(error) => return ToolReply::error(error.to_string()),
+                    },
+                };
+                ToolReply::structured(serde_json::json!({
+                    "summary": summary,
                     "samples": samples,
                 }))
             },
@@ -544,6 +627,20 @@ pub fn serve(state: CortexMcpState) -> io::Result<()> {
         output_flush_policy: FlushPolicy::PerMessage,
         handler_deadline: Some(Duration::from_secs(120)),
     })
+}
+
+/// Telemetry writes never fail the tool: the deterministic reply is the
+/// product, the ledger is measurement.
+fn record_usage(store: &GraphStore, sample: &UsageSample) {
+    if let Err(error) = store.usage().insert(sample) {
+        eprintln!("cortex-mcp: usage telemetry insert failed: {error}");
+    }
+}
+
+fn to_snake<T: serde::Serialize>(value: &T) -> Option<String> {
+    serde_json::to_value(value)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_owned))
 }
 
 #[must_use]

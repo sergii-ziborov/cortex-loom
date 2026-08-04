@@ -9,11 +9,13 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 mod run_store;
 mod shadow_store;
+mod usage_store;
 
 pub use run_store::RunStore;
 pub use shadow_store::{
     ShadowAggregate, ShadowOperation, ShadowSample, ShadowSampleRow, ShadowStore,
 };
+pub use usage_store::{UsageOperation, UsageSample, UsageSampleRow, UsageStore, UsageSummary};
 
 #[derive(Clone)]
 pub struct GraphStore {
@@ -168,7 +170,22 @@ impl GraphStore {
                error TEXT
              );
              CREATE INDEX IF NOT EXISTS shadow_samples_by_group
-               ON shadow_samples (operation, model_tag, id DESC);",
+               ON shadow_samples (operation, model_tag, id DESC);
+             CREATE TABLE IF NOT EXISTS usage_samples (
+               id INTEGER PRIMARY KEY AUTOINCREMENT,
+               created_at INTEGER NOT NULL,
+               operation TEXT NOT NULL CHECK (operation IN
+                 ('route_work','context_compile')),
+               target TEXT,
+               model_tier TEXT,
+               task_class TEXT,
+               budget_tokens INTEGER,
+               raw_tokens INTEGER,
+               selected_tokens INTEGER,
+               saved_tokens INTEGER,
+               requires_upstream INTEGER,
+               latency_ms INTEGER
+             );",
         )?;
         Ok(Self {
             connection: Arc::new(Mutex::new(connection)),
@@ -286,6 +303,11 @@ impl GraphStore {
     #[must_use]
     pub fn shadow(&self) -> ShadowStore {
         ShadowStore::new(Arc::clone(&self.connection))
+    }
+
+    #[must_use]
+    pub fn usage(&self) -> UsageStore {
+        UsageStore::new(Arc::clone(&self.connection))
     }
 
     fn lock(&self) -> Result<MutexGuard<'_, Connection>, StoreError> {

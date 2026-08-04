@@ -16,7 +16,8 @@ The first milestone contains:
 - an append-only token-accounting ledger: routing decisions, compilation savings with run attribution, quality-equivalent crediting (only clean succeeded runs), and executor-reported upstream consumption (`usage_read`, `usage_report`, `GET /api/usage/*`);
 - a retrieval evaluation gate for embedding profiles (Recall@k/nDCG on repository-specific fixtures, three pinned ranking modes) and, behind it, opt-in semantic evidence ordering (`CORTEX_SEMANTIC=1`): the gated hybrid BM25+embedding+graph ranking reorders fragments only within priority bands, records provenance on the packet, and falls back to deterministic order on any failure;
 - native `weavatrix-rust` repository evidence and preview-only Weavatrix Refactor integration;
-- bounded MCP tools plus a browser-based React/SVG editor extracted from AI Dev System.
+- bounded MCP tools plus a browser-based React/SVG editor, including a read-only **Model interaction** panel showing routing, evidence budgets, and deterministic-versus-shadow decisions;
+- a bundled methodology library (test-driven development, systematic debugging, grounded review) seeded on first run, so the editor opens with working workflows rather than empty.
 
 This repository is private. Four crates inside it are prepared for public release under **MIT OR Apache-2.0** — `cortex-domain` (typed process-graph schema), `cortex-context` (budget-bounded evidence selection and retrieval ranking), `cortex-router` (fail-closed routing policy), and `cortex-skills` (`SKILL.md` round trip). Each carries its own README, license texts, and publishing metadata; everything else stays private and unlicensed. See [publishing](docs/publishing.md).
 

@@ -1,4 +1,4 @@
-import { parseGraphDocument } from '../model/graph'
+﻿import { parseGraphDocument } from '../model/graph'
 import type {
   GraphDocument,
   GraphSummary,
@@ -7,6 +7,12 @@ import type {
   RunDocument,
   RunStatus,
   RunSummary,
+  QualitySummary,
+  ShadowAggregate,
+  ShadowSampleRow,
+  TelemetrySnapshot,
+  UsageSampleRow,
+  UsageSummary,
 } from '../types'
 
 const GRAPHS_URL = '/api/graphs'
@@ -218,4 +224,25 @@ export async function verifyRunReplay(id: string): Promise<ReplayVerification> {
     throw new Error('The server returned an invalid replay verification.')
   }
   return result as ReplayVerification
+}
+
+// --- Model interaction telemetry -------------------------------------------
+// Read-only: the UI never writes telemetry, it only shows what the host
+// recorded while the model interacted with the deterministic pipeline.
+
+async function getJson<T>(url: string): Promise<T> {
+  const response = await fetch(url, { headers: { accept: 'application/json' } })
+  if (!response.ok) throw new ApiError(await responseMessage(response), response.status)
+  return (await response.json()) as T
+}
+
+export async function fetchTelemetry(): Promise<TelemetrySnapshot> {
+  const [usage, quality, shadow, shadowSamples, usageSamples] = await Promise.all([
+    getJson<UsageSummary>('/api/usage/summary'),
+    getJson<QualitySummary>('/api/usage/quality'),
+    getJson<ShadowAggregate[]>('/api/shadow/metrics'),
+    getJson<ShadowSampleRow[]>('/api/shadow/samples?limit=12'),
+    getJson<UsageSampleRow[]>('/api/usage/samples?limit=12'),
+  ])
+  return { usage, quality, shadow, shadowSamples, usageSamples }
 }

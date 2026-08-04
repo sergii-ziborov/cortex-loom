@@ -229,3 +229,99 @@ export interface ReplayVerification {
   eventCount: number
   runStatus: RunStatus
 }
+
+// --- Model interaction telemetry (read-only) -------------------------------
+
+export interface UsageSummary {
+  window: number
+  routeCalls: number
+  routedAwayFromUpstream: number
+  compileCalls: number
+  rawTokensTotal: number
+  selectedTokensTotal: number
+  omittedTokensTotal: number
+  requiresUpstreamCount: number
+  compileLatencyP50Ms: number
+  compileLatencyP95Ms: number
+  upstreamReports: number
+  upstreamInputTokensTotal: number
+  upstreamOutputTokensTotal: number
+}
+
+export interface RunQuality {
+  runId: string
+  status: string | null
+  retried: boolean
+  rejected: boolean
+  qualityEquivalent: boolean
+  compileCalls: number
+  selectedTokens: number
+  omittedTokens: number
+  upstreamReports: number
+  upstreamInputTokens: number
+  upstreamOutputTokens: number
+}
+
+export interface QualitySummary {
+  attributedRuns: number
+  qualityEquivalentRuns: number
+  qualityEquivalentOmittedTokens: number
+  unprovenOmittedTokens: number
+  unattributedSamples: number
+  runs: RunQuality[]
+}
+
+export interface ShadowAggregate {
+  operation: string
+  modelTag: string
+  samples: number
+  schemaValid: number
+  schemaValidRate: number
+  agreements: number
+  agreementRate: number
+  missedEscalations: number
+  meanPreservedRatio: number | null
+  hallucinatedTotal: number
+  latencyP50Ms: number
+  latencyP95Ms: number
+  devices: Record<string, number>
+}
+
+export interface ShadowSampleRow {
+  id: number
+  createdAt: number
+  operation: string
+  modelTag: string
+  device: string | null
+  latencyMs: number | null
+  schemaValid: boolean | null
+  agreement: boolean | null
+  missedEscalation: boolean
+  deterministicSummary: string
+  shadowSummary: string | null
+  error: string | null
+}
+
+export interface UsageSampleRow {
+  id: number
+  createdAt: number
+  operation: string
+  runId: string | null
+  target: string | null
+  modelTier: string | null
+  taskClass: string | null
+  budgetTokens: number | null
+  rawTokens: number | null
+  selectedTokens: number | null
+  omittedTokens: number | null
+  requiresUpstream: boolean | null
+  latencyMs: number | null
+}
+
+export interface TelemetrySnapshot {
+  usage: UsageSummary
+  quality: QualitySummary
+  shadow: ShadowAggregate[]
+  shadowSamples: ShadowSampleRow[]
+  usageSamples: UsageSampleRow[]
+}

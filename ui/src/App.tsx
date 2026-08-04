@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+﻿import { useCallback, useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { AppHeader } from './components/AppHeader'
 import { GraphCanvas } from './components/GraphCanvas'
@@ -7,6 +7,7 @@ import { RunControls } from './components/RunControls'
 import { ExportDialog } from './components/ExportDialog'
 import { ImportDialog } from './components/ImportDialog'
 import { Inspector } from './components/Inspector'
+import { TelemetryPanel } from './components/TelemetryPanel'
 import { InspectorResizeHandle } from './components/InspectorResizeHandle'
 import { useGraphDocument } from './hooks/useGraphDocument'
 import { useRunDocument } from './hooks/useRunDocument'
@@ -31,6 +32,7 @@ export default function App() {
   const [theme, setTheme] = useState<'dark' | 'light'>(initialTheme)
   const [importOpen, setImportOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
+  const [telemetryOpen, setTelemetryOpen] = useState(false)
   const graph = graphState.graph
 
   useEffect(() => {
@@ -117,11 +119,16 @@ export default function App() {
     ? 'Choose a source node'
     : connectState === undefined
       ? ''
-      : `From “${graph.nodes.find(node => node.id === connectState)?.label ?? connectState}” — choose a target`
+      : `From â€œ${graph.nodes.find(node => node.id === connectState)?.label ?? connectState}â€ â€” choose a target`
 
   return (
     <div className="app-shell">
-      <AppHeader graph={graph} theme={theme} onToggleTheme={() => setTheme(value => value === 'dark' ? 'light' : 'dark')} />
+      <AppHeader
+        graph={graph}
+        theme={theme}
+        onToggleTheme={() => setTheme(value => value === 'dark' ? 'light' : 'dark')}
+        onOpenTelemetry={() => setTelemetryOpen(true)}
+      />
       <GraphToolbar
         connectActive={connectState !== undefined}
         connectMessage={connectMessage}
@@ -221,6 +228,7 @@ export default function App() {
       </main>
       {importOpen && <ImportDialog onClose={() => setImportOpen(false)} onImport={importGraph} />}
       {exportOpen && <ExportDialog graph={graph} onClose={() => setExportOpen(false)} />}
+      {telemetryOpen && <TelemetryPanel onClose={() => setTelemetryOpen(false)} />}
     </div>
   )
 }

@@ -25,6 +25,16 @@
 7. ~~Run official MCP conformance and adversarial stdio tests before treating the server as production-ready.~~ Done. Adversarial stdio tests drive the real loop with hostile input — raw garbage, truncated and non-object JSON, null/duplicate/string ids, premature and unknown calls, a 5 MiB line against the 4 MiB limit, and 2000-deep nesting — asserting the loop never panics and answers valid requests after garbage (tool-level failures arrive as `result.isError`, protocol failures as JSON-RPC errors). Streamable HTTP transport shipped (`cortex-mcp --http 127.0.0.1:43818` or `CORTEX_MCP_HTTP`): one HTTP session bridges to one in-process MCP loop over bounded channel pipes, with `Mcp-Session-Id` issuance on initialize, protocol-version header validation, loopback Origin enforcement, bounded sessions with idle expiry, DELETE termination, and 405 on GET (no server-initiated streams). The official suite passes against the committed baseline (`config/mcp-conformance-baseline.yaml`): server-initialize, ping, tools-list, SSE behavior, and both DNS-rebinding checks pass; the remaining entries are suite fixture tools and capabilities (resources/prompts/logging/completion) this tools-only server does not declare. Remaining: adversarial stdio tests; resources/prompts support if ever needed.
 8. ~~Add run-level token, latency, device, rejection, fallback, and quality-equivalence telemetry.~~ Done: the append-only usage ledger records every `route_work` decision and `weavatrix_context_compile` savings figure with optional `runId` attribution; the quality summary joins savings with run outcomes so only clean succeeded runs are credited; and executors close the balance by self-reporting upstream consumption via `usage_report` (MCP) or `POST /api/usage/reports` — the adapter usage contract instructs agents to do both and to default `maxTokens` to the measured 4000. Reports are honest self-reporting, not billing verification.
 
+## Visibility
+
+The editor has a **Model interaction** panel (header button) that reads the
+recorded telemetry: where routing sent work and how much of it stayed away
+from the upstream agent, evidence-budget figures with self-reported upstream
+consumption beside them, per-model shadow aggregates with missed escalations
+highlighted, deterministic-versus-shadow decisions side by side, and the most
+recent routing and compilation samples. It is strictly read-only — the UI
+never writes telemetry and cannot influence a workflow.
+
 ## Deployment note — aarch64 (Raspberry Pi)
 
 The pure-Rust crates (`cortex-context`, `cortex-domain`, `cortex-run`, `cortex-router`, `cortex-skills`, `cortex-adapters`) cross-check cleanly for `aarch64-unknown-linux-gnu` (verified 2026-08-04). Full binaries additionally need a C cross-compiler for bundled SQLite: use `cargo-zigbuild` (lightest), `cross` (Docker), or simply build on the device — all dependencies compile from source on aarch64 Linux.

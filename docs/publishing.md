@@ -36,28 +36,66 @@ cargo publish -p cortex-router
 cargo publish -p cortex-skills
 ```
 
-## Before the first publish
+## Blocking: the repository link 404s
 
-Publishing is irreversible: a version can be yanked but never removed, and
-the name is claimed permanently. Confirm each item:
+All four crates inherit `repository = "https://github.com/sergii-ziborov/cortex-loom"`,
+which is **private**. Every crates.io and docs.rs visitor would follow that
+link to a 404. Before the first upload, either make the repository public or
+override `repository` per crate to point somewhere real.
 
-- **Dependency honesty.** `cortex-domain` and `cortex-skills` depend on
-  [`blazingly-json`](https://crates.io/crates/blazingly-json) `0.1`, declared
-  under its real name rather than the workspace's internal `serde_json`
-  alias, so a consumer's manifest and rustdoc agree with reality.
-  `cortex-domain` exposes `blazingly_json::Value` in `GraphNode::config`,
-  which means public consumers take that dependency too. If the goal is
-  maximum ecosystem reach instead, switch that one field to real
-  `serde_json::Value` before the first publish — afterwards it is a breaking
-  change.
-- **Version floor.** Everything is `0.1.0`. A `0.1` dependency on
-  `blazingly-json` keeps these crates below a comfortable `1.0` promise;
-  reaching `1.0` means either `blazingly-json 1.0` or dropping that type from
-  the public API.
+## Decisions that are one-way doors
+
+Publishing is irreversible: a version can be yanked but never removed, the
+name is claimed permanently, and the public API becomes a compatibility
+promise. Each item below is cheap to change now and breaking afterwards.
+
+1. **The JSON value type in `cortex-domain`'s public API.**
+   `GraphNode::config` is `HashMap<String, blazingly_json::Value>`. Three
+   consequences: consumers must take `blazingly-json 0.1` themselves; cargo
+   treats `0.1 → 0.2` as incompatible, so any release of that crate is
+   automatically a breaking change here; and `cortex-domain 1.0` is not
+   reachable while a `0.x` type sits in its API. Options, in increasing
+   independence: keep it (fine if these crates stay `0.x`), switch to real
+   `serde_json` 1.0 (two lines here plus the alias in `cortex-skills` and
+   `cortex-run`), or define a crate-owned `#[serde(untagged)] enum
+   ConfigValue` with the same wire format and drop the dependency entirely.
+2. **`cortex-router` freezes vendor names into a public contract.**
+   `LocalAvailability { weavatrix, ollama }`, `ContextStrategy::WeavatrixEvidence`,
+   `RoutingReason::{WeavatrixUnavailable, OllamaUnavailable}`,
+   `approves_local_model` matching `ExecutionTarget::Ollama`, and `"weavatrix"`
+   as a classifier keyword. Nothing secret leaks — both are public products —
+   but a user of a different code-graph tool or local runtime inherits names
+   for tools they do not run, permanently. Either rename to generic terms
+   (`code_graph`, `local_model`) first, or publish `cortex-router` in a later
+   batch once the naming is settled. `cortex-domain` and `cortex-context`
+   have no such coupling.
+3. **`cortex-domain::validate_execution` enforces policy, not only structure.**
+   Every `GraphDocument::validate` call rejects mutation authority or
+   high-risk work on any target other than `Upstream`/`Human`. That is now
+   documented on `ExecutionPolicy` and in the README, and callers can opt out
+   by leaving `execution` as `None` — but it remains an opinion shipped
+   inside a schema crate. Moving it to `cortex-router` (where policy lives)
+   is the alternative.
+4. **`GRAPH_SCHEMA_VERSION` brands the wire format.** Documents must declare
+   `"cortex-loom.graph.v1"`; an adopter's serialized graphs carry this
+   product's name. Accepting any non-empty version string, with this value as
+   the documented default, would remove that.
+5. **`default_control_plane` ships an example topology.** Stale predecessor
+   naming has been removed and it is documented as an example rather than a
+   recommendation, but it is still product shape in a schema crate. Keeping
+   it is defensible for first-run and tests; moving it to the application is
+   the cleaner alternative.
+
+## Also confirm
+
 - **Path plus version.** `cortex-router` and `cortex-skills` declare
   `cortex-domain = { path = "...", version = "0.1.0" }`. The path builds
   locally; cargo substitutes the registry version when publishing. Both must
   move together on every future version bump.
-- **Nothing private leaks.** No crate in this set depends on
-  `cortex-run`, `cortex-store`, `cortex-shadow`, `cortex-ollama`,
-  `cortex-weavatrix`, `cortex-eval`, `cortex-mcp`, or the server.
+- **Nothing private leaks.** No crate in this set depends on `cortex-run`,
+  `cortex-store`, `cortex-shadow`, `cortex-ollama`, `cortex-weavatrix`,
+  `cortex-eval`, `cortex-mcp`, or the server. Those stay `publish = false`
+  *and* license-field-free, so an accidental publish fails twice.
+- **Tarball contents.** Run `cargo package -p <crate> --list` and confirm no
+  scratch files crept into the crate directory; `cargo package` includes
+  everything under it.

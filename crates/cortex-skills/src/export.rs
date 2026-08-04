@@ -6,6 +6,18 @@ use cortex_domain::{GraphDocument, GraphNode};
 use crate::SkillError;
 
 /// Export a compiled skill graph as stable, readable Markdown.
+///
+/// Exporting twice is byte-identical, so import → export → import preserves
+/// workflow semantics.
+///
+/// # Errors
+///
+/// Returns [`SkillError::InvalidGraph`] when the graph fails validation, and
+/// [`SkillError::UnsupportedGraph`] unless `metadata["compiler"]` is
+/// `"cortex-skills"`. Export reads the node roles and ordering that
+/// [`crate::import_skill_markdown`] writes, so a graph built by other means
+/// has no Markdown shape to recover; set that metadata key deliberately if
+/// you produce compatible graphs yourself.
 pub fn export_skill_markdown(graph: &GraphDocument) -> Result<String, SkillError> {
     graph.validate()?;
     if graph.metadata.get("compiler").map(String::as_str) != Some("cortex-skills") {
@@ -45,7 +57,8 @@ fn write_header(graph: &GraphDocument, output: &mut String) {
     for (key, value) in extra {
         writeln!(output, "{key}: {}", yaml_string(value)).expect("writing to a String cannot fail");
     }
-    writeln!(output, "---\n\n# {}", graph.name).expect("writing to a String cannot fail");
+    writeln!(output, "---\n\n# {}", crate::heading_text(&graph.name))
+        .expect("writing to a String cannot fail");
 }
 
 fn dependency_map<'a>(

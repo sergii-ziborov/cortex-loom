@@ -1,4 +1,4 @@
-//! Compiler between human-readable `SKILL.md` workflows and Cortex graphs.
+#![doc = include_str!("../README.md")]
 
 mod export;
 mod import;
@@ -45,6 +45,17 @@ impl From<GraphError> for SkillError {
     fn from(error: GraphError) -> Self {
         Self::InvalidGraph(error.to_string())
     }
+}
+
+/// A single-line rendering of a skill name for the Markdown `# ` title.
+///
+/// Frontmatter carries the exact name; the title must stay on one line.
+/// Writing a multi-line name straight into the heading would spill the
+/// remainder into the body, where the next import reads it as extra nodes —
+/// so the document would grow on every round trip instead of reaching a
+/// fixpoint. Import and export both compare through this function.
+pub(crate) fn heading_text(name: &str) -> String {
+    name.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// Short alias for [`import_skill_markdown`].

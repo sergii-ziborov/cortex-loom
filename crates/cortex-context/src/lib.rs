@@ -1,4 +1,4 @@
-//! Deterministic evidence selection for bounded coding-agent context.
+#![doc = include_str!("../README.md")]
 
 pub mod ranking;
 
@@ -46,10 +46,14 @@ pub struct EvidenceItem {
     pub content: String,
     pub priority: EvidencePriority,
     pub state: EvidenceState,
-    /// Optional semantic relevance from a gated retrieval ranking. It only
-    /// reorders items **within** the same trust/priority band: policy
-    /// priorities, fail-closed criticality, and contradiction handling
-    /// always dominate. `None` preserves submission order.
+    /// Optional relevance score, typically from a retrieval ranking.
+    ///
+    /// It only reorders items **within** the same trust/priority band:
+    /// contradiction handling, priority, and fail-closed criticality always
+    /// dominate. Higher scores come first. Within a band, every scored item
+    /// precedes every unscored one, and unscored items keep their submission
+    /// order relative to each other — so scoring part of a band promotes
+    /// those items over the rest of it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relevance: Option<f64>,
 }

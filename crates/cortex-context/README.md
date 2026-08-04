@@ -50,10 +50,9 @@ let request = ContextRequest {
     max_tokens: 4_000,
 };
 
-let packet = compile_context(&request)?;
+let packet = compile_context(&request).expect("the budget fits both items");
 assert_eq!(packet.included_ids, ["TASK", "SRC-1"]);
 assert!(!packet.requires_upstream);
-# Ok::<(), cortex_context::ContextError>(())
 ```
 
 ## Ranking

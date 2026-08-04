@@ -27,11 +27,16 @@ let markdown = "---\nname: Evidence First\ndescription: Facts before change.\n--
 # Evidence First\n\n## Workflow\n\n1. Inspect the relevant files.\n\
 2. Record evidence ids. [depends: 1]\n";
 
-let graph = import_skill_markdown("SKILL.md", markdown)?;
-let exported = export_skill_markdown(&graph)?;
-assert_eq!(exported, export_skill_markdown(&import_skill_markdown("SKILL.md", &exported)?)?);
-# Ok::<(), cortex_skills::SkillError>(())
+let graph = import_skill_markdown("SKILL.md", markdown).expect("valid skill");
+let exported = export_skill_markdown(&graph).expect("exportable graph");
+
+let reimported = import_skill_markdown("SKILL.md", &exported).expect("valid skill");
+assert_eq!(exported, export_skill_markdown(&reimported).expect("stable"));
 ```
+
+`export_skill_markdown` only accepts graphs this crate produced: it requires
+`metadata["compiler"] == "cortex-skills"`, because export reads the node
+roles and ordering that import writes.
 
 ## Format notes
 

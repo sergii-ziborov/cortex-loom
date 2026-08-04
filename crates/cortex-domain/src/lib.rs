@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.md")]
+
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::{Display, Formatter};
 
@@ -7,8 +9,15 @@ mod default_graph;
 
 pub use default_graph::default_control_plane;
 
+/// The wire format this crate reads and writes.
+///
+/// [`GraphDocument::validate`] accepts only this value, so a document that
+/// declares a different schema is rejected rather than silently
+/// misinterpreted.
 pub const GRAPH_SCHEMA_VERSION: &str = "cortex-loom.graph.v1";
+/// Upper bound on nodes in one document.
 pub const MAX_GRAPH_NODES: usize = 4_096;
+/// Upper bound on edges in one document.
 pub const MAX_GRAPH_EDGES: usize = 16_384;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -43,25 +52,46 @@ pub struct GraphNode {
     pub config: HashMap<String, blazingly_json::Value>,
 }
 
+/// What a node represents. The kind carries the semantics: gates block,
+/// controllers branch or retry, and the rest do work.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum NodeKind {
+    /// Entry point that receives the request or task.
     Input,
+    /// Work done by deterministic tooling, with no model involved.
     Deterministic,
+    /// Repository graph and impact analysis.
     Weavatrix,
+    /// A reusable methodology workflow, typically compiled from `SKILL.md`.
     Skill,
+    /// A unit of work handed to an agent.
     AgentTask,
+    /// A bounded local-model step; advisory output only.
     LocalModel,
+    /// Gate on structure, provenance, risk, and budgets.
     QualityGate,
+    /// Gate requiring an explicit human decision.
     HumanGate,
+    /// Gate on a test run.
     TestGate,
+    /// Gate requiring an explicit review decision.
     ReviewGate,
+    /// Gate requiring cited evidence before proceeding.
     EvidenceGate,
+    /// Controller that selects exactly one outgoing conditional edge.
     Branch,
+    /// Controller that reopens a failed target for a bounded number of
+    /// attempts; configured through `config` with `targetNodeId` and
+    /// `maxAttempts`.
     Retry,
+    /// Transfer of responsibility to another executor.
     Handoff,
+    /// A terminal state that ends its path.
     Terminal,
+    /// Work reserved for the strong upstream agent.
     UpstreamAgent,
+    /// Exit point carrying the verified result.
     Output,
 }
 
@@ -71,6 +101,15 @@ pub struct Position {
     pub y: f64,
 }
 
+/// How a node may be executed.
+///
+/// [`GraphDocument::validate`] enforces two authority rules on every policy,
+/// not just structure: mutation authority is reserved for
+/// [`ExecutionTarget::Upstream`] or [`ExecutionTarget::Human`], and so is any
+/// target whose `risk` is [`RiskLevel::High`] or above. A graph that grants
+/// mutation to a local model or an automated tool is rejected. This is a
+/// deliberate safety default of this schema; if you need different rules,
+/// leave `execution` as `None` and enforce your own policy above the graph.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ExecutionPolicy {
@@ -126,22 +165,38 @@ pub struct GraphEdge {
     pub condition: Option<String>,
 }
 
+/// What an edge means. Executable kinds move a run forward; the rest express
+/// relationships between nodes.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum EdgeKind {
+    /// Plain ordering: the target follows the source.
     Sequence,
+    /// The source supplies context to the target.
     Context,
+    /// The source invokes the target as a tool.
     Tool,
+    /// Taken when the source succeeds.
     Success,
+    /// Taken when the source fails.
     Failure,
+    /// Taken only when explicitly selected by id; never inferred.
     Conditional,
+    /// Recovery path taken when the source fails.
     Fallback,
+    /// Taken when a gate approves.
     Approval,
+    /// The target requires the source to have completed.
     Requires,
+    /// Taken when a gate rejects.
     Reject,
+    /// The source prevents the target from proceeding.
     Blocks,
+    /// The source escalates to the target.
     Escalates,
+    /// The source invalidates the target's result.
     Invalidates,
+    /// The source replaces the target.
     Supersedes,
 }
 

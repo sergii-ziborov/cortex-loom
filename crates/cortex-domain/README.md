@@ -26,7 +26,7 @@ deserves a type. This crate gives you one that is:
 use cortex_domain::{default_control_plane, GraphDocument, NodeKind};
 
 let graph: GraphDocument = default_control_plane();
-graph.validate()?;
+assert!(graph.validate().is_ok());
 
 let gates = graph
     .nodes
@@ -34,8 +34,16 @@ let gates = graph
     .filter(|node| matches!(node.kind, NodeKind::QualityGate | NodeKind::HumanGate))
     .count();
 assert!(gates > 0);
-# Ok::<(), cortex_domain::GraphError>(())
 ```
+
+## Execution policy is enforced, not just described
+
+`GraphDocument::validate` checks structure *and* two authority rules on any
+node that carries an `ExecutionPolicy`: mutation authority is reserved for
+`Upstream` or `Human` targets, and so is any target at `High` risk or above.
+A graph that grants mutation to a local model is rejected. That is a
+deliberate safety default; leave `execution` as `None` if you want to enforce
+your own policy above the graph instead.
 
 ## Node configuration
 

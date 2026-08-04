@@ -1,13 +1,16 @@
 //! Deterministic retrieval rankers: cosine similarity, lexical BM25,
-//! reciprocal-rank fusion, and structural graph boosting. Pure functions
-//! with pinned parameters and no model calls — embedding vectors come from
-//! the caller. Shared by the calibration harness and the production
-//! semantic-ordering path; the retrieval gate must pass before any of this
-//! influences evidence selection.
+//! reciprocal-rank fusion, and structural graph boosting.
+//!
+//! Every function here is pure and parameter-pinned, and none of them calls
+//! a model — embedding vectors come from the caller. Because the parameters
+//! are fixed and versioned by [`RANKING_VERSION`], two runs over the same
+//! inputs produce the same ranking, which makes these rankings measurable
+//! against a fixture set before you let them influence anything.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-/// Pinned ranking parameters recorded in every report.
+/// Identifies the pinned ranking parameters, so a measured result can be
+/// attributed to the exact algorithm that produced it.
 pub const RANKING_VERSION: &str = "retrieval-ranking-v1";
 const BM25_K1: f64 = 1.2;
 const BM25_B: f64 = 0.75;

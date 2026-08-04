@@ -1,8 +1,4 @@
-//! Deterministic work and risk routing for Cortex Loom.
-//!
-//! Model-reported confidence is deliberately absent from this API. Routing is
-//! based on inspectable task text, evidence state, schema validity, budgets,
-//! mutation authority, and local capability availability.
+#![doc = include_str!("../README.md")]
 
 mod classifier;
 

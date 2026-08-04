@@ -111,7 +111,7 @@ impl Builder<'_> {
                 continue;
             }
             if let Some((level, text)) = parse_heading(line) {
-                if !skipped_title && level == 1 && text == skill_name {
+                if !skipped_title && level == 1 && text == crate::heading_text(skill_name) {
                     skipped_title = true;
                 } else if !text.trim().is_empty() {
                     // An empty heading carries no workflow meaning. Skipping

@@ -4,6 +4,13 @@ use crate::{
     EdgeKind, GRAPH_SCHEMA_VERSION, GraphDocument, GraphEdge, GraphNode, NodeKind, Position,
 };
 
+/// One valid example graph: a request fans out to deterministic and
+/// repository analysis, both feed a gate, and the gate hands off to the
+/// upstream agent.
+///
+/// It exists so tests and first-run experiences have a graph that passes
+/// [`GraphDocument::validate`]. It is an example, not a recommended
+/// topology — build your own.
 #[must_use]
 pub fn default_control_plane() -> GraphDocument {
     GraphDocument {
@@ -14,10 +21,7 @@ pub fn default_control_plane() -> GraphDocument {
         nodes: default_nodes(),
         edges: default_edges(),
         metadata: HashMap::from([
-            (
-                "source".to_owned(),
-                "AI Dev System graph editor extraction".to_owned(),
-            ),
+            ("source".to_owned(), "cortex-domain default".to_owned()),
             (
                 "localModelPolicy".to_owned(),
                 "bounded-and-reviewable".to_owned(),
@@ -67,7 +71,7 @@ fn default_nodes() -> Vec<GraphNode> {
         node(
             "upstream",
             NodeKind::UpstreamAgent,
-            "Codex / Claude",
+            "Upstream coding agent",
             1010.0,
             170.0,
         ),

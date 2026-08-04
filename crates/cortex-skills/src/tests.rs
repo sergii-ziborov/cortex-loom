@@ -351,6 +351,30 @@ fn frontmatter_escapes_do_not_accumulate_across_round_trips() {
 }
 
 #[test]
+fn a_multi_line_name_does_not_grow_the_document() {
+    // The `# ` title must stay on one line. Writing a multi-line name raw
+    // would spill the remainder into the body, the next import would read it
+    // as extra nodes, and the document would grow on every cycle.
+    let source = "---\nname: \"Two\\nLines\"\ndescription: d\n---\n# X\n\n- Do it.\n";
+    let first = import_skill_markdown("S.md", source).unwrap();
+    assert_eq!(first.name, "Two\nLines", "the exact name is preserved");
+
+    let exported = export_skill_markdown(&first).unwrap();
+    assert!(
+        exported.contains("\n# Two Lines\n"),
+        "the title is collapsed to one line: {exported:?}"
+    );
+    let second = import_skill_markdown("S.md", &exported).unwrap();
+    let exported_again = export_skill_markdown(&second).unwrap();
+    assert_eq!(exported, exported_again, "export is a fixpoint");
+    assert_eq!(
+        first.nodes.len(),
+        second.nodes.len(),
+        "the node count does not grow"
+    );
+}
+
+#[test]
 fn empty_structural_items_are_skipped_not_fatal() {
     // A stray `- `, `1. `, or `## ` is valid Markdown. It carries no workflow
     // meaning, so it is skipped rather than failing the whole document on the

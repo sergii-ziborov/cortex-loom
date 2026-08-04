@@ -1217,15 +1217,15 @@ dependencies = [
 
 [[package]]
 name = "weavatrix-parse"
-version = "0.2.1"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0cf7fedfa96c39719e662076136d0aaa17e06cadcb1b60c2396891ce2038852e"
+checksum = "45c35f7f17946d859ac88a0f318b8c1a22bb4c2969a0b435aa99cb0beee35697"
 
 [[package]]
 name = "weavatrix-rust"
-version = "2.0.2"
+version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2abf625549585d93264ffbb27ba10d4e607376003751d3e0b0666e3b57185ba"
+checksum = "87d70f126c6fe94ed16ccab83f4e990090f5f573de44e2942330a9d8fb9344cc"
 dependencies = [
  "blazingly-json",
  "proc-macro2",

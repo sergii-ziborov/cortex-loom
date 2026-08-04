@@ -176,42 +176,7 @@ pub struct CompressionAggregate {
     pub mean_token_delta: i64,
 }
 
-/// Cosine similarity computed in f64; zero vectors compare as 0.
-#[must_use]
-pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
-    let mut dot = 0.0_f64;
-    let mut norm_a = 0.0_f64;
-    let mut norm_b = 0.0_f64;
-    for (x, y) in a.iter().zip(b.iter()) {
-        dot += f64::from(*x) * f64::from(*y);
-        norm_a += f64::from(*x) * f64::from(*x);
-        norm_b += f64::from(*y) * f64::from(*y);
-    }
-    if norm_a == 0.0 || norm_b == 0.0 {
-        0.0
-    } else {
-        dot / (norm_a.sqrt() * norm_b.sqrt())
-    }
-}
-
-/// Corpus indices ranked by descending similarity; ties break by index for
-/// determinism.
-#[must_use]
-pub fn rank_by_similarity(query: &[f32], corpus: &[Vec<f32>]) -> Vec<usize> {
-    let mut scored: Vec<(usize, f64)> = corpus
-        .iter()
-        .enumerate()
-        .map(|(index, vector)| (index, cosine_similarity(query, vector)))
-        .collect();
-    scored.sort_by(|left, right| {
-        right
-            .1
-            .partial_cmp(&left.1)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then(left.0.cmp(&right.0))
-    });
-    scored.into_iter().map(|(index, _)| index).collect()
-}
+pub use cortex_context::ranking::{cosine_similarity, rank_by_similarity};
 
 /// Fraction of relevant ids found in the top-k of the ranking.
 #[must_use]

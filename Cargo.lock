@@ -175,6 +175,7 @@ dependencies = [
  "cortex-adapters",
  "cortex-context",
  "cortex-domain",
+ "cortex-ollama",
  "cortex-router",
  "cortex-run",
  "cortex-shadow",

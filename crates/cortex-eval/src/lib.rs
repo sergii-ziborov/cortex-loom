@@ -1,4 +1,4 @@
-//! Offline benchmark and calibration for local model profiles.
+﻿//! Offline benchmark and calibration for local model profiles.
 //!
 //! The harness measures candidate Ollama profiles on typed fixtures for the
 //! three roadmap suites: routing classification, structured extraction, and
@@ -16,10 +16,11 @@ pub mod comparators;
 pub mod fixtures;
 pub mod metrics;
 pub mod prompts;
-pub mod ranking;
 pub mod report;
 pub mod runner;
 pub mod verdict;
+
+pub use cortex_context::ranking;
 
 /// Pinned prompt revision recorded in every report.
 pub const PROMPT_VERSION: &str = "eval-prompts-v3";

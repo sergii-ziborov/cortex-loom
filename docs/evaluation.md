@@ -56,7 +56,9 @@ cargo run -p cortex-eval -- --suite classification --limit 5
 cargo run -p cortex-eval -- --suite retrieval
 ```
 
-The retrieval suite evaluates embedding profiles on repository-specific fixtures (Recall@3/@5, nDCG@5, MRR, cosine ranking). Its verdict (`recall@5 ≥ 0.9`, `nDCG@5 ≥ 0.75`) is the gate that must pass before semantic evidence selection may be enabled anywhere.
+The retrieval suite evaluates embedding profiles on repository-specific fixtures (Recall@3/@5, nDCG@5, MRR) across three pinned ranking modes: pure embedding, hybrid (RRF with BM25), and hybrid with a structural graph boost. Its verdict (`recall@5 ≥ 0.9`, `nDCG@5 ≥ 0.75`) is the gate that must pass before semantic evidence selection may be enabled anywhere.
+
+Enabling the gated ordering in production: `CORTEX_SEMANTIC=1` and `CORTEX_SEMANTIC_MODEL=<exact tag with a passing hybrid_graph verdict>` (optional `CORTEX_SEMANTIC_TIMEOUT_MS`, default 30000) on `cortex-mcp`. Packets carry `semanticRanking` provenance when ordering was applied and a warning when the scorer failed and deterministic order was used.
 
 Profiles live in `config/eval-profiles.json` (exact tags only). Reports land in `.cortex-loom/eval/` as JSON plus a Markdown summary on stdout, pinned to prompt/schema versions, with the model digest and CPU/GPU placement recorded.
 

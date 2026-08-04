@@ -11,6 +11,7 @@ publish = false
 cortex-adapters = { path = "../cortex-adapters" }
 cortex-context = { path = "../cortex-context" }
 cortex-domain = { path = "../cortex-domain" }
+cortex-ollama = { path = "../cortex-ollama" }
 cortex-run = { path = "../cortex-run" }
 cortex-router = { path = "../cortex-router" }
 cortex-shadow = { path = "../cortex-shadow" }

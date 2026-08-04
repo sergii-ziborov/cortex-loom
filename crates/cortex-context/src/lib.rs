@@ -1,5 +1,7 @@
 //! Deterministic evidence selection for bounded coding-agent context.
 
+pub mod ranking;
+
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 
@@ -36,7 +38,7 @@ pub enum EvidenceState {
     Contradictory,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EvidenceItem {
     pub id: String,
@@ -44,9 +46,15 @@ pub struct EvidenceItem {
     pub content: String,
     pub priority: EvidencePriority,
     pub state: EvidenceState,
+    /// Optional semantic relevance from a gated retrieval ranking. It only
+    /// reorders items **within** the same trust/priority band: policy
+    /// priorities, fail-closed criticality, and contradiction handling
+    /// always dominate. `None` preserves submission order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relevance: Option<f64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ContextRequest {
     pub items: Vec<EvidenceItem>,
@@ -130,9 +138,20 @@ pub fn compile_context(request: &ContextRequest) -> Result<ContextPacket, Contex
         .map(|item| estimate_tokens(&render_item(item)))
         .fold(0_u32, u32::saturating_add);
     let mut ordered: Vec<_> = request.items.iter().enumerate().collect();
-    ordered.sort_by_key(|(index, item)| {
-        let state_rank = u8::from(item.state != EvidenceState::Contradictory);
-        (state_rank, item.priority.rank(), *index)
+    ordered.sort_by(|(left_index, left), (right_index, right)| {
+        let state = u8::from(left.state != EvidenceState::Contradictory)
+            .cmp(&u8::from(right.state != EvidenceState::Contradictory));
+        let priority = left.priority.rank().cmp(&right.priority.rank());
+        // Higher relevance first within a band; unscored items keep
+        // submission order after scored ones.
+        let relevance = right
+            .relevance
+            .unwrap_or(f64::NEG_INFINITY)
+            .total_cmp(&left.relevance.unwrap_or(f64::NEG_INFINITY));
+        state
+            .then(priority)
+            .then(relevance)
+            .then(left_index.cmp(right_index))
     });
 
     let mut content = String::new();
@@ -234,6 +253,7 @@ mod tests {
             content: content.to_owned(),
             priority,
             state: EvidenceState::Verified,
+            relevance: None,
         }
     }
 
@@ -283,6 +303,51 @@ mod tests {
             compile_context(&request),
             Err(ContextError::CriticalItemExceedsBudget { .. })
         ));
+    }
+
+    #[test]
+    fn relevance_reorders_only_within_a_priority_band() {
+        // Two Normal items under a budget that fits one: the scored,
+        // more relevant later item survives instead of the earlier one.
+        let mut early = item("early", &"x".repeat(80), EvidencePriority::Normal);
+        early.relevance = Some(0.2);
+        let mut late = item("late", &"y".repeat(80), EvidencePriority::Normal);
+        late.relevance = Some(0.9);
+        let request = ContextRequest {
+            items: vec![early.clone(), late.clone()],
+            max_tokens: 30,
+        };
+        let packet = compile_context(&request).unwrap();
+        assert_eq!(packet.included_ids, ["late"]);
+        assert_eq!(packet.omitted_ids, ["early"]);
+
+        // A High-priority item with low relevance still beats a highly
+        // relevant Normal item: policy dominates semantics.
+        let mut high = item("high", &"h".repeat(80), EvidencePriority::High);
+        high.relevance = Some(0.01);
+        let request = ContextRequest {
+            items: vec![late, high],
+            max_tokens: 30,
+        };
+        let packet = compile_context(&request).unwrap();
+        assert_eq!(packet.included_ids, ["high"]);
+
+        // Unscored items keep submission order after scored ones.
+        let scored = {
+            let mut scored = item("scored", "short", EvidencePriority::Normal);
+            scored.relevance = Some(0.1);
+            scored
+        };
+        let request = ContextRequest {
+            items: vec![
+                item("first", "short", EvidencePriority::Normal),
+                item("second", "short", EvidencePriority::Normal),
+                scored,
+            ],
+            max_tokens: 100,
+        };
+        let packet = compile_context(&request).unwrap();
+        assert_eq!(packet.included_ids, ["scored", "first", "second"]);
     }
 
     #[test]

@@ -20,6 +20,9 @@ use serde::Deserialize;
 use serde_json::Value;
 
 mod run_tools;
+mod semantic;
+
+use semantic::{SemanticConfig, SemanticScorer};
 
 const DEFAULT_GRAPH_ID: &str = "default-control-plane";
 const MAX_SKILL_BYTES: usize = 2 * 1024 * 1024;
@@ -31,6 +34,10 @@ pub struct CortexMcpState {
     /// Present only under explicit `CORTEX_SHADOW=1` configuration; observes
     /// deterministic outcomes without any workflow influence.
     shadow: Option<Arc<ShadowHandle>>,
+    /// Present only under explicit `CORTEX_SEMANTIC=1` configuration with a
+    /// gated model; reorders evidence within priority bands and falls back
+    /// to deterministic order on any failure.
+    semantic: Option<Arc<SemanticScorer>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -151,10 +158,19 @@ impl CortexMcpState {
                 None
             }
         };
+        let semantic = match SemanticScorer::from_config(SemanticConfig::from_env()) {
+            Ok(scorer) => scorer.map(Arc::new),
+            Err(error) => {
+                // A broken semantic configuration must never block the host.
+                eprintln!("cortex-mcp: semantic ordering disabled: {error}");
+                None
+            }
+        };
         Ok(Self {
             store,
             weavatrix,
             shadow,
+            semantic,
         })
     }
 }
@@ -220,7 +236,7 @@ pub fn serve(state: CortexMcpState) -> io::Result<()> {
                 if context.is_cancelled() {
                     return ToolReply::error("cancelled");
                 }
-                let bundle = match context_state.weavatrix.prepare_context(
+                let mut bundle = match context_state.weavatrix.prepare_context(
                     &arguments.repository,
                     &arguments.task,
                     arguments.symbol.as_deref(),
@@ -245,8 +261,36 @@ pub fn serve(state: CortexMcpState) -> io::Result<()> {
                         .collect::<Vec<_>>()
                 });
                 let started = std::time::Instant::now();
-                match compile_evidence_bundle(bundle, &arguments.task, arguments.max_tokens) {
-                    Ok(packet) => {
+                // Gated semantic ordering: on any failure the packet keeps
+                // the deterministic order and records why.
+                let mut semantic_note = None;
+                let relevance = context_state.semantic.as_ref().and_then(|scorer| {
+                    let fragments: Vec<(String, String)> = bundle
+                        .evidence
+                        .iter()
+                        .map(|fragment| (fragment.id.clone(), fragment.content.clone()))
+                        .collect();
+                    match scorer.score(&arguments.task, &fragments) {
+                        Ok(scores) => {
+                            semantic_note = Some(scorer.provenance());
+                            Some(scores)
+                        }
+                        Err(error) => {
+                            bundle.warnings.push(format!(
+                                "semantic ordering unavailable: {error}; deterministic order used"
+                            ));
+                            None
+                        }
+                    }
+                });
+                match compile_evidence_bundle(
+                    bundle,
+                    &arguments.task,
+                    arguments.max_tokens,
+                    relevance.as_ref(),
+                ) {
+                    Ok(mut packet) => {
+                        packet.semantic_ranking = semantic_note;
                         record_usage(
                             &context_state.store,
                             &UsageSample {

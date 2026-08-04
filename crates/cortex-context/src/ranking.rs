@@ -1,6 +1,9 @@
-//! Deterministic retrieval rankers: lexical BM25, reciprocal-rank fusion,
-//! and structural graph boosting. Pure functions, pinned parameters, no
-//! model calls — the embedding ranking comes from the caller.
+//! Deterministic retrieval rankers: cosine similarity, lexical BM25,
+//! reciprocal-rank fusion, and structural graph boosting. Pure functions
+//! with pinned parameters and no model calls — embedding vectors come from
+//! the caller. Shared by the calibration harness and the production
+//! semantic-ordering path; the retrieval gate must pass before any of this
+//! influences evidence selection.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -14,6 +17,36 @@ const GRAPH_TOP_M: usize = 3;
 /// A neighbor of a top document is treated as ranked just behind it — it can
 /// overtake unrelated mid-ranked documents but never its benefactor.
 const GRAPH_RANK_PENALTY: f64 = 1.5;
+
+/// Cosine similarity computed in f64; zero vectors compare as 0.
+#[must_use]
+pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
+    let mut dot = 0.0_f64;
+    let mut norm_a = 0.0_f64;
+    let mut norm_b = 0.0_f64;
+    for (x, y) in a.iter().zip(b.iter()) {
+        dot += f64::from(*x) * f64::from(*y);
+        norm_a += f64::from(*x) * f64::from(*x);
+        norm_b += f64::from(*y) * f64::from(*y);
+    }
+    if norm_a == 0.0 || norm_b == 0.0 {
+        0.0
+    } else {
+        dot / (norm_a.sqrt() * norm_b.sqrt())
+    }
+}
+
+/// Corpus indices ranked by descending similarity; ties break by index for
+/// determinism.
+#[must_use]
+pub fn rank_by_similarity(query: &[f32], corpus: &[Vec<f32>]) -> Vec<usize> {
+    rank_by_scores(
+        &corpus
+            .iter()
+            .map(|vector| cosine_similarity(query, vector))
+            .collect::<Vec<_>>(),
+    )
+}
 
 /// Lowercased alphanumeric tokens.
 #[must_use]

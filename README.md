@@ -14,7 +14,7 @@ The first milestone contains:
 - opt-in shadow observation (`cortex-shadow`, `CORTEX_SHADOW=1`) that measures local profiles on real MCP traffic with append-only samples and zero workflow influence;
 - preview-only vendor adapters (`cortex-adapters`): `adapter_export` renders Claude Code, Codex, or Copilot wiring from the canonical graph without writing files;
 - an append-only token-accounting ledger: routing decisions, compilation savings with run attribution, quality-equivalent crediting (only clean succeeded runs), and executor-reported upstream consumption (`usage_read`, `usage_report`, `GET /api/usage/*`);
-- a retrieval evaluation gate for embedding profiles (Recall@k/nDCG on repository-specific fixtures, three pinned ranking modes) that must pass before semantic evidence selection is permitted — first passing configuration: hybrid BM25+embedding ranking with a structural graph boost;
+- a retrieval evaluation gate for embedding profiles (Recall@k/nDCG on repository-specific fixtures, three pinned ranking modes) and, behind it, opt-in semantic evidence ordering (`CORTEX_SEMANTIC=1`): the gated hybrid BM25+embedding+graph ranking reorders fragments only within priority bands, records provenance on the packet, and falls back to deterministic order on any failure;
 - native `weavatrix-rust` repository evidence and preview-only Weavatrix Refactor integration;
 - bounded MCP tools plus a browser-based React/SVG editor extracted from AI Dev System.
 

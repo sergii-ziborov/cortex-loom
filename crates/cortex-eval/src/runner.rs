@@ -24,8 +24,8 @@ use crate::prompts::{
     EvidenceBlock, classification_request, compression_request, extraction_request,
     parse_compression, parse_extraction, parse_tier,
 };
-use crate::ranking::{Bm25Index, build_adjacency, graph_boost, rrf_fuse};
 use crate::verdict::{CalibrationVerdict, judge, judge_retrieval};
+use cortex_context::ranking::{Bm25Index, build_adjacency, graph_boost, rrf_fuse};
 
 const EMBED_BATCH: usize = 16;
 
@@ -156,7 +156,7 @@ pub fn run_embedding_profile(
         status: ProfileStatus::Evaluated,
         digest: None,
         dimensions: None,
-        ranking_version: crate::ranking::RANKING_VERSION.to_owned(),
+        ranking_version: cortex_context::ranking::RANKING_VERSION.to_owned(),
         modes: Vec::new(),
         latency: latency_stats(&[]),
         error: None,
@@ -456,7 +456,7 @@ fn run_classification(
 }
 
 /// Sort, dedup, and strip formatting noise (whitespace plus surrounding
-/// backticks or quotes). Content differences — invented or missing entries —
+/// backticks or quotes). Content differences â€” invented or missing entries â€”
 /// still fail the comparison.
 fn normalized(values: &[String]) -> Vec<String> {
     let mut sorted: Vec<String> = values

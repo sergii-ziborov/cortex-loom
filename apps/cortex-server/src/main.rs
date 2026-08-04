@@ -11,8 +11,8 @@ use cortex_adapters::{AdapterBundle, AgentKind, McpLaunch, export_adapter};
 use cortex_domain::{GraphDocument, default_control_plane};
 use cortex_skills::{export_skill_markdown, import_skill_markdown};
 use cortex_store::{
-    GraphStore, ShadowAggregate, ShadowOperation, ShadowSampleRow, StoreError, UsageOperation,
-    UsageSampleRow, UsageSummary,
+    GraphStore, QualitySummary, ShadowAggregate, ShadowOperation, ShadowSampleRow, StoreError,
+    UsageOperation, UsageSampleRow, UsageSummary,
 };
 use include_dir::{Dir, include_dir};
 use serde::{Deserialize, Serialize};
@@ -133,6 +133,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/shadow/metrics", get(shadow_metrics))
         .route("/api/shadow/samples", get(shadow_samples))
         .route("/api/usage/summary", get(usage_summary))
+        .route("/api/usage/quality", get(usage_quality))
         .route("/api/usage/samples", get(usage_samples))
         .route("/api/adapters/{agent}", get(adapter_bundle))
         .merge(runs::routes())
@@ -305,6 +306,11 @@ async fn shadow_samples(
 /// Bounded read of the append-only token-accounting ledger.
 async fn usage_summary(State(state): State<AppState>) -> Result<Json<UsageSummary>, ApiError> {
     Ok(Json(state.store.usage().summary()?))
+}
+
+/// Savings joined with run outcomes: only clean succeeded runs are credited.
+async fn usage_quality(State(state): State<AppState>) -> Result<Json<QualitySummary>, ApiError> {
+    Ok(Json(state.store.usage().quality_summary()?))
 }
 
 async fn usage_samples(

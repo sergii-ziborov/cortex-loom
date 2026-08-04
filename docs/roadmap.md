@@ -23,7 +23,7 @@
 5. Import a small, licensed Superpowers-derived methodology fixture set and build scenario/pressure tests for round-trip behavior.
 6. Stabilize or publish native Rust Refactor planning crates before removing the JavaScript compatibility oracle.
 7. Run official MCP conformance and adversarial stdio tests before treating the server as production-ready. Verified prerequisite (2026-08-04): the official suite (`@modelcontextprotocol/conformance` 0.1.16) drives servers over Streamable HTTP only, so cortex-mcp first needs an HTTP transport (or a stdio bridge) before the suite can run.
-8. Add run-level token, latency, device, rejection, fallback, and quality-equivalence telemetry. Partially done: an append-only usage ledger (`usage_samples`) records every `route_work` decision and `weavatrix_context_compile` savings figure, readable via the `usage_read` MCP tool and `GET /api/usage/*`. Remaining: run-scoped attribution, upstream-side token counts, and quality-equivalence verdicts.
+8. Add run-level token, latency, device, rejection, fallback, and quality-equivalence telemetry. Mostly done: the append-only usage ledger (`usage_samples`) records every `route_work` decision and `weavatrix_context_compile` savings figure with optional `runId` attribution, and the quality summary joins savings with run outcomes so only clean succeeded runs are credited (`usage_read`, `GET /api/usage/*`). Remaining: upstream-side token counts reported back by adapters.
 
 ## Research gates
 

@@ -15,7 +15,10 @@ pub use run_store::RunStore;
 pub use shadow_store::{
     ShadowAggregate, ShadowOperation, ShadowSample, ShadowSampleRow, ShadowStore,
 };
-pub use usage_store::{UsageOperation, UsageSample, UsageSampleRow, UsageStore, UsageSummary};
+pub use usage_store::{
+    QualitySummary, RunQuality, UsageOperation, UsageSample, UsageSampleRow, UsageStore,
+    UsageSummary,
+};
 
 #[derive(Clone)]
 pub struct GraphStore {
@@ -176,6 +179,7 @@ impl GraphStore {
                created_at INTEGER NOT NULL,
                operation TEXT NOT NULL CHECK (operation IN
                  ('route_work','context_compile')),
+               run_id TEXT,
                target TEXT,
                model_tier TEXT,
                task_class TEXT,
@@ -187,6 +191,7 @@ impl GraphStore {
                latency_ms INTEGER
              );",
         )?;
+        ensure_column(&connection, "usage_samples", "run_id", "run_id TEXT")?;
         Ok(Self {
             connection: Arc::new(Mutex::new(connection)),
         })
@@ -317,6 +322,25 @@ impl GraphStore {
 
 fn sqlite_integer(value: u64, field: &'static str) -> Result<i64, StoreError> {
     i64::try_from(value).map_err(|_| StoreError::IntegerOutOfRange { field, value })
+}
+
+/// Additive migration for databases created before a column existed.
+fn ensure_column(
+    connection: &Connection,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> Result<(), StoreError> {
+    let mut statement = connection.prepare(&format!("PRAGMA table_info({table})"))?;
+    let exists = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|name| name == column);
+    if !exists {
+        connection.execute(&format!("ALTER TABLE {table} ADD COLUMN {definition}"), [])?;
+    }
+    Ok(())
 }
 
 fn unix_timestamp() -> i64 {

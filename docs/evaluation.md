@@ -37,6 +37,8 @@ Record, per workflow:
 
 Report savings only for quality-equivalent accepted runs. A smaller prompt that causes extra repair loops is not a saving.
 
+This rule is now enforced by the ledger itself: callers pass `runId` to `route_work` and `weavatrix_context_compile`, and the quality summary (`usage_read`, `GET /api/usage/quality`) joins attributed savings with run outcomes. Only runs that succeeded with no retried nodes and no rejected gates are credited as `qualityEquivalentSavedTokens`; everything else stays `unprovenSavedTokens`. First credited measurement: 4004 tokens on the dogfood run under a 4k budget with split fragments (budget utilization 1461 → 3545 selected tokens).
+
 ## Escalation
 
 Escalate when evidence is missing or contradictory, validation fails, a budget is exceeded, a task is repository-wide or high-risk, or the user asks for the stronger model. Silent fallback to a smaller local model is forbidden.

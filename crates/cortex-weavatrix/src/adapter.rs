@@ -12,6 +12,10 @@ use weavatrix_rust::{Weavatrix, operations};
 use crate::{McpChild, McpCommand, McpError};
 
 const MAX_EVIDENCE_CHARS: usize = 24_000;
+/// Fragments above this size are split into stable sub-citations so a token
+/// budget can keep part of a large fragment instead of dropping it whole
+/// (measured: a 6k-token plan fragment was omitted entirely at a 4k budget).
+const MAX_FRAGMENT_CHARS: usize = 4_096;
 
 #[derive(Debug, Clone)]
 pub struct WeavatrixConfig {
@@ -29,7 +33,7 @@ pub struct EvidenceBundle {
     pub warnings: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct EvidenceFragment {
     pub id: String,
@@ -193,28 +197,27 @@ impl WeavatrixAdapter {
             }),
         )?;
         let repository = repository.to_string_lossy().into_owned();
-        let mut evidence = vec![
-            fragment(
-                "WX-GRAPH",
-                EvidenceKind::GraphStats,
-                "weavatrix:graph_stats",
-                &graph_status,
-            ),
-            fragment(
-                "WX-MODULES",
-                EvidenceKind::ModuleMap,
-                "weavatrix:module_map",
-                &module_map,
-            ),
-            fragment(
-                "WX-VERIFY",
-                EvidenceKind::ChangePlan,
-                "weavatrix:verified_change",
-                &verification,
-            ),
-        ];
+        let mut evidence = Vec::new();
+        evidence.extend(fragments(
+            "WX-GRAPH",
+            EvidenceKind::GraphStats,
+            "weavatrix:graph_stats",
+            &graph_status,
+        ));
+        evidence.extend(fragments(
+            "WX-MODULES",
+            EvidenceKind::ModuleMap,
+            "weavatrix:module_map",
+            &module_map,
+        ));
+        evidence.extend(fragments(
+            "WX-VERIFY",
+            EvidenceKind::ChangePlan,
+            "weavatrix:verified_change",
+            &verification,
+        ));
         if let Some(symbol_context) = &symbol_context {
-            evidence.push(fragment(
+            evidence.extend(fragments(
                 "WX-SYMBOL",
                 EvidenceKind::SymbolContext,
                 "weavatrix:context_bundle",
@@ -292,13 +295,78 @@ impl WeavatrixAdapter {
     }
 }
 
-fn fragment(id: &str, kind: EvidenceKind, source: &str, value: &Value) -> EvidenceFragment {
-    EvidenceFragment {
-        id: id.to_owned(),
-        kind,
-        source: source.to_owned(),
-        content: extract_text(value),
+/// Convert one tool result into one or more stable, individually citable
+/// fragments. Small results keep the bare id (`WX-VERIFY`); oversized results
+/// split deterministically into `WX-VERIFY-1..n` at paragraph boundaries so a
+/// token budget can keep a prefix instead of dropping the whole fragment.
+fn fragments(id: &str, kind: EvidenceKind, source: &str, value: &Value) -> Vec<EvidenceFragment> {
+    let content = extract_text(value);
+    let parts = split_content(&content, MAX_FRAGMENT_CHARS);
+    let single = parts.len() == 1;
+    parts
+        .into_iter()
+        .enumerate()
+        .map(|(index, part)| EvidenceFragment {
+            id: if single {
+                id.to_owned()
+            } else {
+                format!("{id}-{}", index + 1)
+            },
+            kind,
+            source: source.to_owned(),
+            content: part,
+        })
+        .collect()
+}
+
+/// Deterministic paragraph packing: greedy chunks up to `max_chars`,
+/// splitting a single oversized paragraph at a character boundary.
+fn split_content(content: &str, max_chars: usize) -> Vec<String> {
+    if content.chars().count() <= max_chars {
+        return vec![content.to_owned()];
     }
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut current_chars = 0_usize;
+    for paragraph in content.split("\n\n") {
+        let mut remaining = paragraph;
+        loop {
+            let remaining_chars = remaining.chars().count();
+            let separator = usize::from(current_chars > 0) * 2;
+            if current_chars + separator + remaining_chars <= max_chars {
+                if current_chars > 0 {
+                    current.push_str("\n\n");
+                    current_chars += 2;
+                }
+                current.push_str(remaining);
+                current_chars += remaining_chars;
+                break;
+            }
+            if current_chars > 0 {
+                parts.push(std::mem::take(&mut current));
+                current_chars = 0;
+                continue;
+            }
+            // A single paragraph larger than the cap: hard character split.
+            let boundary = remaining
+                .char_indices()
+                .nth(max_chars)
+                .map_or(remaining.len(), |(offset, _)| offset);
+            parts.push(remaining[..boundary].to_owned());
+            remaining = &remaining[boundary..];
+            if remaining.is_empty() {
+                break;
+            }
+        }
+    }
+    if current_chars > 0 {
+        parts.push(current);
+    }
+    parts.retain(|part| !part.trim().is_empty());
+    if parts.is_empty() {
+        parts.push(content.to_owned());
+    }
+    parts
 }
 
 fn strip_confirmation_fields(value: &mut Value) {
@@ -419,6 +487,47 @@ mod tests {
             "structuredContent": {"result": {"text": "structured"}}
         });
         assert_eq!(extract_text(&value), "structured");
+    }
+
+    #[test]
+    fn small_results_keep_the_bare_citation_id() {
+        let value = json!({"content": [{"type": "text", "text": "short plan"}]});
+        let parts = fragments("WX-VERIFY", EvidenceKind::ChangePlan, "weavatrix:v", &value);
+        assert_eq!(parts.len(), 1);
+        assert_eq!(parts[0].id, "WX-VERIFY");
+    }
+
+    #[test]
+    fn oversized_results_split_into_stable_ordered_sub_citations() {
+        let paragraphs: Vec<String> = (0..8)
+            .map(|i| format!("paragraph {i} {}", "x".repeat(900)))
+            .collect();
+        let text = paragraphs.join("\n\n");
+        let value = json!({"content": [{"type": "text", "text": text}]});
+        let parts = fragments("WX-VERIFY", EvidenceKind::ChangePlan, "weavatrix:v", &value);
+        assert!(parts.len() > 1, "must split: {}", parts.len());
+        for (index, part) in parts.iter().enumerate() {
+            assert_eq!(part.id, format!("WX-VERIFY-{}", index + 1));
+            assert!(part.content.chars().count() <= MAX_FRAGMENT_CHARS);
+            assert_eq!(part.kind, EvidenceKind::ChangePlan);
+        }
+        let rejoined: String = parts
+            .iter()
+            .map(|part| part.content.clone())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        assert_eq!(rejoined, text, "splitting loses no content");
+
+        let again = fragments("WX-VERIFY", EvidenceKind::ChangePlan, "weavatrix:v", &value);
+        assert_eq!(parts, again, "splitting is deterministic");
+    }
+
+    #[test]
+    fn a_single_oversized_paragraph_is_hard_split_without_loss() {
+        let text = "y".repeat(MAX_FRAGMENT_CHARS * 2 + 100);
+        let parts = split_content(&text, MAX_FRAGMENT_CHARS);
+        assert_eq!(parts.len(), 3);
+        assert_eq!(parts.concat(), text);
     }
 
     #[test]

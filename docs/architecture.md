@@ -60,7 +60,7 @@ The protocol-independent crates do not depend on MCP, HTTP, or the UI. `cortex-m
 - Imported skill graphs start at revision zero and become canonical only after an explicit save.
 - Local-model graph policies must be non-mutating and require upstream review.
 - High-risk graph policies may target only an upstream agent or human.
-- Weavatrix evidence is returned as stable, individually citable evidence fragments.
+- Weavatrix evidence is returned as stable, individually citable evidence fragments. Oversized tool results split deterministically into ordered sub-citations (`WX-VERIFY-1..n`) at paragraph boundaries, so a token budget keeps a prefix of a large fragment instead of dropping it whole.
 - Weavatrix change-plan evidence remains unverified until an upstream agent or later verification phase resolves it; symbol evidence is critical and never silently omitted by the context budget.
 - Refactor confirmation/apply tokens are recursively removed from requests and preview responses.
 - Secrets are read only from runtime configuration and never stored in graph documents.

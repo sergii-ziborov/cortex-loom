@@ -79,6 +79,16 @@ struct WeavatrixContextArgs {
     task: String,
     symbol: Option<String>,
     max_tokens: u32,
+    /// Optional run attribution for quality-equivalent token accounting.
+    run_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RouteWorkArgs {
+    #[serde(flatten)]
+    request: RoutingRequest,
+    run_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -189,7 +199,8 @@ pub fn serve(state: CortexMcpState) -> io::Result<()> {
                     "repository": {"type": "string", "maxLength": 4096},
                     "task": {"type": "string", "maxLength": 16384},
                     "symbol": {"type": "string", "maxLength": 4096},
-                    "maxTokens": {"type": "integer", "minimum": 1, "maximum": 100_000}
+                    "maxTokens": {"type": "integer", "minimum": 1, "maximum": 100_000},
+                    "runId": {"type": "string", "maxLength": 256}
                 },
                 "required": ["repository", "task", "maxTokens"],
                 "additionalProperties": false
@@ -229,6 +240,7 @@ pub fn serve(state: CortexMcpState) -> io::Result<()> {
                             &context_state.store,
                             &UsageSample {
                                 operation: UsageOperation::ContextCompile,
+                                run_id: arguments.run_id.clone(),
                                 target: None,
                                 model_tier: None,
                                 task_class: None,
@@ -386,19 +398,20 @@ pub fn serve(state: CortexMcpState) -> io::Result<()> {
                     "schemaValid": {"type": "boolean"},
                     "budget": {"type": "object"},
                     "mutation": {"type": "string", "enum": ["none", "approved", "approval_required"]},
-                    "availability": {"type": "object"}
+                    "availability": {"type": "object"},
+                    "runId": {"type": "string", "maxLength": 256}
                 },
                 "required": ["task", "evidence", "schemaValid", "budget", "mutation", "availability"],
                 "additionalProperties": false
             }),
-            move |context, arguments: RoutingRequest| {
+            move |context, arguments: RouteWorkArgs| {
                 if context.is_cancelled() {
                     return ToolReply::error("cancelled");
                 }
-                let decision = route(&arguments);
+                let decision = route(&arguments.request);
                 if let Some(shadow) = &route_state.shadow {
                     shadow.observe(ShadowTask::RouteClassification {
-                        task: arguments.task.clone(),
+                        task: arguments.request.task.clone(),
                         deterministic: RoutingSnapshot {
                             tier: decision.model_tier,
                             class: decision.class,
@@ -410,6 +423,7 @@ pub fn serve(state: CortexMcpState) -> io::Result<()> {
                     &route_state.store,
                     &UsageSample {
                         operation: UsageOperation::RouteWork,
+                        run_id: arguments.run_id.clone(),
                         target: to_snake(&decision.target),
                         model_tier: to_snake(&decision.model_tier),
                         task_class: to_snake(&decision.class),
@@ -505,6 +519,10 @@ pub fn serve(state: CortexMcpState) -> io::Result<()> {
                     Ok(summary) => summary,
                     Err(error) => return ToolReply::error(error.to_string()),
                 };
+                let quality = match usage.quality_summary() {
+                    Ok(quality) => quality,
+                    Err(error) => return ToolReply::error(error.to_string()),
+                };
                 let samples = match arguments.limit {
                     None => Vec::new(),
                     Some(limit) => match usage.list(operation, limit.clamp(1, 100)) {
@@ -514,6 +532,7 @@ pub fn serve(state: CortexMcpState) -> io::Result<()> {
                 };
                 ToolReply::structured(serde_json::json!({
                     "summary": summary,
+                    "quality": quality,
                     "samples": samples,
                 }))
             },

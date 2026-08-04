@@ -4,6 +4,8 @@ use cortex_ollama::DevicePlacement;
 use cortex_router::ModelTier;
 use serde::Serialize;
 
+use std::collections::BTreeMap;
+
 use cortex_ollama::EmbedRequest;
 
 use crate::backend::EvalBackend;
@@ -22,6 +24,7 @@ use crate::prompts::{
     EvidenceBlock, classification_request, compression_request, extraction_request,
     parse_compression, parse_extraction, parse_tier,
 };
+use crate::ranking::{Bm25Index, build_adjacency, graph_boost, rrf_fuse};
 use crate::verdict::{CalibrationVerdict, judge, judge_retrieval};
 
 const EMBED_BATCH: usize = 16;
@@ -92,6 +95,26 @@ pub struct EmbeddingProfile {
     pub model: String,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum RetrievalMode {
+    /// Pure cosine ranking over embeddings.
+    Embedding,
+    /// Reciprocal-rank fusion of the embedding and BM25 rankings.
+    Hybrid,
+    /// Hybrid plus a structural neighbor bonus from declared relatedness.
+    HybridGraph,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RetrievalModeReport {
+    pub mode: RetrievalMode,
+    pub aggregate: RetrievalAggregate,
+    pub verdict: CalibrationVerdict,
+    pub samples: Vec<RetrievalSample>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EmbeddingReport {
@@ -100,16 +123,27 @@ pub struct EmbeddingReport {
     pub status: ProfileStatus,
     pub digest: Option<String>,
     pub dimensions: Option<usize>,
-    pub retrieval: Option<RetrievalAggregate>,
+    pub ranking_version: String,
+    pub modes: Vec<RetrievalModeReport>,
     pub latency: LatencyStats,
-    pub verdict: CalibrationVerdict,
-    pub samples: Vec<RetrievalSample>,
     pub error: Option<String>,
 }
 
-/// Run the retrieval suite for one embedding profile: embed the corpus and
-/// queries in bounded batches, rank by cosine similarity, and judge against
-/// the semantic-selection gate. Absent models are skipped without pulling.
+impl EmbeddingReport {
+    /// The gate opens when any mode passes.
+    #[must_use]
+    pub fn passing_mode(&self) -> Option<RetrievalMode> {
+        self.modes
+            .iter()
+            .find(|mode| mode.verdict.pass)
+            .map(|mode| mode.mode)
+    }
+}
+
+/// Run the retrieval suite for one embedding profile in three modes: pure
+/// embedding, hybrid (embedding + BM25 fused by reciprocal rank), and hybrid
+/// with a structural graph boost. Each mode is judged against the
+/// semantic-selection gate. Absent models are skipped without pulling.
 pub fn run_embedding_profile(
     backend: &dyn EvalBackend,
     profile: &EmbeddingProfile,
@@ -122,10 +156,9 @@ pub fn run_embedding_profile(
         status: ProfileStatus::Evaluated,
         digest: None,
         dimensions: None,
-        retrieval: None,
+        ranking_version: crate::ranking::RANKING_VERSION.to_owned(),
+        modes: Vec::new(),
         latency: latency_stats(&[]),
-        verdict: judge_retrieval(None),
-        samples: Vec::new(),
         error: None,
     };
     let installed = match backend.installed_models() {
@@ -176,34 +209,63 @@ pub fn run_embedding_profile(
         }
     };
 
+    let corpus_ids: Vec<&str> = fixtures.corpus.iter().map(|doc| doc.id.as_str()).collect();
+    let adjacency = build_adjacency(&corpus_ids, &fixtures.related);
+    let bm25 = Bm25Index::build(&corpus_texts);
+    let mut mode_samples: BTreeMap<RetrievalMode, Vec<RetrievalSample>> = BTreeMap::new();
     for (query, vector) in queries.iter().zip(&query_vectors) {
-        let ranking = rank_by_similarity(vector, &corpus_vectors);
-        let ranked_ids: Vec<&str> = ranking
-            .iter()
-            .map(|index| fixtures.corpus[*index].id.as_str())
-            .collect();
-        let sample = RetrievalSample {
-            query_id: query.id.clone(),
-            recall_at_3: recall_at_k(&ranked_ids, &query.relevant, 3),
-            recall_at_5: recall_at_k(&ranked_ids, &query.relevant, 5),
-            ndcg_at_5: ndcg_at_k(&ranked_ids, &query.relevant, 5),
-            reciprocal_rank: reciprocal_rank(&ranked_ids, &query.relevant),
-            top: ranked_ids
-                .iter()
-                .take(5)
-                .map(|id| (*id).to_owned())
-                .collect(),
-        };
-        eprintln!(
-            "[cortex-eval] {} retrieval {}: recall@5 {:.2}",
-            profile.id, query.id, sample.recall_at_5
+        let embedding_ranking = rank_by_similarity(vector, &corpus_vectors);
+        let lexical_ranking = bm25.rank(&query.text);
+        let hybrid_ranking = rrf_fuse(
+            &[embedding_ranking.as_slice(), lexical_ranking.as_slice()],
+            fixtures.corpus.len(),
         );
-        report.samples.push(sample);
+        let graph_ranking = graph_boost(&hybrid_ranking, &adjacency);
+        for (mode, ranking) in [
+            (RetrievalMode::Embedding, &embedding_ranking),
+            (RetrievalMode::Hybrid, &hybrid_ranking),
+            (RetrievalMode::HybridGraph, &graph_ranking),
+        ] {
+            mode_samples.entry(mode).or_default().push(retrieval_sample(
+                query,
+                ranking,
+                &corpus_ids,
+            ));
+        }
+        eprintln!("[cortex-eval] {} retrieval {}", profile.id, query.id);
     }
-    report.retrieval = Some(aggregate_retrieval(&report.samples));
+    for (mode, samples) in mode_samples {
+        let aggregate = aggregate_retrieval(&samples);
+        let verdict = judge_retrieval(Some(&aggregate));
+        report.modes.push(RetrievalModeReport {
+            mode,
+            aggregate,
+            verdict,
+            samples,
+        });
+    }
     report.latency = latency_stats(&latencies);
-    report.verdict = judge_retrieval(report.retrieval.as_ref());
     report
+}
+
+fn retrieval_sample(
+    query: &crate::fixtures::RetrievalQuery,
+    ranking: &[usize],
+    corpus_ids: &[&str],
+) -> RetrievalSample {
+    let ranked_ids: Vec<&str> = ranking.iter().map(|index| corpus_ids[*index]).collect();
+    RetrievalSample {
+        query_id: query.id.clone(),
+        recall_at_3: recall_at_k(&ranked_ids, &query.relevant, 3),
+        recall_at_5: recall_at_k(&ranked_ids, &query.relevant, 5),
+        ndcg_at_5: ndcg_at_k(&ranked_ids, &query.relevant, 5),
+        reciprocal_rank: reciprocal_rank(&ranked_ids, &query.relevant),
+        top: ranked_ids
+            .iter()
+            .take(5)
+            .map(|id| (*id).to_owned())
+            .collect(),
+    }
 }
 
 fn embed_texts(

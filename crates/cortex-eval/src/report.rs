@@ -144,32 +144,38 @@ fn render_embedding(out: &mut String, embedding: &EmbeddingReport) {
     }
     let _ = writeln!(
         out,
-        "role: embedding | digest: {} | dims: {} | embed latency p50/p95: {}/{} ms over {} batches",
+        "role: embedding | ranking: {} | digest: {} | dims: {} | embed latency p50/p95: {}/{} ms over {} batches",
+        embedding.ranking_version,
         embedding.digest.as_deref().unwrap_or("unknown"),
         embedding.dimensions.unwrap_or(0),
         embedding.latency.p50_ms,
         embedding.latency.p95_ms,
         embedding.latency.samples
     );
-    if let Some(aggregate) = &embedding.retrieval {
+    for mode in &embedding.modes {
+        let aggregate = &mode.aggregate;
         let _ = writeln!(
             out,
-            "retrieval: {} queries, recall@3 {:.2}, recall@5 {:.2} (min {:.2}), ndcg@5 {:.2}, mrr {:.2}",
+            "{:?}: {} queries, recall@3 {:.2}, recall@5 {:.2} (min {:.2}), ndcg@5 {:.2}, mrr {:.2} -> {}",
+            mode.mode,
             aggregate.queries,
             aggregate.mean_recall_at_3,
             aggregate.mean_recall_at_5,
             aggregate.min_recall_at_5,
             aggregate.mean_ndcg_at_5,
-            aggregate.mean_reciprocal_rank
+            aggregate.mean_reciprocal_rank,
+            if mode.verdict.pass { "PASS" } else { "FAIL" }
         );
     }
-    if embedding.verdict.pass {
-        let _ = writeln!(out, "verdict: PASS — semantic selection is unblocked");
-    } else {
-        let _ = writeln!(out, "verdict: FAIL");
-        for reason in &embedding.verdict.reasons {
-            let rendered = serde_json::to_string(reason).unwrap_or_default();
-            let _ = writeln!(out, "- {rendered}");
+    match embedding.passing_mode() {
+        Some(mode) => {
+            let _ = writeln!(
+                out,
+                "verdict: PASS via {mode:?} — semantic selection is unblocked for this mode"
+            );
+        }
+        None => {
+            let _ = writeln!(out, "verdict: FAIL — no mode passes the gate");
         }
     }
 }

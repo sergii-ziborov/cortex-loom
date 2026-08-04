@@ -59,6 +59,12 @@ pub struct EvidenceFixture {
 pub struct RetrievalFixtures {
     pub corpus: Vec<CorpusDoc>,
     pub queries: Vec<RetrievalQuery>,
+    /// Structural relatedness between corpus docs (same crate, direct
+    /// dependency, or data flow) â€” the eval stand-in for Weavatrix graph
+    /// adjacency. Pairs are declared from repository structure, never from
+    /// gold labels. Each entry must contain exactly two distinct ids.
+    #[serde(default)]
+    pub related: Vec<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -119,7 +125,11 @@ fn validate(set: &FixtureSet) -> Result<(), EvalError> {
     require_unique_ids("classification", set.classification.iter().map(|f| &f.id))?;
     require_unique_ids("extraction", set.extraction.iter().map(|f| &f.id))?;
     require_unique_ids("compression", set.compression.iter().map(|f| &f.id))?;
+    validate_chat_suites(set)?;
+    validate_retrieval(&set.retrieval)
+}
 
+fn validate_chat_suites(set: &FixtureSet) -> Result<(), EvalError> {
     for fixture in &set.classification {
         if fixture.task.trim().is_empty() {
             return Err(EvalError::Fixture(format!(
@@ -174,26 +184,19 @@ fn validate(set: &FixtureSet) -> Result<(), EvalError> {
         }
     }
 
-    require_unique_ids(
-        "retrieval corpus",
-        set.retrieval.corpus.iter().map(|d| &d.id),
-    )?;
-    require_unique_ids(
-        "retrieval queries",
-        set.retrieval.queries.iter().map(|q| &q.id),
-    )?;
-    let corpus_ids: HashSet<&str> = set
-        .retrieval
-        .corpus
-        .iter()
-        .map(|doc| doc.id.as_str())
-        .collect();
-    for doc in &set.retrieval.corpus {
+    Ok(())
+}
+
+fn validate_retrieval(retrieval: &RetrievalFixtures) -> Result<(), EvalError> {
+    require_unique_ids("retrieval corpus", retrieval.corpus.iter().map(|d| &d.id))?;
+    require_unique_ids("retrieval queries", retrieval.queries.iter().map(|q| &q.id))?;
+    let corpus_ids: HashSet<&str> = retrieval.corpus.iter().map(|doc| doc.id.as_str()).collect();
+    for doc in &retrieval.corpus {
         if doc.text.trim().is_empty() {
             return Err(EvalError::Fixture(format!("{} has empty text", doc.id)));
         }
     }
-    for query in &set.retrieval.queries {
+    for query in &retrieval.queries {
         if query.text.trim().is_empty() || query.relevant.is_empty() {
             return Err(EvalError::Fixture(format!(
                 "{} needs text and relevant ids",
@@ -205,6 +208,27 @@ fn validate(set: &FixtureSet) -> Result<(), EvalError> {
                 return Err(EvalError::Fixture(format!(
                     "{} references unknown corpus id {id}",
                     query.id
+                )));
+            }
+        }
+    }
+    for pair in &retrieval.related {
+        if pair.len() != 2 {
+            return Err(EvalError::Fixture(format!(
+                "related pairs must contain exactly two ids, found {}",
+                pair.len()
+            )));
+        }
+        if pair[0] == pair[1] {
+            return Err(EvalError::Fixture(format!(
+                "related pair {} points at itself",
+                pair[0]
+            )));
+        }
+        for id in pair {
+            if !corpus_ids.contains(id.as_str()) {
+                return Err(EvalError::Fixture(format!(
+                    "related pair references unknown corpus id {id}"
                 )));
             }
         }

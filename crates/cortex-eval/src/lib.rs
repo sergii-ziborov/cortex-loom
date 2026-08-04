@@ -16,6 +16,7 @@ pub mod comparators;
 pub mod fixtures;
 pub mod metrics;
 pub mod prompts;
+pub mod ranking;
 pub mod report;
 pub mod runner;
 pub mod verdict;

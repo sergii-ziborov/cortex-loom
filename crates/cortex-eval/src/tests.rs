@@ -1,4 +1,4 @@
-use cortex_ollama::ModelInfo;
+﻿use cortex_ollama::ModelInfo;
 use cortex_router::{ModelTier, classify};
 
 use crate::backend::ScriptedBackend;
@@ -49,6 +49,7 @@ fn empty_fixture_set() -> FixtureSet {
         retrieval: RetrievalFixtures {
             corpus: Vec::new(),
             queries: Vec::new(),
+            related: Vec::new(),
         },
     }
 }
@@ -395,6 +396,7 @@ fn retrieval_metrics_and_gate_work_on_scripted_embeddings() {
             text: "find alpha".to_owned(),
             relevant: vec!["doc-a".to_owned()],
         }],
+        related: Vec::new(),
     };
     let backend = ScriptedBackend::new(
         vec![ModelInfo {
@@ -415,10 +417,17 @@ fn retrieval_metrics_and_gate_work_on_scripted_embeddings() {
     let report = run_embedding_profile(&backend, &profile, &fixtures, None);
     assert_eq!(report.status, ProfileStatus::Evaluated);
     assert_eq!(report.dimensions, Some(2));
-    let aggregate = report.retrieval.expect("retrieval ran");
-    assert!((aggregate.mean_recall_at_5 - 1.0).abs() < 1e-9);
-    assert!((aggregate.mean_reciprocal_rank - 1.0).abs() < 1e-9);
-    assert!(report.verdict.pass, "perfect retrieval passes the gate");
+    assert_eq!(report.modes.len(), 3, "three ranking modes are measured");
+    let embedding_mode = &report.modes[0];
+    assert!((embedding_mode.aggregate.mean_recall_at_5 - 1.0).abs() < 1e-9);
+    assert!((embedding_mode.aggregate.mean_reciprocal_rank - 1.0).abs() < 1e-9);
+    assert!(
+        embedding_mode.verdict.pass,
+        "perfect retrieval passes the gate"
+    );
+    // "find alpha" lexically matches doc-a too: hybrid agrees with the
+    // embedding ranking and passes as well.
+    assert!(report.passing_mode().is_some());
 
     // An absent model is skipped without any embed call.
     let absent_backend = ScriptedBackend::new(Vec::new(), Vec::new());

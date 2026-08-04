@@ -83,9 +83,9 @@ checksum = "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da"
 
 [[package]]
 name = "blazingly-json"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2af6e9703e92d191d4a44c9e7da2ea0aded836b109fdc9a3b9d04146a36f94f7"
+checksum = "b542fdefec7c84b43817d9937de6bd42885f1f6b070e68e56da3179d043d6db5"
 dependencies = [
  "itoa",
  "lexical-core",

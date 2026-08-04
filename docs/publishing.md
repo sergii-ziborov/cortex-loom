@@ -49,26 +49,27 @@ Publishing is irreversible: a version can be yanked but never removed, the
 name is claimed permanently, and the public API becomes a compatibility
 promise. Each item below is cheap to change now and breaking afterwards.
 
-1. **The JSON value type in `cortex-domain`'s public API.**
-   `GraphNode::config` is `HashMap<String, blazingly_json::Value>`. Three
-   consequences: consumers must take `blazingly-json 0.1` themselves; cargo
-   treats `0.1 → 0.2` as incompatible, so any release of that crate is
-   automatically a breaking change here; and `cortex-domain 1.0` is not
-   reachable while a `0.x` type sits in its API. Options, in increasing
-   independence: keep it (fine if these crates stay `0.x`), switch to real
-   `serde_json` 1.0 (two lines here plus the alias in `cortex-skills` and
-   `cortex-run`), or define a crate-owned `#[serde(untagged)] enum
-   ConfigValue` with the same wire format and drop the dependency entirely.
-2. **`cortex-router` freezes vendor names into a public contract.**
+1. **The version floor on `blazingly-json`.** `GraphNode::config` is
+   `HashMap<String, blazingly_json::Value>`, so `cortex-domain` exposes that
+   type publicly and consumers take the dependency too. That is deliberate —
+   `blazingly-json` is a first-party crate and `mcport` already depends on it
+   publicly, so this is the same stack rather than an outside risk. The one
+   mechanical consequence: cargo treats `0.1 → 0.2` as incompatible, so
+   `cortex-domain` cannot promise `1.0` while a `0.x` type sits in its API.
+   Nothing to do for a `0.1.0` release; reaching `1.0` means releasing
+   `blazingly-json 1.0` first. The dependency is declared by its real name
+   rather than the workspace's `serde_json` alias so consumers see exactly
+   what they take.
+2. **How `cortex-router` is positioned.** Its API names first-party tools:
    `LocalAvailability { weavatrix, ollama }`, `ContextStrategy::WeavatrixEvidence`,
-   `RoutingReason::{WeavatrixUnavailable, OllamaUnavailable}`,
-   `approves_local_model` matching `ExecutionTarget::Ollama`, and `"weavatrix"`
-   as a classifier keyword. Nothing secret leaks — both are public products —
-   but a user of a different code-graph tool or local runtime inherits names
-   for tools they do not run, permanently. Either rename to generic terms
-   (`code_graph`, `local_model`) first, or publish `cortex-router` in a later
-   batch once the naming is settled. `cortex-domain` and `cortex-context`
-   have no such coupling.
+   `RoutingReason::{WeavatrixUnavailable, OllamaUnavailable}`, and
+   `approves_local_model` matching `ExecutionTarget::Ollama`. This is a
+   positioning choice, not a leak: as "the routing policy for the
+   Weavatrix/Cortex stack" the names are correct and self-documenting; as "a
+   general-purpose routing crate" a user of a different code-graph tool
+   inherits names for tools they do not run. Whichever it is, the names are
+   frozen at first publish. `cortex-domain` and `cortex-context` carry no
+   such coupling either way.
 3. **`cortex-domain::validate_execution` enforces policy, not only structure.**
    Every `GraphDocument::validate` call rejects mutation authority or
    high-risk work on any target other than `Upstream`/`Human`. That is now

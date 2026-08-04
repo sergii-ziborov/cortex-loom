@@ -150,3 +150,153 @@ fn rejects_unclosed_frontmatter() {
     let error = import_skill_markdown("SKILL.md", "---\nname: Broken\n# Body\n").unwrap_err();
     assert!(matches!(error, SkillError::InvalidFrontmatter(_)));
 }
+
+const FIXTURES: &[(&str, &str)] = &[
+    (
+        "fixtures/test-driven-development.md",
+        include_str!("../fixtures/test-driven-development.md"),
+    ),
+    (
+        "fixtures/systematic-debugging.md",
+        include_str!("../fixtures/systematic-debugging.md"),
+    ),
+    (
+        "fixtures/grounded-review.md",
+        include_str!("../fixtures/grounded-review.md"),
+    ),
+];
+
+fn semantic_view(graph: &cortex_domain::GraphDocument) -> Vec<(String, String)> {
+    graph
+        .nodes
+        .iter()
+        .map(|node| {
+            (
+                node.config
+                    .get("role")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned(),
+                node.label.clone(),
+            )
+        })
+        .collect()
+}
+
+fn edge_counts(graph: &cortex_domain::GraphDocument) -> (usize, usize) {
+    (
+        graph
+            .edges
+            .iter()
+            .filter(|edge| edge.kind == EdgeKind::Sequence)
+            .count(),
+        graph
+            .edges
+            .iter()
+            .filter(|edge| edge.label == "explicit dependency")
+            .count(),
+    )
+}
+
+#[test]
+fn superpowers_format_fixtures_round_trip_semantically() {
+    for (source, markdown) in FIXTURES {
+        let first = import_skill_markdown(source, markdown)
+            .unwrap_or_else(|error| panic!("{source}: {error}"));
+        first.validate().unwrap();
+        assert!(
+            first.metadata.contains_key("frontmatter.license"),
+            "{source}: frontmatter extras survive import"
+        );
+        let (sequences, dependencies) = edge_counts(&first);
+        assert!(sequences >= 4, "{source}: step chain imported");
+        assert!(
+            dependencies >= 1,
+            "{source}: explicit dependencies imported"
+        );
+
+        let exported = export_skill_markdown(&first).unwrap();
+        let second = import_skill_markdown(source, &exported)
+            .unwrap_or_else(|error| panic!("{source} re-import: {error}"));
+        assert_eq!(
+            semantic_view(&first),
+            semantic_view(&second),
+            "{source}: node semantics are stable"
+        );
+        assert_eq!(
+            edge_counts(&first),
+            edge_counts(&second),
+            "{source}: workflow edges are stable"
+        );
+
+        // A second export is byte-identical: the canonical view is a fixpoint.
+        let exported_again = export_skill_markdown(&second).unwrap();
+        assert_eq!(exported, exported_again, "{source}: export is stable");
+    }
+}
+
+#[test]
+fn crlf_input_matches_lf_input_semantically() {
+    let (source, markdown) = FIXTURES[0];
+    let lf = import_skill_markdown(source, markdown).unwrap();
+    let crlf = import_skill_markdown(source, &markdown.replace('\n', "\r\n")).unwrap();
+    assert_eq!(semantic_view(&lf), semantic_view(&crlf));
+    assert_eq!(edge_counts(&lf), edge_counts(&crlf));
+}
+
+#[test]
+fn unicode_labels_survive_the_round_trip() {
+    let graph = import_skill_markdown("fixtures/grounded-review.md", FIXTURES[2].1).unwrap();
+    assert!(
+        graph
+            .nodes
+            .iter()
+            .any(|node| node.label.contains('✓') || node.description.contains('✓')),
+        "unicode guidance imported"
+    );
+    let exported = export_skill_markdown(&graph).unwrap();
+    let second = import_skill_markdown("fixtures/grounded-review.md", &exported).unwrap();
+    assert_eq!(semantic_view(&graph), semantic_view(&second));
+}
+
+#[test]
+fn long_dependency_chains_scale_and_round_trip() {
+    use std::fmt::Write as _;
+    let mut markdown = String::from(
+        "---\nname: Long Chain\ndescription: pressure\n---\n# Long Chain\n\n## Steps\n\n",
+    );
+    for step in 1..=60 {
+        if step == 1 {
+            markdown.push_str("1. Start the chain.\n");
+        } else {
+            let _ = writeln!(markdown, "{step}. Continue after step {}.", step - 1);
+        }
+    }
+    let graph = import_skill_markdown("chain/SKILL.md", &markdown).unwrap();
+    let (sequences, dependencies) = edge_counts(&graph);
+    assert_eq!(sequences, 59);
+    assert_eq!(dependencies, 59, "every 'after step N' hint became an edge");
+
+    let exported = export_skill_markdown(&graph).unwrap();
+    let second = import_skill_markdown("chain/SKILL.md", &exported).unwrap();
+    assert_eq!(edge_counts(&second), (59, 59));
+}
+
+#[test]
+fn hostile_frontmatter_is_rejected_or_contained() {
+    // A value-less line is a hard error, not a silent skip.
+    assert!(matches!(
+        import_skill_markdown("SKILL.md", "---\nno delimiter here\n---\n# X\n"),
+        Err(SkillError::InvalidFrontmatter(_))
+    ));
+    // An empty key is rejected.
+    assert!(matches!(
+        import_skill_markdown("SKILL.md", "---\n: value\n---\n# X\n"),
+        Err(SkillError::InvalidFrontmatter(_))
+    ));
+    // An empty document with empty frontmatter still compiles to a bare
+    // skill node named from the source path.
+    let graph = import_skill_markdown("bare-skill/SKILL.md", "---\n---\n").unwrap();
+    assert_eq!(graph.nodes.len(), 1);
+    assert_eq!(graph.name, "SKILL");
+}

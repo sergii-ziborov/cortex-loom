@@ -151,6 +151,8 @@ fn rejects_unclosed_frontmatter() {
     assert!(matches!(error, SkillError::InvalidFrontmatter(_)));
 }
 
+/// The shipped library doubles as the round-trip fixture set: whatever we
+/// hand a consumer must survive its own compiler.
 const FIXTURES: &[(&str, &str)] = &[
     (
         "fixtures/test-driven-development.md",
@@ -165,6 +167,29 @@ const FIXTURES: &[(&str, &str)] = &[
         include_str!("../fixtures/grounded-review.md"),
     ),
 ];
+
+#[test]
+fn every_bundled_skill_compiles_and_has_a_unique_graph_id() {
+    let mut ids = std::collections::HashSet::new();
+    let mut graph_ids = std::collections::HashSet::new();
+    for skill in bundled_skills() {
+        assert!(ids.insert(skill.id), "duplicate bundled id {}", skill.id);
+        let graph = import_skill_markdown(skill.source, skill.markdown)
+            .unwrap_or_else(|error| panic!("{}: {error}", skill.id));
+        graph.validate().unwrap();
+        assert!(
+            graph_ids.insert(graph.id.clone()),
+            "bundled skills collide on graph id {}",
+            graph.id
+        );
+        assert!(
+            graph.nodes.len() > 3,
+            "{} should carry real workflow",
+            skill.id
+        );
+    }
+    assert_eq!(ids.len(), 3, "the library ships three skills");
+}
 
 fn semantic_view(graph: &cortex_domain::GraphDocument) -> Vec<(String, String)> {
     graph

@@ -47,6 +47,51 @@ impl From<GraphError> for SkillError {
     }
 }
 
+/// One methodology skill shipped with this crate.
+///
+/// The library exists so a consumer starts with working methodology instead
+/// of an empty editor: compile a bundled skill with
+/// [`import_skill_markdown`], edit the graph, and export it back to Markdown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BundledSkill {
+    /// Stable identifier, matching the file stem.
+    pub id: &'static str,
+    /// Provenance string to pass to [`import_skill_markdown`].
+    pub source: &'static str,
+    /// The `SKILL.md` document.
+    pub markdown: &'static str,
+}
+
+/// The methodology skills shipped with this crate.
+///
+/// ```
+/// for skill in cortex_skills::bundled_skills() {
+///     let graph = cortex_skills::import_skill_markdown(skill.source, skill.markdown)?;
+///     assert!(!graph.nodes.is_empty());
+/// }
+/// # Ok::<(), cortex_skills::SkillError>(())
+/// ```
+#[must_use]
+pub const fn bundled_skills() -> &'static [BundledSkill] {
+    &[
+        BundledSkill {
+            id: "test-driven-development",
+            source: "cortex-skills/fixtures/test-driven-development.md",
+            markdown: include_str!("../fixtures/test-driven-development.md"),
+        },
+        BundledSkill {
+            id: "systematic-debugging",
+            source: "cortex-skills/fixtures/systematic-debugging.md",
+            markdown: include_str!("../fixtures/systematic-debugging.md"),
+        },
+        BundledSkill {
+            id: "grounded-review",
+            source: "cortex-skills/fixtures/grounded-review.md",
+            markdown: include_str!("../fixtures/grounded-review.md"),
+        },
+    ]
+}
+
 /// A single-line rendering of a skill name for the Markdown `# ` title.
 ///
 /// Frontmatter carries the exact name; the title must stay on one line.

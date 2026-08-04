@@ -1,4 +1,4 @@
-use std::fmt::{Display, Formatter};
+﻿use std::fmt::{Display, Formatter};
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -186,7 +186,7 @@ impl GraphStore {
                budget_tokens INTEGER,
                raw_tokens INTEGER,
                selected_tokens INTEGER,
-               saved_tokens INTEGER,
+               omitted_tokens INTEGER,
                requires_upstream INTEGER,
                latency_ms INTEGER
              );
@@ -201,6 +201,16 @@ impl GraphStore {
              );",
         )?;
         ensure_column(&connection, "usage_samples", "run_id", "run_id TEXT")?;
+        // Renamed from `saved_tokens`: the value is omitted-evidence volume,
+        // not a measured saving. Older databases keep the stale column; the
+        // new one starts empty rather than pretending the old numbers meant
+        // something they did not.
+        ensure_column(
+            &connection,
+            "usage_samples",
+            "omitted_tokens",
+            "omitted_tokens INTEGER",
+        )?;
         Ok(Self {
             connection: Arc::new(Mutex::new(connection)),
         })

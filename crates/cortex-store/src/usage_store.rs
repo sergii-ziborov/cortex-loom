@@ -1,7 +1,7 @@
-//! Append-only usage telemetry: the token-accounting ledger from
+﻿//! Append-only usage telemetry: the token-accounting ledger from
 //! docs/evaluation.md. Records are measurement data with no workflow
 //! authority; the store exposes inserts, bounded reads, and one bounded
-//! summary — no update or delete surface exists.
+//! summary Ã¢â‚¬â€ no update or delete surface exists.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -58,7 +58,7 @@ pub struct UsageSample {
     pub budget_tokens: Option<u32>,
     pub raw_tokens: Option<u32>,
     pub selected_tokens: Option<u32>,
-    pub saved_tokens: Option<u32>,
+    pub omitted_tokens: Option<u32>,
     pub requires_upstream: Option<bool>,
     pub latency_ms: Option<u64>,
 }
@@ -105,7 +105,7 @@ pub struct UsageSummary {
     pub compile_calls: u32,
     pub raw_tokens_total: u64,
     pub selected_tokens_total: u64,
-    pub saved_tokens_total: u64,
+    pub omitted_tokens_total: u64,
     pub requires_upstream_count: u32,
     pub compile_latency_p50_ms: u64,
     pub compile_latency_p95_ms: u64,
@@ -115,7 +115,7 @@ pub struct UsageSummary {
     pub upstream_output_tokens_total: u64,
 }
 
-/// Quality signals for one run the ledger attributes savings to.
+/// Quality signals for one run the ledger attributes evidence volume to.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct RunQuality {
@@ -126,12 +126,12 @@ pub struct RunQuality {
     pub retried: bool,
     /// Any human or review gate recorded a rejection.
     pub rejected: bool,
-    /// Succeeded with no retries and no rejections — savings on this run are
-    /// creditable per docs/evaluation.md.
+    /// Succeeded with no retries and no rejections, so figures from this run
+    /// are creditable per docs/evaluation.md.
     pub quality_equivalent: bool,
     pub compile_calls: u32,
     pub selected_tokens: u64,
-    pub saved_tokens: u64,
+    pub omitted_tokens: u64,
     /// Self-reported upstream consumption attributed to this run.
     pub upstream_reports: u32,
     pub upstream_input_tokens: u64,
@@ -143,10 +143,12 @@ pub struct RunQuality {
 pub struct QualitySummary {
     pub attributed_runs: u32,
     pub quality_equivalent_runs: u32,
-    /// The only savings figure that may be reported as real savings.
-    pub quality_equivalent_saved_tokens: u64,
-    /// Savings on failed, retried, rejected, or unfinished runs.
-    pub unproven_saved_tokens: u64,
+    /// Omitted-evidence volume on clean runs. This is the only figure that
+    /// may be quoted at all â€” and it is still omission volume, not a measured
+    /// saving against any baseline.
+    pub quality_equivalent_omitted_tokens: u64,
+    /// The same volume on failed, retried, rejected, or unfinished runs.
+    pub unproven_omitted_tokens: u64,
     /// Compile samples in the window without a run id.
     pub unattributed_samples: u32,
     pub runs: Vec<RunQuality>,
@@ -168,7 +170,7 @@ impl UsageStore {
         connection.execute(
             "INSERT INTO usage_samples
              (created_at, operation, run_id, target, model_tier, task_class, budget_tokens,
-              raw_tokens, selected_tokens, saved_tokens, requires_upstream, latency_ms)
+              raw_tokens, selected_tokens, omitted_tokens, requires_upstream, latency_ms)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 unix_timestamp(),
@@ -180,7 +182,7 @@ impl UsageStore {
                 sample.budget_tokens,
                 sample.raw_tokens,
                 sample.selected_tokens,
-                sample.saved_tokens,
+                sample.omitted_tokens,
                 sample.requires_upstream,
                 sample
                     .latency_ms
@@ -236,7 +238,7 @@ impl UsageStore {
             compile_calls: 0,
             raw_tokens_total: 0,
             selected_tokens_total: 0,
-            saved_tokens_total: 0,
+            omitted_tokens_total: 0,
             requires_upstream_count: 0,
             compile_latency_p50_ms: 0,
             compile_latency_p95_ms: 0,
@@ -258,7 +260,8 @@ impl UsageStore {
                     summary.raw_tokens_total += u64::from(row.sample.raw_tokens.unwrap_or(0));
                     summary.selected_tokens_total +=
                         u64::from(row.sample.selected_tokens.unwrap_or(0));
-                    summary.saved_tokens_total += u64::from(row.sample.saved_tokens.unwrap_or(0));
+                    summary.omitted_tokens_total +=
+                        u64::from(row.sample.omitted_tokens.unwrap_or(0));
                     if row.sample.requires_upstream == Some(true) {
                         summary.requires_upstream_count += 1;
                     }
@@ -279,7 +282,7 @@ impl UsageStore {
         Ok(summary)
     }
 
-    /// Join the ledger with run outcomes: savings count as real only on
+    /// Join the ledger with run outcomes: figures are creditable only on
     /// succeeded runs without retries or rejections.
     pub fn quality_summary(&self) -> Result<QualitySummary, StoreError> {
         let window = i64::try_from(SUMMARY_WINDOW).unwrap_or(10_000);
@@ -298,7 +301,7 @@ impl UsageStore {
             let entry = per_run.entry(run_id.clone()).or_insert((0, 0, 0));
             entry.0 += 1;
             entry.1 += u64::from(row.sample.selected_tokens.unwrap_or(0));
-            entry.2 += u64::from(row.sample.saved_tokens.unwrap_or(0));
+            entry.2 += u64::from(row.sample.omitted_tokens.unwrap_or(0));
         }
         let mut per_run_reports: BTreeMap<String, (u32, u64, u64)> = BTreeMap::new();
         for row in self.query_reports(window)? {
@@ -317,13 +320,13 @@ impl UsageStore {
         let mut summary = QualitySummary {
             attributed_runs: 0,
             quality_equivalent_runs: 0,
-            quality_equivalent_saved_tokens: 0,
-            unproven_saved_tokens: 0,
+            quality_equivalent_omitted_tokens: 0,
+            unproven_omitted_tokens: 0,
             unattributed_samples: u32::try_from(unattributed).unwrap_or(u32::MAX),
             runs: Vec::new(),
         };
         for run_id in order.into_iter().take(MAX_QUALITY_RUNS) {
-            let (compile_calls, selected_tokens, saved_tokens) =
+            let (compile_calls, selected_tokens, omitted_tokens) =
                 per_run.get(&run_id).copied().unwrap_or((0, 0, 0));
             let (upstream_reports, upstream_input_tokens, upstream_output_tokens) =
                 per_run_reports.get(&run_id).copied().unwrap_or((0, 0, 0));
@@ -357,9 +360,9 @@ impl UsageStore {
             summary.attributed_runs += 1;
             if quality_equivalent {
                 summary.quality_equivalent_runs += 1;
-                summary.quality_equivalent_saved_tokens += saved_tokens;
+                summary.quality_equivalent_omitted_tokens += omitted_tokens;
             } else {
-                summary.unproven_saved_tokens += saved_tokens;
+                summary.unproven_omitted_tokens += omitted_tokens;
             }
             summary.runs.push(RunQuality {
                 run_id,
@@ -369,7 +372,7 @@ impl UsageStore {
                 quality_equivalent,
                 compile_calls,
                 selected_tokens,
-                saved_tokens,
+                omitted_tokens,
                 upstream_reports,
                 upstream_input_tokens,
                 upstream_output_tokens,
@@ -386,7 +389,7 @@ impl UsageStore {
         let connection = self.lock()?;
         let mut statement = connection.prepare(
             "SELECT id, created_at, operation, run_id, target, model_tier, task_class,
-                    budget_tokens, raw_tokens, selected_tokens, saved_tokens,
+                    budget_tokens, raw_tokens, selected_tokens, omitted_tokens,
                     requires_upstream, latency_ms
              FROM usage_samples
              WHERE (?1 IS NULL OR operation = ?1)
@@ -432,7 +435,7 @@ impl UsageStore {
                         budget_tokens: as_u32(row.7),
                         raw_tokens: as_u32(row.8),
                         selected_tokens: as_u32(row.9),
-                        saved_tokens: as_u32(row.10),
+                        omitted_tokens: as_u32(row.10),
                         requires_upstream: row.11,
                         latency_ms: row.12.and_then(|value| u64::try_from(value).ok()),
                     },
@@ -509,7 +512,7 @@ mod tests {
             budget_tokens: None,
             raw_tokens: None,
             selected_tokens: None,
-            saved_tokens: None,
+            omitted_tokens: None,
             requires_upstream: None,
             latency_ms: None,
         }
@@ -525,7 +528,7 @@ mod tests {
             budget_tokens: Some(4_000),
             raw_tokens: Some(raw),
             selected_tokens: Some(selected),
-            saved_tokens: Some(raw.saturating_sub(selected)),
+            omitted_tokens: Some(raw.saturating_sub(selected)),
             requires_upstream: Some(true),
             latency_ms: Some(latency),
         }
@@ -539,7 +542,7 @@ mod tests {
     }
 
     #[test]
-    fn usage_ledger_is_append_only_and_summarizes_savings() {
+    fn usage_ledger_is_append_only_and_summarizes_volume() {
         let store = GraphStore::open_in_memory().unwrap().usage();
         store.insert(&route_sample("upstream")).unwrap();
         store.insert(&route_sample("deterministic")).unwrap();
@@ -551,7 +554,7 @@ mod tests {
         assert_eq!(summary.routed_away_from_upstream, 1);
         assert_eq!(summary.compile_calls, 2);
         assert_eq!(summary.raw_tokens_total, 15_000);
-        assert_eq!(summary.saved_tokens_total, 3_600 + 5_600);
+        assert_eq!(summary.omitted_tokens_total, 3_600 + 5_600);
         assert_eq!(summary.requires_upstream_count, 2);
         assert_eq!(summary.compile_latency_p50_ms, 1_500);
 
@@ -561,10 +564,12 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert!(rows[0].id > rows[1].id, "newest first");
         let rendered = serde_json::to_string(&rows[0]).expect("rows serialize");
-        assert!(rendered.contains("\"savedTokens\""));
+        assert!(rendered.contains("\"omittedTokens\""));
     }
 
     #[test]
+    // One sequential scenario: build a clean run, an open run, and a ghost.
+    #[allow(clippy::too_many_lines)]
     fn quality_summary_credits_only_clean_succeeded_runs() {
         use cortex_domain::default_control_plane;
         use cortex_run::{NodeOutcome, RunCommand};
@@ -597,6 +602,36 @@ mod tests {
                     },
                 )
                 .unwrap();
+            // The example graph asks the upstream node to cite evidence, so
+            // a clean walk has to supply some.
+            let requires_evidence = seeded
+                .nodes
+                .iter()
+                .find(|candidate| candidate.id == node)
+                .and_then(|candidate| candidate.execution.as_ref())
+                .is_some_and(|policy| policy.require_evidence);
+            let evidence_ids = if requires_evidence {
+                let id = format!("{node}-evidence");
+                clean = runs
+                    .apply(
+                        "clean",
+                        &RunCommand::SubmitEvidence {
+                            expected_revision: clean.revision,
+                            node_id: node.to_owned(),
+                            evidence_id: id.clone(),
+                            submitted_by: "test".to_owned(),
+                            source: "graph".to_owned(),
+                            locator: format!("node:{node}"),
+                            digest: None,
+                            summary: "Bounded evidence for the walk".to_owned(),
+                            executor: None,
+                        },
+                    )
+                    .unwrap();
+                vec![id]
+            } else {
+                Vec::new()
+            };
             clean = runs
                 .apply(
                     "clean",
@@ -605,7 +640,7 @@ mod tests {
                         node_id: node.to_owned(),
                         outcome: NodeOutcome::Succeeded,
                         selected_edge_ids: Vec::new(),
-                        evidence_ids: Vec::new(),
+                        evidence_ids,
                         detail: None,
                         executor: None,
                     },
@@ -652,8 +687,8 @@ mod tests {
         let quality = usage.quality_summary().unwrap();
         assert_eq!(quality.attributed_runs, 3);
         assert_eq!(quality.quality_equivalent_runs, 1);
-        assert_eq!(quality.quality_equivalent_saved_tokens, 12_000);
-        assert_eq!(quality.unproven_saved_tokens, 6_000 + 50);
+        assert_eq!(quality.quality_equivalent_omitted_tokens, 12_000);
+        assert_eq!(quality.unproven_omitted_tokens, 6_000 + 50);
         assert_eq!(quality.unattributed_samples, 1);
         let clean_row = quality
             .runs

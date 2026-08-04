@@ -1,4 +1,4 @@
-use std::io;
+﻿use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -323,7 +323,7 @@ pub fn build_server(state: CortexMcpState) -> ConcurrentMcpServer {
                                 budget_tokens: Some(arguments.max_tokens),
                                 raw_tokens: Some(packet.context.raw_estimated_tokens),
                                 selected_tokens: Some(packet.context.selected_estimated_tokens),
-                                saved_tokens: Some(packet.context.saved_estimated_tokens),
+                                omitted_tokens: Some(packet.context.omitted_estimated_tokens),
                                 requires_upstream: Some(packet.context.requires_upstream),
                                 latency_ms: Some(
                                     u64::try_from(started.elapsed().as_millis())
@@ -506,7 +506,7 @@ pub fn build_server(state: CortexMcpState) -> ConcurrentMcpServer {
                         budget_tokens: None,
                         raw_tokens: None,
                         selected_tokens: None,
-                        saved_tokens: None,
+                        omitted_tokens: None,
                         requires_upstream: None,
                         latency_ms: None,
                     },

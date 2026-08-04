@@ -122,6 +122,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let store = GraphStore::open(&settings.database)?;
     store.seed_if_missing(&default_control_plane())?;
+    // Ship working methodology rather than an empty editor. Seeding is
+    // idempotent and never overwrites a graph the user has edited.
+    for skill in cortex_skills::bundled_skills() {
+        match import_skill_markdown(skill.source, skill.markdown) {
+            Ok(graph) => {
+                if let Err(error) = store.seed_if_missing(&graph) {
+                    eprintln!("cortex-server: could not seed skill {}: {error}", skill.id);
+                }
+            }
+            Err(error) => eprintln!(
+                "cortex-server: bundled skill {} is invalid: {error}",
+                skill.id
+            ),
+        }
+    }
     let state = AppState { store };
 
     let api = Router::new()

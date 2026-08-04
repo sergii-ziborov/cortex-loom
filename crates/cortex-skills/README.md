@@ -38,6 +38,23 @@ assert_eq!(exported, export_skill_markdown(&reimported).expect("stable"));
 `metadata["compiler"] == "cortex-skills"`, because export reads the node
 roles and ordering that import writes.
 
+## Bundled methodology
+
+`bundled_skills()` returns the methodology shipped with the crate —
+test-driven development, systematic debugging, and grounded review — so a
+consumer starts from working workflows instead of an empty editor:
+
+```rust
+for skill in cortex_skills::bundled_skills() {
+    let graph = cortex_skills::import_skill_markdown(skill.source, skill.markdown)
+        .expect("bundled skills compile");
+    println!("{}: {} nodes", skill.id, graph.nodes.len());
+}
+```
+
+The same three documents are the crate's round-trip fixtures: whatever ships
+to a consumer has to survive its own compiler.
+
 ## Format notes
 
 - `[depends: N]` is a **tail** annotation: put it at the end of the step

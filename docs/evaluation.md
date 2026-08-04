@@ -19,12 +19,31 @@ Promotion requires:
 ## Token accounting
 
 The `usage_samples` ledger records every routing decision and every context
-compilation (budget, raw/selected/saved tokens, `requiresUpstream`, latency);
-read it via the `usage_read` MCP tool or `GET /api/usage/summary`. First
-on-repo measurement: the dogfood task packet compressed from 7479 raw
-evidence tokens to 1461 under a 4k budget (80.5% saved, omission reported,
-fail-closed escalation unchanged), against roughly 9k tokens of naive file
-reading.
+compilation (budget, raw/selected/omitted tokens, `requiresUpstream`,
+latency); read it via the `usage_read` MCP tool or `GET /api/usage/summary`.
+
+**`omitted_estimated_tokens` is not a saving.** It is
+`raw − selected`: evidence that was assembled and then dropped to fit the
+budget. It is zero whenever the budget fits everything and grows as the
+budget shrinks, so quoting it as "tokens saved" measures how much of our own
+material we discarded, not what a consumer avoided paying for. The field was
+renamed from `saved_estimated_tokens` for exactly this reason.
+
+Measured on this repository for the dogfood task (2026-08-04, live over MCP):
+
+| Budget | Selected | Omitted | Note |
+| ---: | ---: | ---: | --- |
+| 8000 | 7521 | 0 | everything fits; nothing is "saved" |
+| 4000 | 3517 | 4004 | plan parts 4-6 and one graph part dropped |
+| 2000 | 1445 | 6076 | only the first plan part survives |
+
+Against a counterfactual baseline — an agent reading the four files it would
+actually open for that task — the numbers are 10 548 tokens naive versus
+3 517 in the 4k packet, so the packet is **67% smaller if it is sufficient**.
+In the dogfood run it was not sufficient on its own: the fix required reading
+the real files and probing the model directly. Treat the packet as a cheap
+orientation layer whose measured value is in routing work away from upstream
+(6 of 8 calls in the same window), not in compression.
 
 Record, per workflow:
 

@@ -71,9 +71,22 @@ pub struct ContextPacket {
     pub content: String,
     pub included_ids: Vec<String>,
     pub omitted_ids: Vec<String>,
+    /// Estimated tokens of every candidate item, selected or not.
     pub raw_estimated_tokens: u32,
+    /// Estimated tokens actually in [`ContextPacket::content`].
     pub selected_estimated_tokens: u32,
-    pub saved_estimated_tokens: u32,
+    /// Estimated tokens of the candidates left out, i.e.
+    /// `raw_estimated_tokens - selected_estimated_tokens`.
+    ///
+    /// This is **not** a measure of tokens saved. It counts evidence that was
+    /// assembled and then dropped to fit the budget, which says nothing about
+    /// what a consumer would otherwise have sent. It is zero whenever the
+    /// budget fits everything, and it grows as the budget shrinks. Treat it
+    /// as an omission volume; to claim a saving you need a measured baseline
+    /// of what the alternative actually cost.
+    pub omitted_estimated_tokens: u32,
+    /// True when any candidate was unverified or contradictory, so the packet
+    /// must not be treated as settled.
     pub requires_upstream: bool,
 }
 
@@ -190,7 +203,7 @@ pub fn compile_context(request: &ContextRequest) -> Result<ContextPacket, Contex
         omitted_ids,
         raw_estimated_tokens,
         selected_estimated_tokens,
-        saved_estimated_tokens: raw_estimated_tokens.saturating_sub(selected_estimated_tokens),
+        omitted_estimated_tokens: raw_estimated_tokens.saturating_sub(selected_estimated_tokens),
         requires_upstream,
     })
 }
@@ -273,7 +286,7 @@ mod tests {
         let packet = compile_context(&request).unwrap();
         assert_eq!(packet.included_ids, ["high"]);
         assert_eq!(packet.omitted_ids, ["low"]);
-        assert!(packet.saved_estimated_tokens > 0);
+        assert!(packet.omitted_estimated_tokens > 0);
         assert!(!packet.requires_upstream);
     }
 

@@ -25,5 +25,17 @@
       "maxOutputTokens": 1024,
       "contextTokens": 8192
     }
+  ],
+  "embeddingProfiles": [
+    {
+      "id": "embed-small",
+      "model": "embeddinggemma:latest",
+      "maxInputTokens": 2048
+    },
+    {
+      "id": "embed-code",
+      "model": "qwen3-embedding:0.6b",
+      "maxInputTokens": 2048
+    }
   ]
 }

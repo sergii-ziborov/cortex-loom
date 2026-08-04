@@ -4,7 +4,8 @@ use cortex_router::{ModelTier, classify};
 use crate::backend::ScriptedBackend;
 use crate::comparators::policy_tier;
 use crate::fixtures::{
-    ClassificationFixture, CompressionFixture, EvidenceFixture, FixtureSet, default_fixtures,
+    ClassificationFixture, CompressionFixture, EvidenceFixture, FixtureSet, RetrievalFixtures,
+    default_fixtures,
 };
 use crate::metrics::{
     ClassificationAggregate, CompressionAggregate, ExtractionAggregate, latency_stats, percentile,
@@ -36,6 +37,7 @@ fn classification_only() -> SuiteSelection {
         classification: true,
         extraction: false,
         compression: false,
+        retrieval: false,
     }
 }
 
@@ -44,6 +46,10 @@ fn empty_fixture_set() -> FixtureSet {
         classification: Vec::new(),
         extraction: Vec::new(),
         compression: Vec::new(),
+        retrieval: RetrievalFixtures {
+            corpus: Vec::new(),
+            queries: Vec::new(),
+        },
     }
 }
 
@@ -164,6 +170,7 @@ fn compression_flags_hallucinated_citations() {
         classification: false,
         extraction: false,
         compression: true,
+        retrieval: false,
     };
     let medium_profile = EvalProfile {
         id: "candidate-medium".to_owned(),
@@ -345,8 +352,78 @@ fn markdown_report_states_the_verdict() {
         prompt_version: PROMPT_VERSION.to_owned(),
         schema_version: SCHEMA_VERSION.to_owned(),
         profiles: vec![skipped],
+        embeddings: Vec::new(),
     };
     let markdown = render_markdown(&report);
     assert!(markdown.contains("model_absent"));
     assert!(markdown.contains(PROMPT_VERSION));
+}
+
+#[test]
+fn retrieval_metrics_and_gate_work_on_scripted_embeddings() {
+    use crate::fixtures::{CorpusDoc, RetrievalQuery};
+    use crate::metrics::{cosine_similarity, ndcg_at_k, rank_by_similarity, recall_at_k};
+    use crate::runner::{EmbeddingProfile, run_embedding_profile};
+    use crate::verdict::judge_retrieval;
+
+    assert!((cosine_similarity(&[1.0, 0.0], &[1.0, 0.0]) - 1.0).abs() < 1e-9);
+    assert!(cosine_similarity(&[1.0, 0.0], &[0.0, 1.0]).abs() < 1e-9);
+    let ranking = rank_by_similarity(&[1.0, 0.0], &[vec![0.0, 1.0], vec![1.0, 0.1]]);
+    assert_eq!(ranking, [1, 0]);
+    let ranked = ["a", "b", "c"];
+    let relevant = vec!["b".to_owned()];
+    assert!((recall_at_k(&ranked, &relevant, 1) - 0.0).abs() < 1e-9);
+    assert!((recall_at_k(&ranked, &relevant, 2) - 1.0).abs() < 1e-9);
+    assert!(
+        ndcg_at_k(&ranked, &relevant, 5) < 1.0,
+        "rank 2 is discounted"
+    );
+
+    let fixtures = RetrievalFixtures {
+        corpus: vec![
+            CorpusDoc {
+                id: "doc-a".to_owned(),
+                text: "alpha".to_owned(),
+            },
+            CorpusDoc {
+                id: "doc-b".to_owned(),
+                text: "beta".to_owned(),
+            },
+        ],
+        queries: vec![RetrievalQuery {
+            id: "q-1".to_owned(),
+            text: "find alpha".to_owned(),
+            relevant: vec!["doc-a".to_owned()],
+        }],
+    };
+    let backend = ScriptedBackend::new(
+        vec![ModelInfo {
+            name: "embed-test".to_owned(),
+            model: "embed-test:latest".to_owned(),
+            size: 1,
+            digest: "sha256:embed".to_owned(),
+        }],
+        Vec::new(),
+    );
+    // Corpus batch, then query batch: the query vector matches doc-a.
+    backend.queue_embeddings(Ok(vec![vec![1.0, 0.0], vec![0.0, 1.0]]));
+    backend.queue_embeddings(Ok(vec![vec![0.9, 0.1]]));
+    let profile = EmbeddingProfile {
+        id: "embed-test".to_owned(),
+        model: "embed-test:latest".to_owned(),
+    };
+    let report = run_embedding_profile(&backend, &profile, &fixtures, None);
+    assert_eq!(report.status, ProfileStatus::Evaluated);
+    assert_eq!(report.dimensions, Some(2));
+    let aggregate = report.retrieval.expect("retrieval ran");
+    assert!((aggregate.mean_recall_at_5 - 1.0).abs() < 1e-9);
+    assert!((aggregate.mean_reciprocal_rank - 1.0).abs() < 1e-9);
+    assert!(report.verdict.pass, "perfect retrieval passes the gate");
+
+    // An absent model is skipped without any embed call.
+    let absent_backend = ScriptedBackend::new(Vec::new(), Vec::new());
+    let absent = run_embedding_profile(&absent_backend, &profile, &fixtures, None);
+    assert_eq!(absent.status, ProfileStatus::ModelAbsent);
+
+    assert!(!judge_retrieval(None).pass, "unrun suite fails explicitly");
 }

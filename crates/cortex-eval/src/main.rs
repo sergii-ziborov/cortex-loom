@@ -10,7 +10,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use cortex_eval::backend::{EvalBackend, OllamaEvalBackend};
 use cortex_eval::fixtures::default_fixtures;
 use cortex_eval::report::{EvalReport, render_markdown, write_json};
-use cortex_eval::runner::{EvalProfile, SuiteSelection, run_profile};
+use cortex_eval::runner::{
+    EmbeddingProfile, EvalProfile, SuiteSelection, run_embedding_profile, run_profile,
+};
 use cortex_eval::{EvalError, PROMPT_VERSION, SCHEMA_VERSION};
 use cortex_ollama::{ModelProfile, OllamaClient, OllamaConfig};
 use cortex_router::ModelTier;
@@ -23,6 +25,16 @@ struct EvalConfigFile {
     /// Per-call ceiling covering cold model loads and slow CPU generation.
     timeout_secs: Option<u64>,
     profiles: Vec<ProfileConfig>,
+    #[serde(default)]
+    embedding_profiles: Vec<EmbeddingProfileConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct EmbeddingProfileConfig {
+    id: String,
+    model: String,
+    max_input_tokens: u32,
 }
 
 const DEFAULT_TIMEOUT_SECS: u64 = 300;
@@ -42,6 +54,7 @@ struct CliOptions {
     config: PathBuf,
     report_dir: PathBuf,
     profile_filter: Vec<String>,
+    embedding_filter: Vec<String>,
     suites: SuiteSelection,
     limit: Option<usize>,
     discover: bool,
@@ -84,6 +97,17 @@ fn run() -> Result<(), EvalError> {
             ),
         );
     }
+    for profile in &config.embedding_profiles {
+        ollama = ollama.with_profile(
+            profile.id.clone(),
+            ModelProfile::new(
+                profile.model.clone(),
+                profile.max_input_tokens,
+                1,
+                profile.max_input_tokens.saturating_add(1),
+            ),
+        );
+    }
     let client = OllamaClient::new(ollama).map_err(|error| EvalError::Config(error.to_string()))?;
     let backend = OllamaEvalBackend::new(client);
 
@@ -111,21 +135,58 @@ fn run() -> Result<(), EvalError> {
         ));
     }
 
-    let profiles = selected
-        .iter()
-        .map(|profile| run_profile(&backend, profile, &fixtures, options.suites, options.limit))
-        .collect();
+    let chat_selected =
+        options.suites.classification || options.suites.extraction || options.suites.compression;
+    let profiles = if chat_selected {
+        selected
+            .iter()
+            .map(|profile| run_profile(&backend, profile, &fixtures, options.suites, options.limit))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let embeddings = run_embeddings(&backend, &config, &options, &fixtures);
     let report = EvalReport {
         generated_at_unix: unix_now(),
         ollama_version: backend.version().ok(),
         prompt_version: PROMPT_VERSION.to_owned(),
         schema_version: SCHEMA_VERSION.to_owned(),
         profiles,
+        embeddings,
     };
     let path = write_json(&options.report_dir, &report)?;
     print!("{}", render_markdown(&report));
     println!("\nreport: {}", path.display());
     Ok(())
+}
+
+fn run_embeddings(
+    backend: &OllamaEvalBackend,
+    config: &EvalConfigFile,
+    options: &CliOptions,
+    fixtures: &cortex_eval::fixtures::FixtureSet,
+) -> Vec<cortex_eval::runner::EmbeddingReport> {
+    if !options.suites.retrieval {
+        return Vec::new();
+    }
+    config
+        .embedding_profiles
+        .iter()
+        .filter(|profile| {
+            options.embedding_filter.is_empty() || options.embedding_filter.contains(&profile.id)
+        })
+        .map(|profile| {
+            run_embedding_profile(
+                backend,
+                &EmbeddingProfile {
+                    id: profile.id.clone(),
+                    model: profile.model.clone(),
+                },
+                &fixtures.retrieval,
+                options.limit,
+            )
+        })
+        .collect()
 }
 
 fn discover(backend: &OllamaEvalBackend, profiles: &[ProfileConfig]) {
@@ -161,6 +222,7 @@ fn parse_args() -> Result<CliOptions, EvalError> {
         config: PathBuf::from("config/eval-profiles.json"),
         report_dir: PathBuf::from(".cortex-loom/eval"),
         profile_filter: Vec::new(),
+        embedding_filter: Vec::new(),
         suites: SuiteSelection::all(),
         limit: None,
         discover: false,
@@ -175,6 +237,9 @@ fn parse_args() -> Result<CliOptions, EvalError> {
             "--profile" => options
                 .profile_filter
                 .push(required(&mut args, "--profile")?),
+            "--embedding-profile" => options
+                .embedding_filter
+                .push(required(&mut args, "--embedding-profile")?),
             "--suite" => options.suites = parse_suites(&required(&mut args, "--suite")?)?,
             "--limit" => {
                 let value = required(&mut args, "--limit")?;
@@ -200,6 +265,7 @@ fn parse_suites(value: &str) -> Result<SuiteSelection, EvalError> {
         classification: false,
         extraction: false,
         compression: false,
+        retrieval: false,
     };
     for part in value.split(',') {
         match part.trim() {
@@ -207,10 +273,15 @@ fn parse_suites(value: &str) -> Result<SuiteSelection, EvalError> {
             "classification" => selection.classification = true,
             "extraction" => selection.extraction = true,
             "compression" => selection.compression = true,
+            "retrieval" => selection.retrieval = true,
             other => return Err(EvalError::Config(format!("unknown suite {other}"))),
         }
     }
-    if !(selection.classification || selection.extraction || selection.compression) {
+    if !(selection.classification
+        || selection.extraction
+        || selection.compression
+        || selection.retrieval)
+    {
         return Err(EvalError::Config("no suite selected".to_owned()));
     }
     Ok(selection)

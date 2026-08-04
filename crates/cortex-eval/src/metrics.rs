@@ -176,6 +176,132 @@ pub struct CompressionAggregate {
     pub mean_token_delta: i64,
 }
 
+/// Cosine similarity computed in f64; zero vectors compare as 0.
+#[must_use]
+pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
+    let mut dot = 0.0_f64;
+    let mut norm_a = 0.0_f64;
+    let mut norm_b = 0.0_f64;
+    for (x, y) in a.iter().zip(b.iter()) {
+        dot += f64::from(*x) * f64::from(*y);
+        norm_a += f64::from(*x) * f64::from(*x);
+        norm_b += f64::from(*y) * f64::from(*y);
+    }
+    if norm_a == 0.0 || norm_b == 0.0 {
+        0.0
+    } else {
+        dot / (norm_a.sqrt() * norm_b.sqrt())
+    }
+}
+
+/// Corpus indices ranked by descending similarity; ties break by index for
+/// determinism.
+#[must_use]
+pub fn rank_by_similarity(query: &[f32], corpus: &[Vec<f32>]) -> Vec<usize> {
+    let mut scored: Vec<(usize, f64)> = corpus
+        .iter()
+        .enumerate()
+        .map(|(index, vector)| (index, cosine_similarity(query, vector)))
+        .collect();
+    scored.sort_by(|left, right| {
+        right
+            .1
+            .partial_cmp(&left.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(left.0.cmp(&right.0))
+    });
+    scored.into_iter().map(|(index, _)| index).collect()
+}
+
+/// Fraction of relevant ids found in the top-k of the ranking.
+#[must_use]
+pub fn recall_at_k(ranked_ids: &[&str], relevant: &[String], k: usize) -> f64 {
+    if relevant.is_empty() {
+        return 0.0;
+    }
+    let hits = ranked_ids
+        .iter()
+        .take(k)
+        .filter(|id| relevant.iter().any(|relevant_id| relevant_id == *id))
+        .count();
+    ratio(hits, relevant.len())
+}
+
+/// Binary-relevance nDCG@k.
+#[must_use]
+pub fn ndcg_at_k(ranked_ids: &[&str], relevant: &[String], k: usize) -> f64 {
+    let gain =
+        |position: usize| 1.0 / f64::from(u32::try_from(position + 2).unwrap_or(u32::MAX)).log2();
+    let dcg: f64 = ranked_ids
+        .iter()
+        .take(k)
+        .enumerate()
+        .filter(|(_, id)| relevant.iter().any(|relevant_id| relevant_id == *id))
+        .map(|(position, _)| gain(position))
+        .sum();
+    let ideal: f64 = (0..relevant.len().min(k)).map(gain).sum();
+    if ideal == 0.0 { 0.0 } else { dcg / ideal }
+}
+
+/// Reciprocal rank of the first relevant id; zero when none appears.
+#[must_use]
+pub fn reciprocal_rank(ranked_ids: &[&str], relevant: &[String]) -> f64 {
+    ranked_ids
+        .iter()
+        .position(|id| relevant.iter().any(|relevant_id| relevant_id == *id))
+        .map_or(0.0, |position| {
+            1.0 / f64::from(u32::try_from(position + 1).unwrap_or(u32::MAX))
+        })
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RetrievalSample {
+    pub query_id: String,
+    pub recall_at_3: f64,
+    pub recall_at_5: f64,
+    pub ndcg_at_5: f64,
+    pub reciprocal_rank: f64,
+    pub top: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RetrievalAggregate {
+    pub queries: u32,
+    pub mean_recall_at_3: f64,
+    pub mean_recall_at_5: f64,
+    pub min_recall_at_5: f64,
+    pub mean_ndcg_at_5: f64,
+    pub mean_reciprocal_rank: f64,
+}
+
+#[must_use]
+pub fn aggregate_retrieval(samples: &[RetrievalSample]) -> RetrievalAggregate {
+    let mean = |extract: fn(&RetrievalSample) -> f64| {
+        if samples.is_empty() {
+            0.0
+        } else {
+            samples.iter().map(extract).sum::<f64>() / count_f64(samples.len())
+        }
+    };
+    RetrievalAggregate {
+        queries: u32::try_from(samples.len()).unwrap_or(u32::MAX),
+        mean_recall_at_3: mean(|sample| sample.recall_at_3),
+        mean_recall_at_5: mean(|sample| sample.recall_at_5),
+        min_recall_at_5: if samples.is_empty() {
+            0.0
+        } else {
+            samples
+                .iter()
+                .map(|sample| sample.recall_at_5)
+                .fold(f64::INFINITY, f64::min)
+        },
+        mean_ndcg_at_5: mean(|sample| sample.ndcg_at_5),
+        mean_reciprocal_rank: mean(|sample| sample.reciprocal_rank),
+    }
+}
+
 #[must_use]
 pub fn aggregate_compression(samples: &[CompressionSample]) -> CompressionAggregate {
     let valid: Vec<&CompressionSample> = samples.iter().filter(|s| s.schema_valid).collect();

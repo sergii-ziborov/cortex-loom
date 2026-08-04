@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 use crate::EvalError;
-use crate::runner::{ProfileReport, ProfileStatus};
+use crate::runner::{EmbeddingReport, ProfileReport, ProfileStatus};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -17,6 +17,8 @@ pub struct EvalReport {
     pub prompt_version: String,
     pub schema_version: String,
     pub profiles: Vec<ProfileReport>,
+    #[serde(default)]
+    pub embeddings: Vec<EmbeddingReport>,
 }
 
 /// Write the JSON report into `directory` and return the file path.
@@ -114,5 +116,60 @@ pub fn render_markdown(report: &EvalReport) -> String {
             }
         }
     }
+    for embedding in &report.embeddings {
+        render_embedding(&mut out, embedding);
+    }
     out
+}
+
+fn render_embedding(out: &mut String, embedding: &EmbeddingReport) {
+    let _ = writeln!(out, "\n## {} — `{}`", embedding.profile_id, embedding.model);
+    match embedding.status {
+        ProfileStatus::ModelAbsent => {
+            let _ = writeln!(
+                out,
+                "status: model_absent — install explicitly to evaluate; nothing was pulled."
+            );
+            return;
+        }
+        ProfileStatus::DiscoveryFailed => {
+            let _ = writeln!(out, "status: discovery_failed — Ollama was unreachable.");
+            return;
+        }
+        ProfileStatus::Evaluated => {}
+    }
+    if let Some(error) = &embedding.error {
+        let _ = writeln!(out, "error: {error}");
+        return;
+    }
+    let _ = writeln!(
+        out,
+        "role: embedding | digest: {} | dims: {} | embed latency p50/p95: {}/{} ms over {} batches",
+        embedding.digest.as_deref().unwrap_or("unknown"),
+        embedding.dimensions.unwrap_or(0),
+        embedding.latency.p50_ms,
+        embedding.latency.p95_ms,
+        embedding.latency.samples
+    );
+    if let Some(aggregate) = &embedding.retrieval {
+        let _ = writeln!(
+            out,
+            "retrieval: {} queries, recall@3 {:.2}, recall@5 {:.2} (min {:.2}), ndcg@5 {:.2}, mrr {:.2}",
+            aggregate.queries,
+            aggregate.mean_recall_at_3,
+            aggregate.mean_recall_at_5,
+            aggregate.min_recall_at_5,
+            aggregate.mean_ndcg_at_5,
+            aggregate.mean_reciprocal_rank
+        );
+    }
+    if embedding.verdict.pass {
+        let _ = writeln!(out, "verdict: PASS — semantic selection is unblocked");
+    } else {
+        let _ = writeln!(out, "verdict: FAIL");
+        for reason in &embedding.verdict.reasons {
+            let rendered = serde_json::to_string(reason).unwrap_or_default();
+            let _ = writeln!(out, "- {rendered}");
+        }
+    }
 }

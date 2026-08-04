@@ -11,13 +11,17 @@ use cortex_router::ModelTier;
 use serde::Serialize;
 
 use crate::SuiteKind;
-use crate::metrics::{ClassificationAggregate, CompressionAggregate, ExtractionAggregate};
+use crate::metrics::{
+    ClassificationAggregate, CompressionAggregate, ExtractionAggregate, RetrievalAggregate,
+};
 
 pub const MIN_SCHEMA_VALID_RATE: f64 = 0.95;
 pub const MIN_CLASSIFICATION_ACCURACY: f64 = 0.8;
 pub const MIN_EXTRACTION_ACTION_ACCURACY: f64 = 0.8;
 pub const MIN_EXTRACTION_EXACT_RATE: f64 = 0.6;
 pub const MIN_PRESERVED_RATIO: f64 = 0.9;
+pub const MIN_RETRIEVAL_RECALL_AT_5: f64 = 0.9;
+pub const MIN_RETRIEVAL_NDCG_AT_5: f64 = 0.75;
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "snake_case", tag = "code", content = "detail")]
@@ -31,6 +35,8 @@ pub enum VerdictReason {
     CitationPreservationBelowThreshold { min_ratio: f64 },
     HallucinatedCitations { count: u32 },
     DraftDoesNotCompress { mean_token_delta: i64 },
+    RecallBelowThreshold { mean_recall_at_5: f64 },
+    NdcgBelowThreshold { mean_ndcg_at_5: f64 },
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -128,6 +134,32 @@ pub fn judge(
         }
     }
 
+    CalibrationVerdict {
+        pass: reasons.is_empty(),
+        reasons,
+    }
+}
+
+/// Judge one embedding profile on the retrieval suite. Passing this gate is
+/// the prerequisite for permitting semantic evidence selection.
+#[must_use]
+pub fn judge_retrieval(retrieval: Option<&RetrievalAggregate>) -> CalibrationVerdict {
+    let mut reasons = Vec::new();
+    match retrieval {
+        None => reasons.push(VerdictReason::SuiteNotRun(SuiteKind::Retrieval)),
+        Some(aggregate) => {
+            if aggregate.mean_recall_at_5 < MIN_RETRIEVAL_RECALL_AT_5 {
+                reasons.push(VerdictReason::RecallBelowThreshold {
+                    mean_recall_at_5: aggregate.mean_recall_at_5,
+                });
+            }
+            if aggregate.mean_ndcg_at_5 < MIN_RETRIEVAL_NDCG_AT_5 {
+                reasons.push(VerdictReason::NdcgBelowThreshold {
+                    mean_ndcg_at_5: aggregate.mean_ndcg_at_5,
+                });
+            }
+        }
+    }
     CalibrationVerdict {
         pass: reasons.is_empty(),
         reasons,

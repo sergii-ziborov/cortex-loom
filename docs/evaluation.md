@@ -53,7 +53,10 @@ Escalate when evidence is missing or contradictory, validation fails, a budget i
 cargo run -p cortex-eval -- --discover
 cargo run -p cortex-eval -- --profile local-small
 cargo run -p cortex-eval -- --suite classification --limit 5
+cargo run -p cortex-eval -- --suite retrieval
 ```
+
+The retrieval suite evaluates embedding profiles on repository-specific fixtures (Recall@3/@5, nDCG@5, MRR, cosine ranking). Its verdict (`recall@5 ≥ 0.9`, `nDCG@5 ≥ 0.75`) is the gate that must pass before semantic evidence selection may be enabled anywhere.
 
 Profiles live in `config/eval-profiles.json` (exact tags only). Reports land in `.cortex-loom/eval/` as JSON plus a Markdown summary on stdout, pinned to prompt/schema versions, with the model digest and CPU/GPU placement recorded.
 

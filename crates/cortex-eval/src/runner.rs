@@ -4,25 +4,36 @@ use cortex_ollama::DevicePlacement;
 use cortex_router::ModelTier;
 use serde::Serialize;
 
+use cortex_ollama::EmbedRequest;
+
 use crate::backend::EvalBackend;
 use crate::comparators::{citation_metrics, classification_outcome, token_delta};
-use crate::fixtures::{ClassificationFixture, CompressionFixture, ExtractionFixture, FixtureSet};
+use crate::fixtures::{
+    ClassificationFixture, CompressionFixture, ExtractionFixture, FixtureSet, RetrievalFixtures,
+};
 use crate::metrics::{
     ClassificationAggregate, ClassificationSample, CompressionAggregate, CompressionSample,
-    ExtractionAggregate, ExtractionMatches, ExtractionSample, LatencyStats,
-    aggregate_classification, aggregate_compression, aggregate_extraction, latency_stats,
+    ExtractionAggregate, ExtractionMatches, ExtractionSample, LatencyStats, RetrievalAggregate,
+    RetrievalSample, aggregate_classification, aggregate_compression, aggregate_extraction,
+    aggregate_retrieval, latency_stats, ndcg_at_k, rank_by_similarity, recall_at_k,
+    reciprocal_rank,
 };
 use crate::prompts::{
     EvidenceBlock, classification_request, compression_request, extraction_request,
     parse_compression, parse_extraction, parse_tier,
 };
-use crate::verdict::{CalibrationVerdict, judge};
+use crate::verdict::{CalibrationVerdict, judge, judge_retrieval};
 
+const EMBED_BATCH: usize = 16;
+
+// A flags struct: each suite is independently selectable.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SuiteSelection {
     pub classification: bool,
     pub extraction: bool,
     pub compression: bool,
+    pub retrieval: bool,
 }
 
 impl SuiteSelection {
@@ -32,6 +43,7 @@ impl SuiteSelection {
             classification: true,
             extraction: true,
             compression: true,
+            retrieval: true,
         }
     }
 }
@@ -70,6 +82,154 @@ pub struct ProfileReport {
     pub classification_samples: Vec<ClassificationSample>,
     pub extraction_samples: Vec<ExtractionSample>,
     pub compression_samples: Vec<CompressionSample>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EmbeddingProfile {
+    /// Profile name registered in the Ollama client configuration.
+    pub id: String,
+    /// Exact model tag; never substituted.
+    pub model: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EmbeddingReport {
+    pub profile_id: String,
+    pub model: String,
+    pub status: ProfileStatus,
+    pub digest: Option<String>,
+    pub dimensions: Option<usize>,
+    pub retrieval: Option<RetrievalAggregate>,
+    pub latency: LatencyStats,
+    pub verdict: CalibrationVerdict,
+    pub samples: Vec<RetrievalSample>,
+    pub error: Option<String>,
+}
+
+/// Run the retrieval suite for one embedding profile: embed the corpus and
+/// queries in bounded batches, rank by cosine similarity, and judge against
+/// the semantic-selection gate. Absent models are skipped without pulling.
+pub fn run_embedding_profile(
+    backend: &dyn EvalBackend,
+    profile: &EmbeddingProfile,
+    fixtures: &RetrievalFixtures,
+    limit: Option<usize>,
+) -> EmbeddingReport {
+    let mut report = EmbeddingReport {
+        profile_id: profile.id.clone(),
+        model: profile.model.clone(),
+        status: ProfileStatus::Evaluated,
+        digest: None,
+        dimensions: None,
+        retrieval: None,
+        latency: latency_stats(&[]),
+        verdict: judge_retrieval(None),
+        samples: Vec::new(),
+        error: None,
+    };
+    let installed = match backend.installed_models() {
+        Ok(models) => models,
+        Err(error) => {
+            eprintln!("[cortex-eval] {}: discovery failed: {error}", profile.id);
+            report.status = ProfileStatus::DiscoveryFailed;
+            return report;
+        }
+    };
+    let Some(model) = installed
+        .iter()
+        .find(|model| model.model == profile.model || model.name == profile.model)
+    else {
+        eprintln!(
+            "[cortex-eval] {}: model {} is not installed; skipping (no hidden pull)",
+            profile.id, profile.model
+        );
+        report.status = ProfileStatus::ModelAbsent;
+        return report;
+    };
+    report.digest = Some(model.digest.clone());
+
+    let mut latencies = Vec::new();
+    let corpus_texts: Vec<String> = fixtures.corpus.iter().map(|doc| doc.text.clone()).collect();
+    let corpus_vectors = match embed_texts(backend, &profile.id, &corpus_texts, &mut latencies) {
+        Ok(vectors) => vectors,
+        Err(error) => {
+            report.error = Some(error);
+            report.latency = latency_stats(&latencies);
+            return report;
+        }
+    };
+    report.dimensions = corpus_vectors.first().map(Vec::len);
+
+    let queries: Vec<_> = fixtures
+        .queries
+        .iter()
+        .take(limit.unwrap_or(fixtures.queries.len()))
+        .collect();
+    let query_texts: Vec<String> = queries.iter().map(|query| query.text.clone()).collect();
+    let query_vectors = match embed_texts(backend, &profile.id, &query_texts, &mut latencies) {
+        Ok(vectors) => vectors,
+        Err(error) => {
+            report.error = Some(error);
+            report.latency = latency_stats(&latencies);
+            return report;
+        }
+    };
+
+    for (query, vector) in queries.iter().zip(&query_vectors) {
+        let ranking = rank_by_similarity(vector, &corpus_vectors);
+        let ranked_ids: Vec<&str> = ranking
+            .iter()
+            .map(|index| fixtures.corpus[*index].id.as_str())
+            .collect();
+        let sample = RetrievalSample {
+            query_id: query.id.clone(),
+            recall_at_3: recall_at_k(&ranked_ids, &query.relevant, 3),
+            recall_at_5: recall_at_k(&ranked_ids, &query.relevant, 5),
+            ndcg_at_5: ndcg_at_k(&ranked_ids, &query.relevant, 5),
+            reciprocal_rank: reciprocal_rank(&ranked_ids, &query.relevant),
+            top: ranked_ids
+                .iter()
+                .take(5)
+                .map(|id| (*id).to_owned())
+                .collect(),
+        };
+        eprintln!(
+            "[cortex-eval] {} retrieval {}: recall@5 {:.2}",
+            profile.id, query.id, sample.recall_at_5
+        );
+        report.samples.push(sample);
+    }
+    report.retrieval = Some(aggregate_retrieval(&report.samples));
+    report.latency = latency_stats(&latencies);
+    report.verdict = judge_retrieval(report.retrieval.as_ref());
+    report
+}
+
+fn embed_texts(
+    backend: &dyn EvalBackend,
+    profile: &str,
+    texts: &[String],
+    latencies: &mut Vec<u64>,
+) -> Result<Vec<Vec<f32>>, String> {
+    let mut vectors = Vec::with_capacity(texts.len());
+    for batch in texts.chunks(EMBED_BATCH) {
+        let timed = backend.embed(&EmbedRequest {
+            profile: profile.to_owned(),
+            inputs: batch.to_vec(),
+        })?;
+        latencies.push(timed.latency_ms);
+        vectors.extend(timed.vectors);
+    }
+    if vectors.len() == texts.len() {
+        Ok(vectors)
+    } else {
+        Err(format!(
+            "embedding count mismatch: {} vectors for {} inputs",
+            vectors.len(),
+            texts.len()
+        ))
+    }
 }
 
 /// Run the selected suites for one profile. Absent models are skipped

@@ -196,6 +196,13 @@ impl EvalBackend for BlockingBackend {
         let _ = gate.recv();
         Err("released".to_owned())
     }
+
+    fn embed(
+        &self,
+        _request: &cortex_ollama::EmbedRequest,
+    ) -> Result<cortex_eval::backend::TimedEmbeddings, String> {
+        Err("blocking backend does not embed".to_owned())
+    }
 }
 
 #[test]

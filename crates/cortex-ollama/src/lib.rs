@@ -9,9 +9,12 @@ use std::fmt::{Display, Formatter};
 pub use client::OllamaClient;
 pub use quality::assess_local_draft;
 pub use types::{
-    ChatMessage, ChatRole, DevicePlacement, DraftAssessment, DraftRequest, LocalDraft, ModelInfo,
-    ModelProfile, OllamaConfig, QualityFailure, RunningModel, StructuredChatRequest, VersionInfo,
+    ChatMessage, ChatRole, DevicePlacement, DraftAssessment, DraftRequest, EmbedRequest,
+    LocalDraft, ModelInfo, ModelProfile, OllamaConfig, QualityFailure, RunningModel,
+    StructuredChatRequest, VersionInfo,
 };
+
+pub const MAX_EMBED_INPUTS: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OllamaError {

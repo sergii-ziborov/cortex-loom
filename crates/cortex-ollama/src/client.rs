@@ -114,6 +114,57 @@ impl OllamaClient {
         )
     }
 
+    /// Embed a bounded batch of inputs with an exact profile. Returns one
+    /// vector per input, in order; the count is verified.
+    pub fn embed(&self, request: &crate::EmbedRequest) -> Result<Vec<Vec<f32>>, OllamaError> {
+        let profile = self
+            .config
+            .profiles
+            .get(&request.profile)
+            .ok_or_else(|| OllamaError::UnknownProfile(request.profile.clone()))?;
+        if request.inputs.is_empty() || request.inputs.len() > crate::MAX_EMBED_INPUTS {
+            return Err(OllamaError::InvalidConfiguration(format!(
+                "embed batch must contain 1..={} inputs",
+                crate::MAX_EMBED_INPUTS
+            )));
+        }
+        for input in &request.inputs {
+            if input.trim().is_empty() {
+                return Err(OllamaError::InvalidConfiguration(
+                    "embed inputs must not be empty".to_owned(),
+                ));
+            }
+            let estimated = u32::try_from(input.chars().count().div_ceil(4)).unwrap_or(u32::MAX);
+            if estimated > profile.max_input_tokens {
+                return Err(OllamaError::InputBudgetExceeded {
+                    estimated,
+                    limit: profile.max_input_tokens,
+                });
+            }
+        }
+        let body = EmbedApiRequest {
+            model: &profile.model,
+            input: &request.inputs,
+        };
+        let serialized =
+            serde_json::to_string(&body).map_err(|error| OllamaError::Json(error.to_string()))?;
+        if serialized.len() > self.config.max_request_bytes {
+            return Err(OllamaError::RequestTooLarge {
+                bytes: serialized.len(),
+                limit: self.config.max_request_bytes,
+            });
+        }
+        let response: EmbedApiResponse = self.post_json("/api/embed", &serialized)?;
+        if response.embeddings.len() != request.inputs.len() {
+            return Err(OllamaError::Json(format!(
+                "embed returned {} vectors for {} inputs",
+                response.embeddings.len(),
+                request.inputs.len()
+            )));
+        }
+        Ok(response.embeddings)
+    }
+
     fn chat_content(
         &self,
         model: &str,
@@ -231,6 +282,18 @@ struct ChatOptions {
 #[derive(Deserialize)]
 struct ChatApiResponse {
     message: ChatApiMessage,
+}
+
+#[derive(Serialize)]
+struct EmbedApiRequest<'a> {
+    model: &'a str,
+    input: &'a [String],
+}
+
+#[derive(Deserialize)]
+struct EmbedApiResponse {
+    #[serde(default)]
+    embeddings: Vec<Vec<f32>>,
 }
 
 #[derive(Deserialize)]

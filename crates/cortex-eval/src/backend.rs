@@ -4,11 +4,17 @@ use std::collections::VecDeque;
 use std::sync::Mutex;
 use std::time::Instant;
 
-use cortex_ollama::{ModelInfo, OllamaClient, RunningModel, StructuredChatRequest};
+use cortex_ollama::{EmbedRequest, ModelInfo, OllamaClient, RunningModel, StructuredChatRequest};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TimedContent {
     pub content: String,
+    pub latency_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TimedEmbeddings {
+    pub vectors: Vec<Vec<f32>>,
     pub latency_ms: u64,
 }
 
@@ -17,6 +23,7 @@ pub trait EvalBackend {
     fn installed_models(&self) -> Result<Vec<ModelInfo>, String>;
     fn running_models(&self) -> Result<Vec<RunningModel>, String>;
     fn structured(&self, request: &StructuredChatRequest) -> Result<TimedContent, String>;
+    fn embed(&self, request: &EmbedRequest) -> Result<TimedEmbeddings, String>;
 }
 
 /// Live backend over the bounded loopback Ollama client. It never pulls a
@@ -61,12 +68,25 @@ impl EvalBackend for OllamaEvalBackend {
             latency_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
         })
     }
+
+    fn embed(&self, request: &EmbedRequest) -> Result<TimedEmbeddings, String> {
+        let started = Instant::now();
+        let vectors = self
+            .client
+            .embed(request)
+            .map_err(|error| error.to_string())?;
+        Ok(TimedEmbeddings {
+            vectors,
+            latency_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        })
+    }
 }
 
 /// Deterministic scripted backend for tests.
 pub struct ScriptedBackend {
     models: Vec<ModelInfo>,
     responses: Mutex<VecDeque<Result<String, String>>>,
+    embeddings: Mutex<VecDeque<Result<Vec<Vec<f32>>, String>>>,
 }
 
 impl ScriptedBackend {
@@ -75,12 +95,20 @@ impl ScriptedBackend {
         Self {
             models,
             responses: Mutex::new(responses.into()),
+            embeddings: Mutex::new(VecDeque::new()),
         }
     }
 
     /// Number of scripted responses not yet consumed.
     pub fn remaining(&self) -> usize {
         self.responses.lock().map_or(0, |queue| queue.len())
+    }
+
+    /// Queue one scripted embed-batch result.
+    pub fn queue_embeddings(&self, batch: Result<Vec<Vec<f32>>, String>) {
+        if let Ok(mut queue) = self.embeddings.lock() {
+            queue.push_back(batch);
+        }
     }
 }
 
@@ -106,6 +134,19 @@ impl EvalBackend for ScriptedBackend {
             .ok_or_else(|| "scripted backend has no responses left".to_owned())?;
         response.map(|content| TimedContent {
             content,
+            latency_ms: 1,
+        })
+    }
+
+    fn embed(&self, _request: &EmbedRequest) -> Result<TimedEmbeddings, String> {
+        let batch = self
+            .embeddings
+            .lock()
+            .map_err(|_| "scripted backend lock poisoned".to_owned())?
+            .pop_front()
+            .ok_or_else(|| "scripted backend has no embeddings left".to_owned())?;
+        batch.map(|vectors| TimedEmbeddings {
+            vectors,
             latency_ms: 1,
         })
     }

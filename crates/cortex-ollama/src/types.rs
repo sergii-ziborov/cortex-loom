@@ -127,6 +127,14 @@ impl DraftRequest {
     }
 }
 
+/// One bounded embedding call against an exact profile. Embedding vectors are
+/// measurement/retrieval data and never a mutation authority.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EmbedRequest {
+    pub profile: String,
+    pub inputs: Vec<String>,
+}
+
 /// One exact-profile completion constrained by a caller-supplied JSON schema.
 ///
 /// This exists for offline evaluation and shadow observation. Its output is

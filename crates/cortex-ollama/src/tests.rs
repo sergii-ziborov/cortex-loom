@@ -149,6 +149,42 @@ fn structured_chat_forwards_the_caller_schema_and_stays_bounded() {
 }
 
 #[test]
+fn embed_returns_ordered_vectors_and_stays_bounded() {
+    let response = r#"{"embeddings":[[0.1,0.2],[0.3,0.4]]}"#;
+    let (base_url, server) = mock_server(vec![response]);
+    let client = OllamaClient::new(config(base_url)).unwrap();
+    let request = EmbedRequest {
+        profile: "draft".to_owned(),
+        inputs: vec!["first doc".to_owned(), "second doc".to_owned()],
+    };
+    let vectors = client.embed(&request).unwrap();
+    assert_eq!(vectors.len(), 2);
+    assert_eq!(vectors[1], vec![0.3, 0.4]);
+    let captured = server.join().unwrap().pop().unwrap();
+    assert!(captured.starts_with("POST /api/embed "));
+    let body = captured.split("\r\n\r\n").nth(1).unwrap();
+    let json: serde_json::Value = serde_json::from_str(body).unwrap();
+    assert_eq!(json["model"], "exact-model:9b");
+
+    let empty = EmbedRequest {
+        profile: "draft".to_owned(),
+        inputs: Vec::new(),
+    };
+    assert!(matches!(
+        client.embed(&empty),
+        Err(OllamaError::InvalidConfiguration(_))
+    ));
+    let oversized = EmbedRequest {
+        profile: "draft".to_owned(),
+        inputs: vec!["x".repeat(3000)],
+    };
+    assert!(matches!(
+        client.embed(&oversized),
+        Err(OllamaError::InputBudgetExceeded { .. })
+    ));
+}
+
+#[test]
 fn quality_gate_falls_back_for_every_unverified_case() {
     let routing = local_route();
     let evidence = vec!["E1".to_owned()];

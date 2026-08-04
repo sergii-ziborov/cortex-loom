@@ -54,11 +54,34 @@ pub struct EvidenceFixture {
     pub content: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RetrievalFixtures {
+    pub corpus: Vec<CorpusDoc>,
+    pub queries: Vec<RetrievalQuery>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CorpusDoc {
+    pub id: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RetrievalQuery {
+    pub id: String,
+    pub text: String,
+    pub relevant: Vec<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct FixtureSet {
     pub classification: Vec<ClassificationFixture>,
     pub extraction: Vec<ExtractionFixture>,
     pub compression: Vec<CompressionFixture>,
+    pub retrieval: RetrievalFixtures,
 }
 
 /// Load and validate the fixture suites embedded in the crate.
@@ -67,6 +90,7 @@ pub fn default_fixtures() -> Result<FixtureSet, EvalError> {
         include_str!("../fixtures/classification.json"),
         include_str!("../fixtures/extraction.json"),
         include_str!("../fixtures/compression.json"),
+        include_str!("../fixtures/retrieval.json"),
     )
 }
 
@@ -74,11 +98,14 @@ pub fn load_fixtures(
     classification: &str,
     extraction: &str,
     compression: &str,
+    retrieval: &str,
 ) -> Result<FixtureSet, EvalError> {
     let set = FixtureSet {
         classification: parse(classification, "classification")?,
         extraction: parse(extraction, "extraction")?,
         compression: parse(compression, "compression")?,
+        retrieval: serde_json::from_str(retrieval)
+            .map_err(|error| EvalError::Fixture(format!("retrieval: {error}")))?,
     };
     validate(&set)?;
     Ok(set)
@@ -142,6 +169,42 @@ fn validate(set: &FixtureSet) -> Result<(), EvalError> {
                 return Err(EvalError::Fixture(format!(
                     "{} requires citation of unknown id {id}",
                     fixture.id
+                )));
+            }
+        }
+    }
+
+    require_unique_ids(
+        "retrieval corpus",
+        set.retrieval.corpus.iter().map(|d| &d.id),
+    )?;
+    require_unique_ids(
+        "retrieval queries",
+        set.retrieval.queries.iter().map(|q| &q.id),
+    )?;
+    let corpus_ids: HashSet<&str> = set
+        .retrieval
+        .corpus
+        .iter()
+        .map(|doc| doc.id.as_str())
+        .collect();
+    for doc in &set.retrieval.corpus {
+        if doc.text.trim().is_empty() {
+            return Err(EvalError::Fixture(format!("{} has empty text", doc.id)));
+        }
+    }
+    for query in &set.retrieval.queries {
+        if query.text.trim().is_empty() || query.relevant.is_empty() {
+            return Err(EvalError::Fixture(format!(
+                "{} needs text and relevant ids",
+                query.id
+            )));
+        }
+        for id in &query.relevant {
+            if !corpus_ids.contains(id.as_str()) {
+                return Err(EvalError::Fixture(format!(
+                    "{} references unknown corpus id {id}",
+                    query.id
                 )));
             }
         }

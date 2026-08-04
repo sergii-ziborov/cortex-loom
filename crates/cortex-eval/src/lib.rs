@@ -31,6 +31,7 @@ pub enum SuiteKind {
     Classification,
     Extraction,
     Compression,
+    Retrieval,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

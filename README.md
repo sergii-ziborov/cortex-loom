@@ -18,7 +18,7 @@ The first milestone contains:
 - native `weavatrix-rust` repository evidence and preview-only Weavatrix Refactor integration;
 - bounded MCP tools plus a browser-based React/SVG editor extracted from AI Dev System.
 
-This repository is private. Candidate reusable crates remain in the workspace until their APIs, tests, security boundaries, and licensing are reviewed for separate public release.
+This repository is private. Four crates inside it are prepared for public release under **MIT OR Apache-2.0** — `cortex-domain` (typed process-graph schema), `cortex-context` (budget-bounded evidence selection and retrieval ranking), `cortex-router` (fail-closed routing policy), and `cortex-skills` (`SKILL.md` round trip). Each carries its own README, license texts, and publishing metadata; everything else stays private and unlicensed. See [publishing](docs/publishing.md).
 
 ## Run locally
 

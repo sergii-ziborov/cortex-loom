@@ -5,12 +5,17 @@ edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 repository.workspace = true
-publish = false
+license = "MIT OR Apache-2.0"
+description = "Transport-independent typed process-graph schema with structural validation invariants."
+documentation = "https://docs.rs/cortex-domain"
+readme = "README.md"
+keywords = ["graph", "workflow", "schema", "validation", "agents"]
+categories = ["data-structures", "development-tools"]
+publish = true
 
 [dependencies]
+blazingly-json.workspace = true
 serde.workspace = true
-serde_json.workspace = true
 
 [lints]
 workspace = true
-

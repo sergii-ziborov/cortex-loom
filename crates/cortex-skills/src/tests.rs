@@ -283,6 +283,106 @@ fn long_dependency_chains_scale_and_round_trip() {
 }
 
 #[test]
+fn frontmatter_escapes_do_not_accumulate_across_round_trips() {
+    // A double-quoted frontmatter scalar is a JSON string literal on export,
+    // so import must unescape it. Otherwise every round trip adds a layer:
+    // `say "hi"` -> `say \"hi\"` -> `say \\\"hi\\\"`.
+    let quoted =
+        "---\nname: Fast\ndescription: \"Run the \\\"fast\\\" path\"\n---\n# Fast\n\n- Do it.\n";
+    let graph = import_skill_markdown("SKILL.md", quoted).unwrap();
+    assert_eq!(
+        graph.metadata.get("description").map(String::as_str),
+        Some("Run the \"fast\" path"),
+        "double-quoted scalars are unescaped on import"
+    );
+
+    // Every hostile scalar shape must be an export fixpoint.
+    for (label, source) in [
+        (
+            "quote in description",
+            "---\nname: Q\ndescription: say \"hi\"\n---\n# Q\n\n- Do it.\n",
+        ),
+        (
+            "quote in name",
+            "---\nname: Say \"hi\"\ndescription: p\n---\n# Say \"hi\"\n\n- Do it.\n",
+        ),
+        (
+            "windows path backslashes",
+            "---\nname: B\ndescription: C:\\path\\to\n---\n# B\n\n- Do it.\n",
+        ),
+        (
+            "control character",
+            "---\nname: C\ndescription: A\u{7}B\n---\n# C\n\n- Do it.\n",
+        ),
+        (
+            "quote in an extra key",
+            "---\nname: E\ndescription: p\nowner: a \"b\" c\n---\n# E\n\n- Do it.\n",
+        ),
+    ] {
+        let first = import_skill_markdown("SKILL.md", source).unwrap();
+        let exported = export_skill_markdown(&first).unwrap();
+        let second = import_skill_markdown("SKILL.md", &exported).unwrap();
+        let exported_again = export_skill_markdown(&second).unwrap();
+        assert_eq!(
+            exported, exported_again,
+            "{label} is not an export fixpoint"
+        );
+        assert_eq!(semantic_view(&first), semantic_view(&second), "{label}");
+    }
+
+    // Single-quoted and plain scalars keep their exact value.
+    let mixed = "---\nname: S\ndescription: p\nreviewers: \"one required\"\nteam: 'core'\nplain: no quotes\n---\n# S\n\n- Do it.\n";
+    let graph = import_skill_markdown("SKILL.md", mixed).unwrap();
+    assert_eq!(
+        graph
+            .metadata
+            .get("frontmatter.reviewers")
+            .map(String::as_str),
+        Some("one required")
+    );
+    assert_eq!(
+        graph.metadata.get("frontmatter.team").map(String::as_str),
+        Some("core")
+    );
+    assert_eq!(
+        graph.metadata.get("frontmatter.plain").map(String::as_str),
+        Some("no quotes")
+    );
+}
+
+#[test]
+fn empty_structural_items_are_skipped_not_fatal() {
+    // A stray `- `, `1. `, or `## ` is valid Markdown. It carries no workflow
+    // meaning, so it is skipped rather than failing the whole document on the
+    // empty-label invariant.
+    for (label, source) in [
+        ("empty bullet", "# T\n\n- \n- Real step.\n"),
+        ("empty numbered", "# T\n\n1. \n2. Real step.\n"),
+        ("empty heading", "# T\n\n## \n\n- Real step.\n"),
+    ] {
+        let graph = import_skill_markdown("SKILL.md", source)
+            .unwrap_or_else(|error| panic!("{label}: {error}"));
+        graph
+            .validate()
+            .unwrap_or_else(|error| panic!("{label}: {error}"));
+        let steps: Vec<_> = graph
+            .nodes
+            .iter()
+            .filter(|node| {
+                node.config.get("role").and_then(serde_json::Value::as_str) == Some("workflow_step")
+            })
+            .collect();
+        assert_eq!(steps.len(), 1, "{label}: only the real step survives");
+        assert_eq!(steps[0].label, "Real step.", "{label}");
+
+        let exported = export_skill_markdown(&graph).unwrap();
+        let second = import_skill_markdown("SKILL.md", &exported)
+            .unwrap_or_else(|error| panic!("{label} re-import: {error}"));
+        assert_eq!(semantic_view(&graph), semantic_view(&second), "{label}");
+    }
+}
+
+#[test]
 fn hostile_frontmatter_is_rejected_or_contained() {
     // A value-less line is a hard error, not a silent skip.
     assert!(matches!(

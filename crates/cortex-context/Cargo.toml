@@ -5,7 +5,13 @@ edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 repository.workspace = true
-publish = false
+license = "MIT OR Apache-2.0"
+description = "Deterministic, budget-bounded evidence selection and retrieval ranking for LLM context packets."
+documentation = "https://docs.rs/cortex-context"
+readme = "README.md"
+keywords = ["llm", "context", "retrieval", "bm25", "ranking"]
+categories = ["algorithms", "text-processing"]
+publish = true
 
 [dependencies]
 serde.workspace = true

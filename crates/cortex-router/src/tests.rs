@@ -101,6 +101,32 @@ fn approved_mutations_still_bypass_local_models() {
 }
 
 #[test]
+fn an_upstream_plan_never_exceeds_the_caller_budget() {
+    // A caller with a small ceiling must not receive a larger plan.
+    let mut tight = RoutingRequest::new("Deploy to production");
+    tight.budget.max_input_tokens = 2_000;
+    let decision = route(&tight);
+    assert_eq!(decision.target, ExecutionTarget::Upstream);
+    assert_eq!(decision.context.max_input_tokens, 2_000);
+
+    // A generous caller is still capped at the upstream evidence ceiling.
+    let mut generous = RoutingRequest::new("Deploy to production");
+    generous.budget.max_input_tokens = 100_000;
+    assert_eq!(
+        route(&generous).context.max_input_tokens,
+        UPSTREAM_EVIDENCE_TOKENS
+    );
+
+    // The same contract holds on the guard path (fail-closed escalation).
+    let mut guarded = RoutingRequest::new("Summarize the evidence");
+    guarded.evidence = EvidenceStatus::Missing;
+    guarded.budget.max_input_tokens = 512;
+    let decision = route(&guarded);
+    assert_eq!(decision.target, ExecutionTarget::Upstream);
+    assert_eq!(decision.context.max_input_tokens, 512);
+}
+
+#[test]
 fn words_containing_auth_are_not_authentication() {
     assert_ne!(
         classify("Summarize the author notes").class,

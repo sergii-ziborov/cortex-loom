@@ -11,10 +11,17 @@ pub use export::export_skill_markdown;
 pub use import::import_skill_markdown;
 
 /// A failure to parse, validate, or export a skill workflow.
+///
+/// Marked `#[non_exhaustive]` so new failure modes can be reported without a
+/// breaking release; match with a wildcard arm.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SkillError {
+    /// The `---` frontmatter block is malformed.
     InvalidFrontmatter(String),
+    /// The compiled graph failed [`cortex_domain`] validation.
     InvalidGraph(String),
+    /// The graph was not produced by this compiler and cannot be exported.
     UnsupportedGraph(String),
 }
 

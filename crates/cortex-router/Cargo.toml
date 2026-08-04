@@ -5,10 +5,17 @@ edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 repository.workspace = true
-publish = false
+license = "MIT OR Apache-2.0"
+description = "Fail-closed, model-free routing policy that decides between deterministic tools, local models, and an upstream agent."
+documentation = "https://docs.rs/cortex-router"
+readme = "README.md"
+keywords = ["llm", "routing", "policy", "classification", "agents"]
+categories = ["algorithms", "development-tools"]
+publish = true
 
 [dependencies]
-cortex-domain = { path = "../cortex-domain" }
+# `path` builds inside this workspace; `version` is what cargo publishes.
+cortex-domain = { path = "../cortex-domain", version = "0.1.0" }
 serde.workspace = true
 
 [lints]

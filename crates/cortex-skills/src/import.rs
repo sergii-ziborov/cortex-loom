@@ -113,14 +113,21 @@ impl Builder<'_> {
             if let Some((level, text)) = parse_heading(line) {
                 if !skipped_title && level == 1 && text == skill_name {
                     skipped_title = true;
-                } else {
+                } else if !text.trim().is_empty() {
+                    // An empty heading carries no workflow meaning. Skipping
+                    // it keeps a stray `##` from failing the whole import on
+                    // the empty-label invariant.
                     self.add_heading(level, text, source_line);
                 }
                 index += 1;
                 continue;
             }
             if let Some(item) = parse_list_item(line) {
-                self.add_step(item, source_line);
+                // Likewise for a stray `- ` or `1. ` with no text: it is
+                // valid Markdown and must not abort the document.
+                if !item.text.trim().is_empty() {
+                    self.add_step(item, source_line);
+                }
                 index += 1;
                 continue;
             }
@@ -485,15 +492,24 @@ fn source_stem(source: &str) -> String {
         .replace(['-', '_'], " ")
 }
 
+/// Read one frontmatter scalar.
+///
+/// A double-quoted value is a JSON-compatible string literal — that is how
+/// [`crate::export_skill_markdown`] writes it — so it is parsed back the same
+/// way. Stripping the quotes without unescaping would leave the escapes in
+/// the value and the next export would escape them again, so each round trip
+/// would add a layer (`say "hi"` becoming `say \"hi\"`, then `say \\\"hi\\\"`).
+/// Single-quoted values carry no backslash escapes and only lose their
+/// delimiters.
 fn unquote(value: &str) -> String {
-    if value.len() >= 2 {
-        let bytes = value.as_bytes();
-        if matches!(
-            (bytes[0], bytes[value.len() - 1]),
-            (b'\'', b'\'') | (b'"', b'"')
-        ) {
-            return value[1..value.len() - 1].to_owned();
-        }
+    let bytes = value.as_bytes();
+    if value.len() < 2 {
+        return value.to_owned();
     }
-    value.to_owned()
+    match (bytes[0], bytes[value.len() - 1]) {
+        (b'"', b'"') => serde_json::from_str::<String>(value)
+            .unwrap_or_else(|_| value[1..value.len() - 1].to_owned()),
+        (b'\'', b'\'') => value[1..value.len() - 1].to_owned(),
+        _ => value.to_owned(),
+    }
 }

@@ -29,6 +29,11 @@ include_dir = "0.7.4"
 mcport = "0.3.0"
 rusqlite = { version = "0.40.1", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
+# The JSON engine is `blazingly-json`. Private crates take it under the
+# `serde_json` alias for drop-in ergonomics; crates intended for public
+# release depend on it by its real name so their manifests and rustdoc
+# never misrepresent what a consumer is actually taking on.
+blazingly-json = "0.1.0"
 serde_json = { package = "blazingly-json", version = "0.1.0" }
 sha2 = "0.10"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }

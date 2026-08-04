@@ -38,7 +38,9 @@ pub struct GraphNode {
     #[serde(default)]
     pub provenance: Vec<Provenance>,
     #[serde(default)]
-    pub config: HashMap<String, serde_json::Value>,
+    /// Free-form typed configuration for the node kind, for example a retry
+    /// controller's `targetNodeId` and `maxAttempts`.
+    pub config: HashMap<String, blazingly_json::Value>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -143,7 +145,12 @@ pub enum EdgeKind {
     Supersedes,
 }
 
+/// A structural validation failure.
+///
+/// Marked `#[non_exhaustive]` so new invariants can be reported without a
+/// breaking release; match with a wildcard arm.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum GraphError {
     UnsupportedSchema(String),
     EmptyField(&'static str),

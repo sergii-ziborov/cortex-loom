@@ -5,10 +5,17 @@ edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 repository.workspace = true
-publish = false
+license = "MIT OR Apache-2.0"
+description = "Round-trip compiler between readable SKILL.md Markdown workflows and typed process graphs."
+documentation = "https://docs.rs/cortex-skills"
+readme = "README.md"
+keywords = ["markdown", "workflow", "skills", "compiler", "graph"]
+categories = ["parser-implementations", "development-tools"]
+publish = true
 
 [dependencies]
-cortex-domain = { path = "../cortex-domain" }
+# `path` builds inside this workspace; `version` is what cargo publishes.
+cortex-domain = { path = "../cortex-domain", version = "0.1.0" }
 serde_json.workspace = true
 
 [lints]

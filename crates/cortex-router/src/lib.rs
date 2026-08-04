@@ -227,7 +227,7 @@ pub fn route(request: &RoutingRequest) -> RoutingDecision {
     }
 
     if !reasons.is_empty() {
-        return upstream(classification, reasons);
+        return upstream(classification, reasons, request);
     }
 
     match classification.class {
@@ -249,9 +249,11 @@ pub fn route(request: &RoutingRequest) -> RoutingDecision {
             ContextStrategy::WeavatrixEvidence,
             request,
         ),
-        TaskClass::RepositoryAnalysis => {
-            upstream(classification, vec![RoutingReason::WeavatrixUnavailable])
-        }
+        TaskClass::RepositoryAnalysis => upstream(
+            classification,
+            vec![RoutingReason::WeavatrixUnavailable],
+            request,
+        ),
         TaskClass::StructuredExtraction if request.availability.ollama => decision(
             ExecutionTarget::Ollama,
             classification,
@@ -274,17 +276,25 @@ pub fn route(request: &RoutingRequest) -> RoutingDecision {
         }
         TaskClass::StructuredExtraction
         | TaskClass::ContextCompression
-        | TaskClass::AdvisoryDraft => {
-            upstream(classification, vec![RoutingReason::OllamaUnavailable])
-        }
+        | TaskClass::AdvisoryDraft => upstream(
+            classification,
+            vec![RoutingReason::OllamaUnavailable],
+            request,
+        ),
         TaskClass::Implementation => upstream(
             classification,
             vec![RoutingReason::ImplementationReservedForUpstream],
+            request,
         ),
-        TaskClass::Ambiguous => upstream(classification, vec![RoutingReason::AmbiguousRequest]),
+        TaskClass::Ambiguous => upstream(
+            classification,
+            vec![RoutingReason::AmbiguousRequest],
+            request,
+        ),
         _ => upstream(
             classification,
             vec![RoutingReason::HighRiskTask(classification.class)],
+            request,
         ),
     }
 }
@@ -341,7 +351,14 @@ fn decision(
     }
 }
 
-fn upstream(classification: Classification, reasons: Vec<RoutingReason>) -> RoutingDecision {
+/// Default evidence ceiling for upstream work when the caller allows more.
+pub const UPSTREAM_EVIDENCE_TOKENS: u32 = 8_192;
+
+fn upstream(
+    classification: Classification,
+    reasons: Vec<RoutingReason>,
+    request: &RoutingRequest,
+) -> RoutingDecision {
     RoutingDecision {
         target: ExecutionTarget::Upstream,
         class: classification.class,
@@ -351,7 +368,12 @@ fn upstream(classification: Classification, reasons: Vec<RoutingReason>) -> Rout
         model_tier: ModelTier::UpstreamStrong,
         context: ContextPlan {
             strategy: ContextStrategy::UpstreamEvidence,
-            max_input_tokens: 8_192,
+            // Never exceed the caller's declared bound: a plan that reports
+            // more than the request allows would break the budget contract.
+            max_input_tokens: request
+                .budget
+                .max_input_tokens
+                .min(UPSTREAM_EVIDENCE_TOKENS),
             require_evidence_ids: true,
         },
     }

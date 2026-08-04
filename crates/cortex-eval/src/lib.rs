@@ -21,7 +21,7 @@ pub mod runner;
 pub mod verdict;
 
 /// Pinned prompt revision recorded in every report.
-pub const PROMPT_VERSION: &str = "eval-prompts-v2";
+pub const PROMPT_VERSION: &str = "eval-prompts-v3";
 /// Pinned output-schema revision recorded in every report.
 pub const SCHEMA_VERSION: &str = "eval-schemas-v1";
 

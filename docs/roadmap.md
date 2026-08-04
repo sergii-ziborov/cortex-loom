@@ -27,7 +27,7 @@
 
 ## Research gates
 
-- Compare `qwen3.5:4b`, `phi4-mini`, and a medium local profile on extraction, classification, and citation-preserving compression. The harness and initial fixture set exist in `cortex-eval`; all three profiles are measured on this device under pinned `eval-prompts-v2` with role-aware verdicts. Under v1 prompts, `qwen3.5:9b` already achieved perfect citation preservation while both small profiles missed escalations.
+- Compare `qwen3.5:4b`, `phi4-mini`, and a medium local profile on extraction, classification, and citation-preserving compression. Closed on this device under pinned `eval-prompts-v3` with role-aware verdicts: `qwen3.5:4b` passes the `local_small` role (classification 0.82, zero missed escalations, extraction exact-match 0.80) and `qwen3.5:9b` passes `local_medium` (perfect citation preservation). `phi4-mini` remains below both small gates. Dogfood note: shadow compression of a real 7.5k-token packet timed out on CPU — synthetic-fixture latency does not transfer to production payload sizes.
 - Do not claim NPU execution until an OpenVINO GenAI or Foundry Local adapter reports and passes calibration on the actual device.
 - Establish repository-specific Recall@k, nDCG, classification F1, unsupported-claim rate, and zero-missed-escalation fixtures.
 - Measure end-to-end upstream token savings only on quality-equivalent accepted outcomes.

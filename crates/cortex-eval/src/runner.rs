@@ -233,8 +233,19 @@ fn run_classification(
     }
 }
 
+/// Sort, dedup, and strip formatting noise (whitespace plus surrounding
+/// backticks or quotes). Content differences — invented or missing entries —
+/// still fail the comparison.
 fn normalized(values: &[String]) -> Vec<String> {
-    let mut sorted: Vec<String> = values.iter().map(|value| value.trim().to_owned()).collect();
+    let mut sorted: Vec<String> = values
+        .iter()
+        .map(|value| {
+            value
+                .trim()
+                .trim_matches(|ch| matches!(ch, '`' | '"' | '\''))
+                .to_owned()
+        })
+        .collect();
     sorted.sort();
     sorted.dedup();
     sorted

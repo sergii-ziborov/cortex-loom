@@ -171,6 +171,7 @@ dependencies = [
 name = "cortex-mcp"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "blazingly-json",
  "cortex-adapters",
  "cortex-context",
@@ -184,6 +185,9 @@ dependencies = [
  "cortex-weavatrix",
  "mcport",
  "serde",
+ "sha2",
+ "tokio",
+ "ureq",
 ]
 
 [[package]]

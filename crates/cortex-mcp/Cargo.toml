@@ -8,6 +8,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+axum.workspace = true
 cortex-adapters = { path = "../cortex-adapters" }
 cortex-context = { path = "../cortex-context" }
 cortex-domain = { path = "../cortex-domain" }
@@ -21,6 +22,11 @@ cortex-weavatrix = { path = "../cortex-weavatrix" }
 mcport.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+ureq.workspace = true
 
 [lints]
 workspace = true

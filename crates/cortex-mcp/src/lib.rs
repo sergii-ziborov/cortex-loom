@@ -19,6 +19,7 @@ use mcport::{ConcurrentMcpServer, FlushPolicy, RuntimeConfig, ToolReply, Transpo
 use serde::Deserialize;
 use serde_json::Value;
 
+pub mod http;
 mod run_tools;
 mod semantic;
 
@@ -175,8 +176,28 @@ impl CortexMcpState {
     }
 }
 
-#[allow(clippy::too_many_lines)]
+/// Run the server over stdio (the default transport).
 pub fn serve(state: CortexMcpState) -> io::Result<()> {
+    build_server(state).serve(runtime_config())
+}
+
+/// The shared runtime bounds used by every transport.
+#[must_use]
+pub fn runtime_config() -> RuntimeConfig {
+    RuntimeConfig {
+        transport: TransportLimits::new(4 * 1024 * 1024, 8 * 1024 * 1024),
+        max_in_flight: 4,
+        queue_depth: 16,
+        output_queue_depth: 16,
+        output_flush_policy: FlushPolicy::PerMessage,
+        handler_deadline: Some(Duration::from_secs(120)),
+    }
+}
+
+/// Build the tool registry once; transports share the same server value.
+#[allow(clippy::too_many_lines)]
+#[must_use]
+pub fn build_server(state: CortexMcpState) -> ConcurrentMcpServer {
     let state = Arc::new(state);
     let graph_state = Arc::clone(&state);
     let graph_list_state = Arc::clone(&state);
@@ -727,15 +748,7 @@ pub fn serve(state: CortexMcpState) -> io::Result<()> {
                 }
             },
         );
-    let server = run_tools::register(server, Arc::clone(&state));
-    server.serve(RuntimeConfig {
-        transport: TransportLimits::new(4 * 1024 * 1024, 8 * 1024 * 1024),
-        max_in_flight: 4,
-        queue_depth: 16,
-        output_queue_depth: 16,
-        output_flush_policy: FlushPolicy::PerMessage,
-        handler_deadline: Some(Duration::from_secs(120)),
-    })
+    run_tools::register(server, Arc::clone(&state))
 }
 
 /// Telemetry writes never fail the tool: the deterministic reply is the

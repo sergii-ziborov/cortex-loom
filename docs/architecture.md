@@ -42,6 +42,7 @@ The protocol-independent crates do not depend on MCP, HTTP, or the UI. `cortex-m
 ## Safety boundaries
 
 - Stable MCP `2025-11-25` is the compatibility baseline; newer revisions are negotiated, not assumed.
+- The Streamable HTTP transport shares the stdio tool registry and runtime limits: each HTTP session is one in-process MCP loop, sessions are bounded and idle-expired, non-loopback origins are rejected, and the server initiates no streams. Bind beyond loopback only behind an authenticating proxy.
 - All frames, queues, tool runtimes, model contexts, graph sizes, and response sizes are bounded.
 - Weavatrix Refactor is preview-only in the first milestone. Apply/rollback is intentionally absent.
 - Graph writes require the current revision; stale clients receive a conflict instead of overwriting newer state.

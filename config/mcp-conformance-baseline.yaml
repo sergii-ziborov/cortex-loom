@@ -1,0 +1,48 @@
+# Expected-failure baseline for the official MCP conformance suite
+# (@modelcontextprotocol/conformance) run against the cortex-mcp Streamable
+# HTTP transport:
+#
+#   npx -y @modelcontextprotocol/conformance server `
+#     --url http://127.0.0.1:43818/mcp `
+#     --expected-failures config/mcp-conformance-baseline.yaml
+#
+# Passing scenarios (not listed): server-initialize, ping, tools-list,
+# server-sse-multiple-streams, dns-rebinding-protection.
+#
+# Two honest failure categories remain:
+# 1. Fixture-tool scenarios: the suite expects reference test tools with
+#    exact canned outputs (text/image/audio/resource/progress/sampling/
+#    elicitation). cortex-mcp exposes its real production tools instead;
+#    these scenarios do not apply to a non-reference server.
+# 2. Unimplemented capabilities: resources, prompts, logging, and
+#    completion are not part of this tools-only server (and not provided by
+#    the mcport runtime). Adding them is deliberate future work, not a
+#    transport defect.
+server:
+  # -- category 2: capabilities this tools-only server does not declare --
+  - logging-set-level
+  - completion-complete
+  - resources-list
+  - resources-read-text
+  - resources-read-binary
+  - resources-templates-read
+  - resources-subscribe
+  - resources-unsubscribe
+  - prompts-list
+  - prompts-get-simple
+  - prompts-get-with-args
+  - prompts-get-embedded-resource
+  - prompts-get-with-image
+  # -- category 1: reference fixture tools the suite expects --
+  - tools-call-simple-text
+  - tools-call-image
+  - tools-call-audio
+  - tools-call-embedded-resource
+  - tools-call-mixed-content
+  - tools-call-with-logging
+  - tools-call-error
+  - tools-call-with-progress
+  - tools-call-sampling
+  - tools-call-elicitation
+  - elicitation-sep1034-defaults
+  - elicitation-sep1330-enums

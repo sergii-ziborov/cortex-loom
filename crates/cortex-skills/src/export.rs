@@ -41,13 +41,14 @@ pub fn export_skill_markdown(graph: &GraphDocument) -> Result<String, SkillError
     Ok(output)
 }
 
+// Writing into a `String` through `fmt::Write` is infallible, so the results
+// below are discarded rather than unwrapped: this crate's production paths
+// contain no panic.
 fn write_header(graph: &GraphDocument, output: &mut String) {
     let description = graph.metadata.get("description").map_or("", String::as_str);
-    writeln!(output, "---").expect("writing to a String cannot fail");
-    writeln!(output, "name: {}", yaml_string(&graph.name))
-        .expect("writing to a String cannot fail");
-    writeln!(output, "description: {}", yaml_string(description))
-        .expect("writing to a String cannot fail");
+    let _ = writeln!(output, "---");
+    let _ = writeln!(output, "name: {}", yaml_string(&graph.name));
+    let _ = writeln!(output, "description: {}", yaml_string(description));
     let mut extra: Vec<_> = graph
         .metadata
         .iter()
@@ -55,10 +56,9 @@ fn write_header(graph: &GraphDocument, output: &mut String) {
         .collect();
     extra.sort_by_key(|(key, _)| *key);
     for (key, value) in extra {
-        writeln!(output, "{key}: {}", yaml_string(value)).expect("writing to a String cannot fail");
+        let _ = writeln!(output, "{key}: {}", yaml_string(value));
     }
-    writeln!(output, "---\n\n# {}", crate::heading_text(&graph.name))
-        .expect("writing to a String cannot fail");
+    let _ = writeln!(output, "---\n\n# {}", crate::heading_text(&graph.name));
 }
 
 fn dependency_map<'a>(
@@ -210,8 +210,7 @@ fn step_label(label: &str, dependencies: Option<&[usize]>) -> String {
             if !result.is_empty() {
                 result.push(' ');
             }
-            write!(result, "[depends: {}]", missing.join(", "))
-                .expect("writing to a String cannot fail");
+            let _ = write!(result, "[depends: {}]", missing.join(", "));
         }
     }
     result

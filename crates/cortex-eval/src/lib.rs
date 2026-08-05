@@ -15,6 +15,7 @@ pub mod backend;
 pub mod comparators;
 pub mod fixtures;
 pub mod metrics;
+pub mod openai_backend;
 pub mod prompts;
 pub mod report;
 pub mod runner;

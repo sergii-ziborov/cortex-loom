@@ -109,21 +109,105 @@ collapse would plausibly have been blamed on the device or the quantisation.
 **Always pass `--pooling LAST` for this model.** This is precisely why
 `gatePassed` is a claim about a *(model, device, runtime)* triple.
 
-### GPU works; NPU did not come up
+### The NPU works — for text generation, not for embeddings
 
-| device | outcome |
-| --- | --- |
-| GPU | servable `AVAILABLE` in ~10–20 s; embeddings answered in **1 447 ms** for 2 inputs, dim 1024 |
-| NPU | graph still initialising after **424 s**, 6.5 GB resident, 448 s of CPU burned, `/v3/models` still empty |
+The first attempt put the **embeddings** task on the NPU. It never became
+usable: still initialising after **424 s**, 6.5 GB resident, 448 s of CPU
+burned, `/v3/models` empty. The same configuration on the GPU was `AVAILABLE`
+in under 20 s, which isolates the failure to the device rather than the
+config.
 
-The NPU path is not refuted — first-load compilation is expected to be slow
-and OVMS has a compilation cache — but on this part it did not become usable
-in seven minutes, and it consumed the one resource this deployment cannot
-spare: a CPU core, continuously. Next attempt should set a cache directory and
-measure a warm start before any conclusion is drawn.
+Re-run with `--cache_dir` and the roles as designed:
 
-Nothing here permits setting `gatePassed`. The GPU embedding endpoint is
-merely *serving*; it has not been through `cortex-eval`.
+| servable | device | task | outcome |
+| --- | --- | --- | --- |
+| `qwen25-1.5b` | **NPU** | `text_generation` | `AVAILABLE` in **under 15 s** |
+| `qwen3-embed` | GPU | `embeddings` | `AVAILABLE` in **under 15 s** |
+
+So the NPU is fine — Intel documents `text_generation` on NPU for Arrow Lake,
+and that is exactly what works. What hung was the OVMS **embeddings**
+pipeline on NPU. The embedding role therefore stays on the GPU until that is
+understood, which costs nothing: it answers in about 100 ms warm.
+
+### Why the embeddings pipeline hangs on the NPU
+
+**The NPU executes static shapes only.** OpenVINO supports dynamic shapes on
+CPU and GPU; the NPU compiler needs fixed dimensions to build its execution
+graph. Embedding models are the worst case for that — a batch of N inputs of
+varying token length is dynamic in two dimensions at once — and there is an
+open OpenVINO issue where the NPU compiler hits a `Gather` node with dynamic
+bounds and raises *"to_shape was called on a dynamic shape"* for exactly this
+class of model.
+
+That matches what was observed: `text_generation` compiled in under 15 s,
+while `embeddings` sat in graph initialisation past 424 s and 6.5 GB. It is a
+shape problem, not a capability problem.
+
+The way through, if the NPU is wanted for embeddings, is to reshape the model
+to a static batch and sequence length before serving it, and accept padding
+waste. That is worth doing only if the GPU's ~100 ms becomes a bottleneck,
+which it currently is not.
+
+### Measured through the provider
+
+`cargo run -p cortex-llm --example probe`, against both live endpoints:
+
+| call | device | latency | result |
+| --- | --- | ---: | --- |
+| 3 embeddings, dim 1024 | GPU | **102 ms** | cosine 0.6635 related / 0.2417 unrelated |
+| classify | NPU | **2 736 ms** | returned a valid label |
+| classify | NPU | **2 602 ms** | returned a valid label |
+
+Both classifications answered `deterministic`, including for *"change the
+retention policy for audited production run evidence"* — which is a high-risk
+mutating change that must go upstream. The plumbing is right and the model is
+not yet trustworthy. A differently-worded prompt got `upstream` correct
+earlier, so this is prompt sensitivity, which is precisely what the
+calibration harness measures and precisely why `gatePassed` stays `false`.
+
+### The gates, run against the deployment
+
+`cortex-eval` learned a second backend (`--runtime openai`) so the same
+fixtures, comparators and pinned prompts (`eval-prompts-v3`) could be pointed
+at the accelerator instead of at Ollama. Two runs, because the two servables
+sit on two devices and therefore two ports:
+
+```powershell
+cargo run -p cortex-eval -- --config config/eval-profiles-ovms.json `
+  --runtime openai --base-url http://127.0.0.1:8001 --suite retrieval
+cargo run -p cortex-eval -- --config config/eval-profiles-ovms.json `
+  --runtime openai --base-url http://127.0.0.1:8000 --suite classification
+```
+
+**Retrieval — `Qwen3-Embedding-0.6B-int8-ov`, GPU: PASS**
+
+| mode | recall@3 | recall@5 | nDCG@5 | MRR |
+| --- | ---: | ---: | ---: | ---: |
+| embedding | 0.79 | 0.92 | 0.87 | 0.96 |
+| hybrid | 0.83 | 0.92 | 0.90 | 1.00 |
+| **hybrid_graph** | **0.96** | **1.00** | **0.96** | **1.00** |
+
+Latency p50/p95 593/658 ms over 4 batches. The INT8 OpenVINO conversion did
+not cost retrieval quality: `hybrid_graph` matches the 1.00/0.96 the same
+weights reached on Ollama. **`gatePassed: true`** for this triple.
+
+**Classification — `Qwen2.5-1.5B-Instruct-int4-ov`, NPU: FAIL**
+
+28/28 replies were schema-valid — OVMS accepted `response_format:
+json_schema`, so structured output works on the NPU — but:
+
+| metric | measured | required |
+| --- | ---: | ---: |
+| accuracy | **0.71** | ≥ 0.80 |
+| missed escalations | **2** | **0** |
+
+Latency p50/p95 4 009 / 5 346 ms over 28 calls. Two missed escalations is the
+one failure this project treats as disqualifying: the model sent work
+downward that should have gone upstream. **`gatePassed` stays `false`.** The
+plumbing is correct and the model is not trusted to route.
+
+The report also prints `device: unknown`, because OVMS does not say. That is
+the honest value, not a defect.
 
 ## Deploying it
 

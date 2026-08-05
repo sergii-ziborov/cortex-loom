@@ -173,6 +173,98 @@ comes from priority-ordered budgeting across operations, not from dedup.
   *evidence* tokens on four hand-written fixtures is not 90 % of upstream
   work, and no model ran.
 
+## Budget-aware planning — measured 2026-08-05
+
+Measuring the *composition* of a targeted plan, rather than only its total,
+found the next win and refuted the one that had been planned.
+
+A digest cache keyed by repository revision was supposed to compress the
+structural evidence. Then the fragments were measured:
+
+| kind | operation | fragments | tokens | share |
+| --- | --- | ---: | ---: | ---: |
+| ChangePlan | `verified_change` | 6 | **6 007** | **41 %** |
+| SymbolContext | `inspect_symbol` | 5 | 4 834 | 33 % |
+| Dependents | `get_dependents` | 3 | 2 455 | 17 % |
+| SearchHits | `search_code` | 2 | 1 322 | 9 % |
+| ModuleMap | `module_map` | 1 | **55** | **0.4 %** |
+
+`module_map` — the thing the cache was for — is four tenths of one percent.
+Caching it saves nothing. The bulk is `verified_change`, which depends on the
+*task*, not the revision, so it is not cacheable at all; and it is the exact
+evidence the 4 000-token budget was already throwing away without costing a
+single required fact.
+
+### `token_budget` — three different behaviours, one parameter
+
+Measured across `weavatrix-rust` 2.1.1 and 2.2.0, all with `token_budget`
+set:
+
+| operation | 2.1.1 | 2.2.0 |
+| --- | --- | --- |
+| `search_code` | asked 1 600, returned 1 322, reported `fit: true` | same |
+| `context_bundle` | — | asked 800, dropped 46 items, **returned 4 778**, reported `fit: false` |
+| `inspect_symbol` | asked 800, returned 4 834, **no report** | **rejected**: "does not bound its answer by token_budget" |
+| `get_dependents` | asked 800, returned 2 455, no report | rejected |
+| `verified_change` | asked 800, returned 6 007, no report | rejected |
+
+2.1.1 accepted the parameter everywhere and honoured it in one place, with
+no signal — a caller protecting its context window overran by six times and
+had nothing to attribute it to. **2.2.0 fixes exactly that**: the parameter is
+now refused where it is not implemented, and the error names the operations
+that do implement it (`context_bundle`, `query_graph`, `read_source`,
+`search_code`).
+
+The remaining subtlety is easy to mistake for a second defect, and is not
+one: **`bounded` means "trims what it can and tells you whether it fitted",
+not "will fit"**. Under an 800-token request `context_bundle` dropped 46
+items, emptied both source arrays, still returned 4 778, and reported
+`fit: false`. The rest is the relationship graph, which Weavatrix holds
+lossless by contract — it would rather return a truthful answer that is too
+big than a smaller one that is wrong. Verified identical on 2.2.0 and 2.2.1.
+
+Two consequences, both now implemented: the planner estimates bounded
+operations like any other, because a granted request is not a guarantee; and
+`prepare_targeted_context` reads the `fit: false` report and records it as a
+warning on the bundle, so an overrun is attributed to an operation instead of
+being discovered in the total.
+
+Every call above passed `token_budget`. Only `search_code` obeyed it (asked
+1 600, returned 1 322) and only `search_code` reports a `token_budget` block
+in its reply. `inspect_symbol` asked 800 and returned 4 834;
+`get_dependents` 800 → 2 455; `verified_change` 800 → 6 007. The parameter is
+accepted without error and ignored without a signal, so a caller has no way
+to notice. Per-operation budgets are therefore fiction for most of the plan,
+and the compiler is the only real enforcement.
+
+### The fix: cost as policy, and stop before the budget is spent
+
+Three changes, each forced by a measurement rather than chosen:
+
+1. **Prefer the bounded operation.** Symbol evidence moved from
+   `inspect_symbol` to `context_bundle`, which at least trims and reports.
+2. **Send `token_budget` only where it exists.** Anywhere else it is now an
+   error, and before that it was a lie.
+3. **Estimate every operation, and make the estimates a policy.**
+   `PlanPolicy` carries them with defaults from this repository, and
+   `plan_with` takes an override — because these numbers are a snapshot of
+   one codebase and will be wrong on another. The plan then keeps only the
+   prefix the budget can carry: a bounded operation may reach the ceiling
+   (the runtime at least trims it), an unbounded one is only requested if its
+   whole estimate fits.
+
+| | 2.1.1, unplanned | 2.1.1, planned | 2.2.0, bounded |
+| --- | ---: | ---: | ---: |
+| evidence assembled per task | 14 671 | 8 662 | **6 183** |
+| `weavatrix-planned`, 4 tasks | 52 087 | 34 022 | **25 577** |
+| `cortex-targeted`, 4 tasks | 14 898 | 15 055 | **13 887** |
+| facts | 18/24 | 18/24 | **18/24** |
+
+**58 % less evidence fetched and a 7 % smaller delivered packet, at identical
+recall.** Most of that is work not done at all: latency, Weavatrix CPU, and
+evidence assembled only to be discarded. No single Weavatrix operation can
+make this decision — it requires knowing what the others already committed.
+
 ## Next measurements worth taking
 
 1. A fifth arm using `read_source` on the files `search_code` hit, to test

@@ -289,12 +289,17 @@ impl WeavatrixAdapter {
             .collect();
         for operation in crate::plan::plan(task, symbol, budget) {
             match native_call(engine, operation.tool, operation.arguments.clone()) {
-                Ok(value) => evidence.extend(fragments(
-                    operation.id,
-                    operation.kind,
-                    &format!("weavatrix:{}", operation.tool),
-                    &value,
-                )),
+                Ok(value) => {
+                    if let Some(overrun) = budget_overrun(operation.tool, &value) {
+                        warnings.push(overrun);
+                    }
+                    evidence.extend(fragments(
+                        operation.id,
+                        operation.kind,
+                        &format!("weavatrix:{}", operation.tool),
+                        &value,
+                    ));
+                }
                 Err(error) => warnings.push(format!("{} unavailable: {error}", operation.tool)),
             }
         }
@@ -519,6 +524,32 @@ fn discover_refactor_script() -> Option<PathBuf> {
             .into_iter()
             .find(|candidate| candidate.is_file())
     })
+}
+
+/// Read the `token_budget` report a bounded operation attaches to its reply.
+///
+/// `fit: false` is not a failure and not a Weavatrix defect — the graph
+/// relationships it returns are lossless by contract, so it trims source
+/// excerpts and then tells the truth rather than dropping evidence to hit a
+/// number. Consuming that signal is the point: a packet built from an
+/// overrun answer is bigger than the caller asked for, and the caller should
+/// be told by whom and by how much instead of discovering it in the total.
+fn budget_overrun(tool: &str, value: &Value) -> Option<String> {
+    let report = value.get("token_budget")?;
+    if report.get("fit").and_then(Value::as_bool) != Some(false) {
+        return None;
+    }
+    let requested = report.get("requested").and_then(Value::as_u64)?;
+    let estimated = report.get("estimated_tokens").and_then(Value::as_u64)?;
+    let dropped = report
+        .get("dropped_items")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    Some(format!(
+        "{tool} could not fit its budget: asked {requested} tokens, returned \
+         {estimated} after dropping {dropped} items; the remainder is lossless \
+         evidence it will not discard"
+    ))
 }
 
 fn native_call(

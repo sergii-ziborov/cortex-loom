@@ -9,10 +9,12 @@ publish = false
 
 [dependencies]
 cortex-context = { path = "../cortex-context" }
+cortex-llm = { path = "../cortex-llm" }
 cortex-ollama = { path = "../cortex-ollama" }
 cortex-router = { path = "../cortex-router" }
 serde.workspace = true
 serde_json.workspace = true
+ureq.workspace = true
 
 [lints]
 workspace = true

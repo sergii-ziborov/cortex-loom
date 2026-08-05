@@ -25,10 +25,12 @@
 
 pub mod device;
 pub mod endpoint;
+pub mod openai;
 pub mod profile;
 
 pub use device::{Device, DevicePolicy, Placement};
 pub use endpoint::{EndpointError, LoopbackUrl};
+pub use openai::OpenAiProvider;
 pub use profile::{LlmProfile, ProfileRegistry, Role, Runtime, SelectionError};
 
 use std::fmt::{Display, Formatter};

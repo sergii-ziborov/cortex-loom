@@ -5,36 +5,34 @@
     "Intel Graphics 4 Xe-LPG cores / 64 EU @ 2.1 GHz, 47.5 GB shared RAM.",
     "",
     "gatePassed is a claim about a (model, device, runtime) triple, not about a",
-    "model. A profile that passed on Ollama/CPU has NOT passed on NPU: the",
-    "quantisation and the runtime both change, so the vectors and the labels can",
-    "change with them. Re-run cortex-eval against the deployed endpoint before",
-    "flipping a flag here."
+    "model. Every flag below was set or left false by an actual cortex-eval run",
+    "against the deployed endpoint; see .cortex-loom/eval-ovms/ for the reports."
   ],
   "policy": {
     "allowed": ["npu", "gpu"]
   },
   "profiles": [
     {
-      "id": "npu-embedding",
+      "id": "gpu-embedding",
       "role": "embedding",
-      "model": "Qwen3-Embedding-0.6B-int8-ov",
-      "device": "npu",
+      "model": "qwen3-embed",
+      "device": "gpu",
       "runtime": "open_ai_compatible",
-      "baseUrl": "http://127.0.0.1:8000",
+      "baseUrl": "http://127.0.0.1:8001",
       "timeoutSeconds": 15,
-      "gatePassed": false,
-      "note": "Target for the hot path. The model passed the retrieval gate at Recall@k 1.00 / nDCG 0.96 as qwen3-embedding:0.6b on Ollama; the NPU deployment must re-pass it before this flag moves."
+      "gatePassed": true,
+      "note": "Qwen3-Embedding-0.6B-int8-ov via OVMS 2026.3.0, --pooling LAST (mandatory: the CLS default gives 0.96 cosine between unrelated text). Retrieval gate PASS 2026-08-05: hybrid_graph recall@3 0.96, recall@5 1.00, nDCG@5 0.96, MRR 1.00; embedding-only 0.79/0.92/0.87/0.96. Latency p50/p95 593/658 ms. Serving on GPU because the OVMS embeddings pipeline on NPU never finished initialising."
     },
     {
       "id": "npu-classifier",
       "role": "classification",
-      "model": "Qwen2.5-1.5B-Instruct-int4-ov",
+      "model": "qwen25-1.5b",
       "device": "npu",
       "runtime": "open_ai_compatible",
       "baseUrl": "http://127.0.0.1:8000",
       "timeoutSeconds": 20,
       "gatePassed": false,
-      "note": "Named as NPU-supported by OpenVINO GenAI. Must pass the local_small gate: classification >= 0.80 and zero missed escalations."
+      "note": "Qwen2.5-1.5B-Instruct-int4-ov via OVMS on the NPU. Classification gate FAIL 2026-08-05: 28/28 schema-valid but accuracy 0.71 against a 0.80 threshold and TWO missed escalations against a zero-tolerance requirement. Latency p50/p95 4009/5346 ms. Serving works; the model is not trusted to route."
     },
     {
       "id": "gpu-digest",
@@ -45,7 +43,7 @@
       "baseUrl": "http://127.0.0.1:11434",
       "timeoutSeconds": 900,
       "gatePassed": false,
-      "note": "Quality tier, off the hot path: precompute a per-revision structural digest and cache it. 4 Xe cores are slow, which costs nothing here because nothing waits on it. The model passed local_medium with perfect citation preservation on CPU; the GPU placement must be re-measured."
+      "note": "Quality tier, off the hot path: precompute a per-revision structural digest and cache it. Not yet deployed or measured on the GPU."
     }
   ]
 }

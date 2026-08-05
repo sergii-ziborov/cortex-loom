@@ -1,0 +1,21 @@
+{
+  "baseUrl": "http://127.0.0.1:8000",
+  "timeoutSecs": 300,
+  "profiles": [
+    {
+      "id": "npu-classifier-qwen2.5-1.5b-int4-ov",
+      "tier": "local_small",
+      "model": "qwen25-1.5b",
+      "maxInputTokens": 6144,
+      "maxOutputTokens": 1024,
+      "contextTokens": 8192
+    }
+  ],
+  "embeddingProfiles": [
+    {
+      "id": "gpu-embedding-qwen3-0.6b-int8-ov",
+      "model": "qwen3-embed",
+      "maxInputTokens": 2048
+    }
+  ]
+}

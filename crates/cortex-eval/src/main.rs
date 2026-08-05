@@ -9,6 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use cortex_eval::backend::{EvalBackend, OllamaEvalBackend};
 use cortex_eval::fixtures::default_fixtures;
+use cortex_eval::openai_backend::OpenAiEvalBackend;
 use cortex_eval::report::{EvalReport, render_markdown, write_json};
 use cortex_eval::runner::{
     EmbeddingProfile, EvalProfile, SuiteSelection, run_embedding_profile, run_profile,
@@ -58,6 +59,13 @@ struct CliOptions {
     suites: SuiteSelection,
     limit: Option<usize>,
     discover: bool,
+    /// Which runtime the fixtures are measured against. A gate verdict
+    /// belongs to a (model, device, runtime) triple, so this is a choice, not
+    /// an assumption.
+    runtime: Option<String>,
+    base_url: Option<String>,
+    /// Deployed servable name, when it differs from the profile's model tag.
+    servable: Option<String>,
 }
 
 fn main() {
@@ -108,11 +116,11 @@ fn run() -> Result<(), EvalError> {
             ),
         );
     }
-    let client = OllamaClient::new(ollama).map_err(|error| EvalError::Config(error.to_string()))?;
-    let backend = OllamaEvalBackend::new(client);
+    let backend = open_backend(ollama, timeout, &config, &options)?;
+    let backend = backend.as_ref();
 
     if options.discover {
-        discover(&backend, &config.profiles);
+        discover(backend, &config.profiles);
         return Ok(());
     }
 
@@ -140,12 +148,12 @@ fn run() -> Result<(), EvalError> {
     let profiles = if chat_selected {
         selected
             .iter()
-            .map(|profile| run_profile(&backend, profile, &fixtures, options.suites, options.limit))
+            .map(|profile| run_profile(backend, profile, &fixtures, options.suites, options.limit))
             .collect()
     } else {
         Vec::new()
     };
-    let embeddings = run_embeddings(&backend, &config, &options, &fixtures);
+    let embeddings = run_embeddings(backend, &config, &options, &fixtures);
     let report = EvalReport {
         generated_at_unix: unix_now(),
         ollama_version: backend.version().ok(),
@@ -160,8 +168,48 @@ fn run() -> Result<(), EvalError> {
     Ok(())
 }
 
+/// Build the backend the fixtures will be measured against.
+///
+/// A gate verdict belongs to a (model, device, runtime) triple, so the runtime
+/// is a first-class choice rather than an assumption baked into the harness.
+/// `--base-url` overrides the config file so the same fixtures can be pointed
+/// at an accelerator endpoint without editing anything.
+fn open_backend(
+    mut ollama: OllamaConfig,
+    timeout: std::time::Duration,
+    config: &EvalConfigFile,
+    options: &CliOptions,
+) -> Result<Box<dyn EvalBackend>, EvalError> {
+    if let Some(base_url) = &options.base_url {
+        ollama.base_url.clone_from(base_url);
+    }
+    match options.runtime.as_deref().unwrap_or("ollama") {
+        "ollama" => {
+            let client =
+                OllamaClient::new(ollama).map_err(|error| EvalError::Config(error.to_string()))?;
+            Ok(Box::new(OllamaEvalBackend::new(client)))
+        }
+        "openai" | "openai_compatible" => {
+            let mut backend =
+                OpenAiEvalBackend::new(&ollama.base_url, timeout, options.servable.clone())
+                    .map_err(EvalError::Config)?;
+            // The runner addresses profiles by id; the runtime knows models.
+            for profile in &config.profiles {
+                backend = backend.with_profile(&profile.id, &profile.model);
+            }
+            for profile in &config.embedding_profiles {
+                backend = backend.with_profile(&profile.id, &profile.model);
+            }
+            Ok(Box::new(backend))
+        }
+        other => Err(EvalError::Config(format!(
+            "unknown runtime {other}; expected ollama or openai"
+        ))),
+    }
+}
+
 fn run_embeddings(
-    backend: &OllamaEvalBackend,
+    backend: &dyn EvalBackend,
     config: &EvalConfigFile,
     options: &CliOptions,
     fixtures: &cortex_eval::fixtures::FixtureSet,
@@ -189,7 +237,7 @@ fn run_embeddings(
         .collect()
 }
 
-fn discover(backend: &OllamaEvalBackend, profiles: &[ProfileConfig]) {
+fn discover(backend: &dyn EvalBackend, profiles: &[ProfileConfig]) {
     match backend.version() {
         Ok(version) => println!("ollama version: {version}"),
         Err(error) => println!("ollama unreachable: {error}"),
@@ -226,6 +274,9 @@ fn parse_args() -> Result<CliOptions, EvalError> {
         suites: SuiteSelection::all(),
         limit: None,
         discover: false,
+        runtime: None,
+        base_url: None,
+        servable: None,
     };
     let mut args = env::args().skip(1);
     while let Some(argument) = args.next() {
@@ -248,6 +299,9 @@ fn parse_args() -> Result<CliOptions, EvalError> {
                     .map_err(|_| EvalError::Config(format!("invalid --limit value {value}")))?;
                 options.limit = Some(parsed.max(1));
             }
+            "--runtime" => options.runtime = Some(required(&mut args, "--runtime")?),
+            "--base-url" => options.base_url = Some(required(&mut args, "--base-url")?),
+            "--servable" => options.servable = Some(required(&mut args, "--servable")?),
             "--discover" => options.discover = true,
             other => return Err(EvalError::Config(format!("unknown argument {other}"))),
         }

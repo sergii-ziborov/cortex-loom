@@ -42,6 +42,12 @@ struct Builder<'a> {
 
 /// Compile a Markdown skill into a validated, provenance-bearing graph.
 pub fn import_skill_markdown(source: &str, markdown: &str) -> Result<GraphDocument, SkillError> {
+    // A UTF-8 BOM is invisible and common in files written on Windows. Left
+    // in place it makes the first line `\u{feff}---` instead of `---`, so the
+    // frontmatter block is not recognised at all and the document silently
+    // imports with no name, description, or licence — found by importing a
+    // real library, not by reading the code.
+    let markdown = markdown.strip_prefix('\u{feff}').unwrap_or(markdown);
     let (frontmatter, body, body_line) = split_frontmatter(markdown)?;
     let first_heading = body.lines().find_map(parse_heading).map(|(_, text)| text);
     let name = frontmatter
@@ -177,6 +183,17 @@ impl Builder<'_> {
         let id = format!("step-{step_number}");
         let mut config = semantic_config("workflow_step", self.order, line);
         config.insert("indent".to_owned(), Value::from(item.indent));
+        // A step is deterministic work unless the author says otherwise.
+        // Inferring "this sentence sounds like an approval" from prose would
+        // put a guess where the whole project puts an explicit decision, so
+        // the kind is annotated or it is not there.
+        let kind = kind_annotation(item.text).unwrap_or(NodeKind::Deterministic);
+        if kind != NodeKind::Deterministic {
+            config.insert(
+                "declaredKind".to_owned(),
+                Value::String(kind.as_str().to_owned()),
+            );
+        }
         match item.marker {
             ListMarker::Numbered(number) => {
                 config.insert("marker".to_owned(), Value::String("numbered".to_owned()));
@@ -191,15 +208,10 @@ impl Builder<'_> {
             }
         }
         let depth = self.headings.last().map_or(1, |(level, _)| level + 1);
-        self.add_node(
-            &id,
-            NodeKind::Deterministic,
-            item.text,
-            "",
-            depth,
-            line,
-            config,
-        );
+        // Annotations are structure, not prose: they belong in the graph, not
+        // in a label a human has to read around.
+        let label = strip_annotations(item.text);
+        self.add_node(&id, kind, &label, "", depth, line, config);
         self.link_parent(&id);
         if let Some(previous) = self.steps.last().cloned() {
             self.add_edge(previous, id.clone(), EdgeKind::Sequence, "next step", None);
@@ -213,9 +225,16 @@ impl Builder<'_> {
         self.order += 1;
         let id = format!("guidance-{}", self.order);
         let config = semantic_config("guidance", self.order, line);
-        let label = text.lines().next().unwrap_or("Guidance");
         let depth = self.headings.last().map_or(1, |(level, _)| level + 1);
-        self.add_node(&id, NodeKind::Skill, label, text, depth, line, config);
+        self.add_node(
+            &id,
+            NodeKind::Skill,
+            &guidance_label(text),
+            text,
+            depth,
+            line,
+            config,
+        );
         self.link_parent(&id);
     }
 
@@ -399,6 +418,78 @@ fn parse_list_item(line: &str) -> Option<ListItem<'_>> {
         text: trimmed[digits + 2..].trim(),
         indent,
     })
+}
+
+/// A readable title for a guidance block.
+///
+/// The first line of a fenced block is the fence itself, so using it made
+/// nodes on the canvas read `` ```text `` — three backticks and a language
+/// tag, telling a reader nothing. The first line with content is what the
+/// block is about.
+fn guidance_label(text: &str) -> String {
+    let joined = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with("```"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    if joined.is_empty() {
+        return "Guidance".to_owned();
+    }
+    // Prose wraps across source lines, so the first *line* cuts a sentence in
+    // half. The first sentence is what the block is about.
+    let sentence = joined
+        .find(". ")
+        .map_or(joined.as_str(), |end| &joined[..=end]);
+    let trimmed = sentence.trim();
+    if trimmed.chars().count() <= MAX_GUIDANCE_LABEL_CHARS {
+        return trimmed.to_owned();
+    }
+    trimmed
+        .char_indices()
+        .take(MAX_GUIDANCE_LABEL_CHARS)
+        .filter(|(_, character)| character.is_whitespace())
+        .last()
+        .map_or_else(
+            || trimmed.chars().take(MAX_GUIDANCE_LABEL_CHARS).collect(),
+            |(at, _)| trimmed[..at].to_owned(),
+        )
+}
+
+/// A guidance title longer than this stops being a title. The full text stays
+/// in the node description either way.
+const MAX_GUIDANCE_LABEL_CHARS: usize = 88;
+
+/// The node kind an author declared with `[kind: review_gate]`.
+pub(crate) fn kind_annotation(text: &str) -> Option<NodeKind> {
+    let lower = text.to_ascii_lowercase();
+    let start = lower.find("[kind:")?;
+    let tail = &lower[start + 6..];
+    let end = tail.find(']')?;
+    NodeKind::parse(&tail[..end])
+}
+
+/// Remove every `[…]` annotation this compiler owns from a label.
+///
+/// Import and export both go through here, so a label is the same text in
+/// the graph, on the canvas, and after a round trip.
+pub(crate) fn strip_annotations(label: &str) -> String {
+    let mut result = label.to_owned();
+    loop {
+        let lower = result.to_ascii_lowercase();
+        let Some(start) = ["[depends:", "[kind:"]
+            .iter()
+            .filter_map(|marker| lower.find(marker))
+            .min()
+        else {
+            break;
+        };
+        let Some(relative_end) = lower[start..].find(']') else {
+            break;
+        };
+        result.replace_range(start..=start + relative_end, "");
+    }
+    result.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 pub(crate) fn dependency_numbers(text: &str) -> Vec<usize> {

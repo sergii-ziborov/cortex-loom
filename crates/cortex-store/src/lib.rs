@@ -233,6 +233,39 @@ impl GraphStore {
             .ok_or_else(|| StoreError::Database(rusqlite::Error::QueryReturnedNoRows))
     }
 
+    /// Seed a graph the application ships, replacing an older copy the user
+    /// has never saved.
+    ///
+    /// `seed_if_missing` alone means an improved bundled workflow can only
+    /// ever reach a fresh installation — every existing one keeps the version
+    /// it was first seeded with, silently. Revision zero is exactly the
+    /// signal that nobody has saved this document, so replacing it loses
+    /// nothing; the moment a user saves, the revision rises and the graph
+    /// becomes theirs, never to be overwritten by an upgrade.
+    ///
+    /// Returns true when the stored copy changed.
+    pub fn seed_or_refresh_unsaved(&self, graph: &GraphDocument) -> Result<bool, StoreError> {
+        graph.validate()?;
+        match self.get(&graph.id)? {
+            Some(current) if current.revision > 0 => Ok(false),
+            Some(current) if current == *graph => Ok(false),
+            Some(_) => {
+                let document = serde_json::to_string(graph)?;
+                let revision = sqlite_integer(graph.revision, "revision")?;
+                self.lock()?.execute(
+                    "UPDATE graphs SET revision = ?2, document = ?3, updated_at = ?4
+                     WHERE id = ?1 AND revision = 0",
+                    params![graph.id, revision, document, unix_timestamp()],
+                )?;
+                Ok(true)
+            }
+            None => {
+                self.seed_if_missing(graph)?;
+                Ok(true)
+            }
+        }
+    }
+
     pub fn get(&self, id: &str) -> Result<Option<GraphDocument>, StoreError> {
         let document = self
             .lock()?

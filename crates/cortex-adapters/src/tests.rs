@@ -89,3 +89,75 @@ fn agent_kind_parsing_is_exact() {
     assert_eq!(AgentKind::parse("copilot"), Some(AgentKind::Copilot));
     assert_eq!(AgentKind::parse("cursor"), None);
 }
+
+/// The library shipped with the crate, compiled.
+fn bundled_graphs() -> Vec<cortex_domain::GraphDocument> {
+    cortex_skills::bundled_skills()
+        .iter()
+        .map(|skill| cortex_skills::import_skill_markdown(skill.source, skill.markdown).unwrap())
+        .collect()
+}
+
+/// The always-applied file must never grow with the library.
+///
+/// Copilot applies its instruction file to every prompt and Codex has the
+/// same problem through AGENTS.md. Inlining one workflow there was
+/// affordable; inlining a library is a per-turn tax on work that has nothing
+/// to do with any of them.
+#[test]
+fn an_always_applied_file_carries_the_catalogue_and_never_a_workflow_body() {
+    let graphs = bundled_graphs();
+    let bodies: usize = graphs
+        .iter()
+        .map(|graph| export_skill_markdown(graph).unwrap().chars().count())
+        .sum();
+
+    for agent in [AgentKind::Codex, AgentKind::Copilot] {
+        let bundle = export_library_adapter(&graphs, agent, &McpLaunch::default()).unwrap();
+        let always_applied = &bundle.files[0].content;
+        assert!(
+            always_applied.chars().count() * 3 < bodies,
+            "{agent:?}: always-applied file is {} chars against {bodies} of workflows",
+            always_applied.chars().count()
+        );
+        for graph in &graphs {
+            assert!(
+                always_applied.contains(&graph.id),
+                "{agent:?}: {} is not discoverable",
+                graph.id
+            );
+        }
+        // A step line from a workflow body must not have leaked in.
+        assert!(
+            !always_applied.contains("Run it and watch it fail for the stated reason"),
+            "{agent:?}: a workflow body leaked into the always-applied file"
+        );
+        assert!(
+            always_applied.contains("skill_read"),
+            "{agent:?}: no way to fetch a body"
+        );
+    }
+}
+
+/// Claude Code defers by itself, so it gets the real files.
+#[test]
+fn claude_code_gets_one_lazily_loaded_file_per_workflow() {
+    let graphs = bundled_graphs();
+    let bundle =
+        export_library_adapter(&graphs, AgentKind::ClaudeCode, &McpLaunch::default()).unwrap();
+    assert_eq!(
+        bundle.files.len(),
+        graphs.len() + 1,
+        "one per skill plus .mcp.json"
+    );
+    for graph in &graphs {
+        assert!(
+            bundle
+                .files
+                .iter()
+                .any(|file| file.path == format!(".claude/skills/{}/SKILL.md", graph.id)),
+            "{} has no skill file",
+            graph.id
+        );
+    }
+}

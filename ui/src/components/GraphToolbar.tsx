@@ -13,6 +13,8 @@ interface GraphToolbarProps {
   onConnect: () => void
   onExport: () => void
   onImport: () => void
+  onImportLibrary: () => void
+  onBrowseLibrary: () => void
   onReload: () => void
   onSelectGraph: (id: string) => void
   onSave: () => void
@@ -36,6 +38,14 @@ export function GraphToolbar(props: GraphToolbarProps) {
             )}
           </select>
         </label>
+        <button
+          type="button"
+          className="tool-button"
+          onClick={props.onBrowseLibrary}
+          title="Browse every workflow with its purpose, shape, and provenance"
+        >
+          Library
+        </button>
         <button type="button" className="primary-button" onClick={props.onAddNode}>+ Node</button>
         <button
           type="button"

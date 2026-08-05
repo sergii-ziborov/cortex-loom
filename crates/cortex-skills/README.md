@@ -40,9 +40,20 @@ roles and ordering that import writes.
 
 ## Bundled methodology
 
-`bundled_skills()` returns the methodology shipped with the crate —
-test-driven development, systematic debugging, and grounded review — so a
+`bundled_skills()` returns the methodology shipped with the crate, so a
 consumer starts from working workflows instead of an empty editor:
+
+| skill | when it applies |
+| --- | --- |
+| Test-Driven Development | growing behaviour through failing tests |
+| Systematic Debugging | a reproducible failure with an unknown cause |
+| Grounded Review | reviewing a change against evidence and invariants |
+| Evidence-First Change | any edit that has to be defensible afterwards |
+| Blast Radius Analysis | deciding how large a change really is |
+| Interface Contract Change | altering something a consumer already depends on |
+| Dependency Upgrade | adopting behaviour someone else authored |
+| Performance Investigation | a workload that is slower than its target |
+| Incident Response | production is broken right now |
 
 ```rust
 for skill in cortex_skills::bundled_skills() {
@@ -52,14 +63,54 @@ for skill in cortex_skills::bundled_skills() {
 }
 ```
 
-The same three documents are the crate's round-trip fixtures: whatever ships
-to a consumer has to survive its own compiler.
+The same documents are the crate's round-trip fixtures: whatever ships to a
+consumer has to survive its own compiler, and a test fails if the library and
+the fixture set ever drift apart.
+
+## Importing somebody else's library
+
+A compiler that can only read its own fixtures is a compiler nobody needs.
+`import_library` takes documents a caller has already read and returns
+validated graphs, with failures reported per document rather than failing the
+whole library, and colliding titles disambiguated instead of dropped:
+
+```rust
+use cortex_skills::{LibraryEntry, import_library};
+
+let import = import_library(
+    vec![LibraryEntry {
+        source: "skills/review/SKILL.md".to_owned(),
+        markdown: "---\nname: Review\ndescription: Check it.\n---\n# Review\n\n- Read the diff.\n".to_owned(),
+    }],
+    Vec::new(),
+    "/checkout/some-library",
+);
+assert_eq!(import.skills.len(), 1);
+assert_eq!(
+    import.skills[0].graph.metadata.get("library").map(String::as_str),
+    Some("/checkout/some-library"),
+);
+```
+
+The function is pure: walking a directory is the caller's job, which keeps
+this crate free of filesystem and transport concerns. `LibraryImport::notices`
+carries the licence and notice files a caller found beside the skills, so
+attribution can be shown before anything is stored. Nothing here decides
+whether a licence permits the use.
 
 ## Format notes
 
+- `[kind: review_gate]` types a step. Without it a step is deterministic work;
+  with it the step becomes that node kind, so a workflow can carry gates,
+  escalation, branches, and an end instead of being a flat list. Hyphens and
+  spaces are accepted (`review-gate`). The graph is canonical: change a node's
+  kind in the editor and the next export writes the new annotation.
 - `[depends: N]` is a **tail** annotation: put it at the end of the step
   line. Trailing punctuation after it is preserved as part of the label and
   will make the round trip report a changed label.
+- Annotations never appear in a node label. Import strips them into the graph
+  and export writes them back from it, so the label is the same text on the
+  canvas, in the inspector, and in the Markdown.
 - `after step N` and `depends on step N` are recognised as prose
   alternatives.
 - Frontmatter keys other than `name` and `description` are preserved under

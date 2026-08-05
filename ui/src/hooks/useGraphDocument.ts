@@ -15,6 +15,9 @@ export interface GraphDocumentState {
   replaceGraph: (document: GraphDocument, dirty?: boolean) => void
   selectGraph: (id: string) => Promise<void>
   reload: () => Promise<void>
+  /// Re-read the graph list without touching the open document, for when
+  /// something else added graphs — a library import, say.
+  refreshList: () => Promise<void>
   save: () => Promise<void>
 }
 
@@ -117,12 +120,19 @@ export function useGraphDocument(): GraphDocumentState {
         graphRef.current = stored
         setGraph(stored)
         setGraphs(current => {
+          const previous = current.find(item => item.id === stored.id)
           const summary: GraphSummary = {
             id: stored.id,
             name: stored.name,
             revision: stored.revision,
             nodeCount: stored.nodes.length,
             edgeCount: stored.edges.length,
+            description: stored.metadata.description ?? previous?.description ?? '',
+            // Provenance belongs to the server's view of the document; a save
+            // must not silently relabel where a workflow came from.
+            origin: previous?.origin ?? 'local',
+            originKind: previous?.originKind ?? 'local',
+            kinds: [...new Set(stored.nodes.map(node => node.kind))].sort(),
           }
           const remaining = current.filter(item => item.id !== stored.id)
           return [summary, ...remaining]
@@ -158,6 +168,7 @@ export function useGraphDocument(): GraphDocumentState {
     editGraph,
     replaceGraph,
     reload,
+    refreshList,
     save,
     selectGraph,
   }

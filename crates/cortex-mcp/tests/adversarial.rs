@@ -171,3 +171,67 @@ fn deeply_nested_json_does_not_blow_the_stack() {
         assert!(reply.get("result").is_some() || reply.get("error").is_some());
     }
 }
+
+/// A tool that lies about its arguments makes an agent guess.
+///
+/// `route_work` declared `budget` and `availability` as bare
+/// `{"type": "object"}` while its deserializer required every field inside
+/// them — including `weavatrix`, which appeared nowhere in the schema. The
+/// only way to learn that was to be rejected for it, which costs a round trip
+/// per missing field. On a server whose whole purpose is to stop an agent
+/// burning tokens on discovery, that is not a cosmetic defect.
+///
+/// This walks every advertised schema and fails on any property typed as an
+/// object or an array without saying what is inside it.
+#[test]
+fn no_advertised_schema_hides_its_shape() {
+    let replies = drive(
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},\"clientInfo\":{\"name\":\"t\",\"version\":\"1\"}}}\n\
+         {\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n\
+         {\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}\n",
+    );
+    let tools = replies
+        .iter()
+        .find_map(|reply| reply.get("result")?.get("tools")?.as_array())
+        .expect("tools/list answered");
+    assert!(
+        tools.len() >= 16,
+        "expected the full registry, got {}",
+        tools.len()
+    );
+
+    let mut vague = Vec::new();
+    for tool in tools {
+        let name = tool["name"].as_str().unwrap_or("?");
+        let Some(properties) = tool["inputSchema"]
+            .get("properties")
+            .and_then(Value::as_object)
+        else {
+            continue;
+        };
+        for (field, schema) in properties {
+            // A genuinely open-ended field is allowed — passthrough arguments
+            // whose keys another system defines cannot be enumerated here —
+            // but it has to say so. Silence and "documented as free-form" look
+            // identical to a caller, and only one of them is a decision.
+            let declared_free_form = schema.get("description").is_some()
+                && schema.get("additionalProperties") == Some(&Value::Bool(true));
+            match schema.get("type").and_then(Value::as_str) {
+                Some("object") if schema.get("properties").is_none() && !declared_free_form => {
+                    vague.push(format!(
+                        "{name}.{field} is an object with no properties and is not declared free-form"
+                    ));
+                }
+                Some("array") if schema.get("items").is_none() => {
+                    vague.push(format!("{name}.{field} is an array with no items"));
+                }
+                _ => {}
+            }
+        }
+    }
+    assert!(
+        vague.is_empty(),
+        "these schemas do not describe what they accept: {}",
+        vague.join("; ")
+    );
+}

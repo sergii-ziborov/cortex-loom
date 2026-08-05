@@ -1,16 +1,16 @@
-﻿use std::io;
+use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use cortex_adapters::{AgentKind, McpLaunch, export_adapter};
+use cortex_adapters::{AgentKind, McpLaunch, export_adapter, export_library_adapter};
 use cortex_context::{ContextRequest, compile_context};
 use cortex_domain::{GraphDocument, default_control_plane};
 use cortex_router::{RoutingRequest, route};
 use cortex_shadow::{
     CompressionSnapshot, RoutingSnapshot, ShadowConfig, ShadowEvidence, ShadowHandle, ShadowTask,
 };
-use cortex_skills::{export_skill_markdown, import_skill_markdown};
+use cortex_skills::{export_skill_markdown, import_skill_markdown, index_entry, render_index};
 use cortex_store::{GraphStore, ShadowOperation, UsageOperation, UsageReport, UsageSample};
 use cortex_weavatrix::{
     RefactorOperation, WeavatrixAdapter, WeavatrixConfig, compile_evidence_bundle,
@@ -89,6 +89,42 @@ struct WeavatrixContextArgs {
     max_tokens: u32,
     /// Optional run attribution for quality-equivalent token accounting.
     run_id: Option<String>,
+    /// Plan the Weavatrix operations from the task instead of always asking
+    /// the same four structural ones. Default. Set `false` for the previous
+    /// fixed set; it is measurably worse on identifier-level tasks (see
+    /// `docs/benchmark.md`) but is kept because a caller may depend on the
+    /// exact fragment ids it produced.
+    #[serde(default = "default_targeted")]
+    targeted: bool,
+}
+
+const fn default_targeted() -> bool {
+    true
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SkillIndexArgs {
+    format: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SkillReadArgs {
+    id: String,
+}
+
+/// One catalogue row as JSON, for callers that would rather match on fields
+/// than parse the Markdown rendering.
+fn index_json(entry: &cortex_skills::SkillIndexEntry) -> serde_json::Value {
+    serde_json::json!({
+        "id": entry.id,
+        "name": entry.name,
+        "description": entry.description,
+        "whenToUse": entry.when_to_use,
+        "steps": entry.steps,
+        "gates": entry.gates,
+    })
 }
 
 #[derive(Debug, Deserialize)]
@@ -138,6 +174,9 @@ struct AdapterExportArgs {
     graph_id: Option<String>,
     agent: AgentKind,
     launch: Option<McpLaunch>,
+    /// `library` wires the whole catalogue with deferred bodies; `graph`
+    /// (the default) wires the single named graph as before.
+    scope: Option<String>,
 }
 
 impl CortexMcpState {
@@ -210,6 +249,8 @@ pub fn build_server(state: CortexMcpState) -> ConcurrentMcpServer {
     let adapter_state = Arc::clone(&state);
     let usage_state = Arc::clone(&state);
     let report_state = Arc::clone(&state);
+    let index_state = Arc::clone(&state);
+    let read_state = Arc::clone(&state);
 
     let server = ConcurrentMcpServer::new("cortex-loom", env!("CARGO_PKG_VERSION"))
         .instructions(
@@ -222,7 +263,23 @@ pub fn build_server(state: CortexMcpState) -> ConcurrentMcpServer {
             json!({
                 "type": "object",
                 "properties": {
-                    "items": {"type": "array", "maxItems": 4096},
+                    "items": {
+                    "type": "array",
+                    "maxItems": 4096,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string", "description": "Stable citation ID; keep it in derived output."},
+                            "source": {"type": "string", "description": "Where the evidence came from, e.g. src/lib.rs:120."},
+                            "content": {"type": "string"},
+                            "priority": {"type": "string", "enum": ["critical", "high", "normal", "low"]},
+                            "state": {"type": "string", "enum": ["verified", "unverified", "contradictory"]},
+                            "relevance": {"type": "number", "description": "Optional score; reorders only within a priority band."}
+                        },
+                        "required": ["id", "source", "content", "priority", "state"],
+                        "additionalProperties": false
+                    }
+                },
                     "maxTokens": {"type": "integer", "minimum": 1}
                 },
                 "required": ["items", "maxTokens"],
@@ -240,7 +297,7 @@ pub fn build_server(state: CortexMcpState) -> ConcurrentMcpServer {
         )
         .typed_tool(
             "weavatrix_context_compile",
-            "Build native Weavatrix evidence and compile it into one deterministic, budgeted context packet with stable citation IDs.",
+            "Plan Weavatrix operations from the task, then compile their evidence into one deterministic, budgeted context packet with stable citation IDs. Name the symbols, files, and constants you care about in `task`: identifiers in the text drive which operations run.",
             json!({
                 "type": "object",
                 "properties": {
@@ -248,7 +305,8 @@ pub fn build_server(state: CortexMcpState) -> ConcurrentMcpServer {
                     "task": {"type": "string", "maxLength": 16384},
                     "symbol": {"type": "string", "maxLength": 4096},
                     "maxTokens": {"type": "integer", "minimum": 1, "maximum": 100_000},
-                    "runId": {"type": "string", "maxLength": 256}
+                    "runId": {"type": "string", "maxLength": 256},
+                    "targeted": {"type": "boolean", "default": true}
                 },
                 "required": ["repository", "task", "maxTokens"],
                 "additionalProperties": false
@@ -257,11 +315,21 @@ pub fn build_server(state: CortexMcpState) -> ConcurrentMcpServer {
                 if context.is_cancelled() {
                     return ToolReply::error("cancelled");
                 }
-                let mut bundle = match context_state.weavatrix.prepare_context(
-                    &arguments.repository,
-                    &arguments.task,
-                    arguments.symbol.as_deref(),
-                ) {
+                let prepared = if arguments.targeted {
+                    context_state.weavatrix.prepare_targeted_context(
+                        &arguments.repository,
+                        &arguments.task,
+                        arguments.symbol.as_deref(),
+                        arguments.max_tokens,
+                    )
+                } else {
+                    context_state.weavatrix.prepare_context(
+                        &arguments.repository,
+                        &arguments.task,
+                        arguments.symbol.as_deref(),
+                    )
+                };
+                let mut bundle = match prepared {
                     Ok(bundle) => bundle,
                     Err(error) => return ToolReply::error(error.to_string()),
                 };
@@ -403,7 +471,7 @@ pub fn build_server(state: CortexMcpState) -> ConcurrentMcpServer {
             "Create or revision-safely update one canonical workflow graph.",
             json!({
                 "type": "object",
-                "properties": {"graph": {"type": "object"}},
+                "properties": {"graph": {"type": "object", "description": "A whole cortex-loom.graph.v1 document. Read one with graph_get and send it back edited; the nested node and edge shapes are documented there.", "properties": {"schemaVersion": {"type": "string"}, "id": {"type": "string"}, "name": {"type": "string"}, "revision": {"type": "integer", "minimum": 0}, "nodes": {"type": "array", "items": {"type": "object"}}, "edges": {"type": "array", "items": {"type": "object"}}, "metadata": {"type": "object", "additionalProperties": {"type": "string"}}}, "required": ["schemaVersion", "id", "name", "revision", "nodes", "edges"]}},
                 "required": ["graph"],
                 "additionalProperties": false
             }),
@@ -447,7 +515,7 @@ pub fn build_server(state: CortexMcpState) -> ConcurrentMcpServer {
             "Render a cortex-skills graph as readable SKILL.md Markdown without executing it.",
             json!({
                 "type": "object",
-                "properties": {"graph": {"type": "object"}},
+                "properties": {"graph": {"type": "object", "description": "A whole cortex-loom.graph.v1 document. Read one with graph_get and send it back edited; the nested node and edge shapes are documented there.", "properties": {"schemaVersion": {"type": "string"}, "id": {"type": "string"}, "name": {"type": "string"}, "revision": {"type": "integer", "minimum": 0}, "nodes": {"type": "array", "items": {"type": "object"}}, "edges": {"type": "array", "items": {"type": "object"}}, "metadata": {"type": "object", "additionalProperties": {"type": "string"}}}, "required": ["schemaVersion", "id", "name", "revision", "nodes", "edges"]}},
                 "required": ["graph"],
                 "additionalProperties": false
             }),
@@ -464,6 +532,62 @@ pub fn build_server(state: CortexMcpState) -> ConcurrentMcpServer {
             },
         )
         .typed_tool(
+            "skill_index",
+            "List every stored workflow as one line each: id, when it applies, and its size. Keep this loaded; fetch a workflow body with `skill_read` only once a task matches one.",
+            json!({
+                "type": "object",
+                "properties": {"format": {"enum": ["markdown", "structured"]}},
+                "additionalProperties": false
+            }),
+            move |context, arguments: SkillIndexArgs| {
+                if context.is_cancelled() {
+                    return ToolReply::error("cancelled");
+                }
+                match index_state.store.list() {
+                    Ok(graphs) => {
+                        let entries: Vec<_> = graphs.iter().filter_map(index_entry).collect();
+                        if arguments.format.as_deref() == Some("structured") {
+                            return ToolReply::structured(
+                                entries.iter().map(index_json).collect::<Vec<_>>(),
+                            );
+                        }
+                        ToolReply::structured(serde_json::json!({
+                            "markdown": render_index(&entries),
+                            "count": entries.len(),
+                        }))
+                    }
+                    Err(error) => ToolReply::error(error.to_string()),
+                }
+            },
+        )
+        .typed_tool(
+            "skill_read",
+            "Fetch one workflow's SKILL.md by id, after `skill_index` showed it applies. Read one, not several: an unread workflow costs nothing and a loaded one costs every turn.",
+            json!({
+                "type": "object",
+                "properties": {"id": {"type": "string", "maxLength": 256}},
+                "required": ["id"],
+                "additionalProperties": false
+            }),
+            move |context, arguments: SkillReadArgs| {
+                if context.is_cancelled() {
+                    return ToolReply::error("cancelled");
+                }
+                match read_state.store.get(&arguments.id) {
+                    Ok(Some(graph)) => match export_skill_markdown(&graph) {
+                        Ok(markdown) => ToolReply::structured(serde_json::json!({
+                            "id": graph.id,
+                            "name": graph.name,
+                            "markdown": markdown,
+                        })),
+                        Err(error) => ToolReply::error(error.to_string()),
+                    },
+                    Ok(None) => ToolReply::error(format!("workflow not found: {}", arguments.id)),
+                    Err(error) => ToolReply::error(error.to_string()),
+                }
+            },
+        )
+        .typed_tool(
             "route_work",
             "Deterministically choose deterministic analysis, Weavatrix, bounded Ollama advice, or upstream execution. Never uses model self-confidence.",
             json!({
@@ -472,9 +596,37 @@ pub fn build_server(state: CortexMcpState) -> ConcurrentMcpServer {
                     "task": {"type": "string"},
                     "evidence": {"type": "string", "enum": ["not_required", "verified", "missing", "contradictory"]},
                     "schemaValid": {"type": "boolean"},
-                    "budget": {"type": "object"},
+                    // Declared in full. A bare {"type": "object"} advertised a
+                    // contract this tool does not accept: deserialization
+                    // requires every field below, so a caller had to discover
+                    // `weavatrix` by being rejected for it. Guess-and-retry is
+                    // exactly the token waste this server exists to remove.
+                    "budget": {
+                        "type": "object",
+                        "properties": {
+                            "estimatedInputTokens": {"type": "integer", "minimum": 0},
+                            "estimatedOutputTokens": {"type": "integer", "minimum": 0},
+                            "maxInputTokens": {"type": "integer", "minimum": 1},
+                            "maxOutputTokens": {"type": "integer", "minimum": 1}
+                        },
+                        "required": [
+                            "estimatedInputTokens",
+                            "estimatedOutputTokens",
+                            "maxInputTokens",
+                            "maxOutputTokens"
+                        ],
+                        "additionalProperties": false
+                    },
                     "mutation": {"type": "string", "enum": ["none", "approved", "approval_required"]},
-                    "availability": {"type": "object"},
+                    "availability": {
+                        "type": "object",
+                        "properties": {
+                            "weavatrix": {"type": "boolean"},
+                            "ollama": {"type": "boolean"}
+                        },
+                        "required": ["weavatrix", "ollama"],
+                        "additionalProperties": false
+                    },
                     "runId": {"type": "string", "maxLength": 256}
                 },
                 "required": ["task", "evidence", "schemaValid", "budget", "mutation", "availability"],
@@ -656,6 +808,7 @@ pub fn build_server(state: CortexMcpState) -> ConcurrentMcpServer {
                 "properties": {
                     "graphId": {"type": "string", "maxLength": 256},
                     "agent": {"type": "string", "enum": ["claude_code", "codex", "copilot"]},
+                    "scope": {"type": "string", "enum": ["graph", "library"], "default": "graph"},
                     "launch": {
                         "type": "object",
                         "properties": {
@@ -673,13 +826,29 @@ pub fn build_server(state: CortexMcpState) -> ConcurrentMcpServer {
                 if context.is_cancelled() {
                     return ToolReply::error("cancelled");
                 }
+                let launch = arguments.launch.unwrap_or_default();
+                if arguments.scope.as_deref() == Some("library") {
+                    let graphs = match adapter_state.store.list() {
+                        Ok(graphs) => graphs,
+                        Err(error) => return ToolReply::error(error.to_string()),
+                    };
+                    // Only compiled workflows: a control-plane graph has no
+                    // SKILL.md view and does not belong in a catalogue.
+                    let skills: Vec<_> = graphs
+                        .into_iter()
+                        .filter(|graph| index_entry(graph).is_some())
+                        .collect();
+                    return match export_library_adapter(&skills, arguments.agent, &launch) {
+                        Ok(bundle) => ToolReply::structured(bundle),
+                        Err(error) => ToolReply::error(error.to_string()),
+                    };
+                }
                 let id = arguments.graph_id.as_deref().unwrap_or(DEFAULT_GRAPH_ID);
                 let graph = match adapter_state.store.get(id) {
                     Ok(Some(graph)) => graph,
                     Ok(None) => return ToolReply::error(format!("graph not found: {id}")),
                     Err(error) => return ToolReply::error(error.to_string()),
                 };
-                let launch = arguments.launch.unwrap_or_default();
                 match export_adapter(&graph, arguments.agent, &launch) {
                     Ok(bundle) => ToolReply::structured(bundle),
                     Err(error) => ToolReply::error(error.to_string()),
@@ -725,7 +894,7 @@ pub fn build_server(state: CortexMcpState) -> ConcurrentMcpServer {
                 "properties": {
                     "repository": {"type": "string"},
                     "operation": {"type": "string", "enum": ["rename_symbol", "rename_related_symbols", "move_file", "move_symbol", "change_signature", "edit_symbol"]},
-                    "arguments": {"type": "object"}
+                    "arguments": {"type": "object", "description": "Operation-specific arguments passed through to Weavatrix Refactor; the accepted keys depend on the operation and are defined by Weavatrix, not by this server. Confirmation and apply tokens are stripped recursively.", "additionalProperties": true}
                 },
                 "required": ["repository", "operation", "arguments"],
                 "additionalProperties": false

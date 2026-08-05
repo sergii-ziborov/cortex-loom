@@ -2,6 +2,7 @@
 /ui/node_modules/
 /ui/dist/
 /.cortex-loom/
+/.claude/
 *.db
 *.db-shm
 *.db-wal

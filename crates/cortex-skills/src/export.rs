@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::Write;
 
-use cortex_domain::{GraphDocument, GraphNode};
+use cortex_domain::{GraphDocument, GraphNode, NodeKind};
 
 use crate::SkillError;
 
@@ -126,7 +126,7 @@ fn write_nodes(
                 output.push_str(&" ".repeat(indent(node)));
                 output.push_str(&marker(node));
                 output.push_str(&step_label(
-                    &node.label,
+                    node,
                     dependencies.get(node.id.as_str()).map(Vec::as_slice),
                 ));
                 output.push('\n');
@@ -195,8 +195,21 @@ fn marker(node: &GraphNode) -> String {
     }
 }
 
-fn step_label(label: &str, dependencies: Option<&[usize]>) -> String {
-    let mut result = strip_dependency_annotations(label);
+/// One step line: the label, then the annotations the graph carries.
+///
+/// Annotations are written from the graph rather than copied from the label,
+/// so editing a node's kind or its dependency edges in the editor changes the
+/// exported Markdown — the graph is canonical and the Markdown is its view.
+/// The order is fixed (`[kind: …]` before `[depends: …]`) so exporting twice
+/// is byte-identical.
+fn step_label(node: &GraphNode, dependencies: Option<&[usize]>) -> String {
+    let mut result = crate::import::strip_annotations(&node.label);
+    if node.kind != NodeKind::Deterministic {
+        if !result.is_empty() {
+            result.push(' ');
+        }
+        let _ = write!(result, "[kind: {}]", node.kind.as_str());
+    }
     if let Some(dependencies) = dependencies
         && !dependencies.is_empty()
     {
@@ -214,21 +227,6 @@ fn step_label(label: &str, dependencies: Option<&[usize]>) -> String {
         }
     }
     result
-}
-
-fn strip_dependency_annotations(label: &str) -> String {
-    let mut result = label.to_owned();
-    loop {
-        let lower = result.to_ascii_lowercase();
-        let Some(start) = lower.find("[depends:") else {
-            break;
-        };
-        let Some(relative_end) = lower[start..].find(']') else {
-            break;
-        };
-        result.replace_range(start..=start + relative_end, "");
-    }
-    result.trim().to_owned()
 }
 
 fn ensure_blank_line(output: &mut String) {

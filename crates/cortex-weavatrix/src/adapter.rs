@@ -40,6 +40,20 @@ pub struct EvidenceFragment {
     pub kind: EvidenceKind,
     pub source: String,
     pub content: String,
+    /// True for the first sub-citation of a split tool result.
+    ///
+    /// Criticality belongs to the head of a fragment, not to every piece of
+    /// it. Marking each split part critical made any budget below roughly
+    /// 5 000 tokens refuse to compile whenever symbol evidence was present —
+    /// measured, see `docs/benchmark.md`. The head can never be dropped; the
+    /// tail can be truncated by the budget like any other high-priority
+    /// evidence.
+    #[serde(default = "default_head")]
+    pub head: bool,
+}
+
+const fn default_head() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -49,6 +63,11 @@ pub enum EvidenceKind {
     ModuleMap,
     ChangePlan,
     SymbolContext,
+    /// Identifier-level matches with surrounding lines: the only evidence
+    /// kind that reliably carries the exact names a task mentions.
+    SearchHits,
+    /// Callers and dependents of a symbol.
+    Dependents,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -234,6 +253,80 @@ impl WeavatrixAdapter {
         })
     }
 
+    /// Collect evidence for one task by asking Weavatrix the operations the
+    /// task actually implies, each under a share of `budget`.
+    ///
+    /// The difference from [`WeavatrixAdapter::prepare_context`] is not the
+    /// compiler but the questions: that path always asks the same four
+    /// structural operations, which describe a repository without containing
+    /// the identifiers a task named. This path plans from the task text (see
+    /// [`crate::plan`]) and pushes the budget down into each operation, so
+    /// Weavatrix trims the array it understands instead of a whole fragment
+    /// being dropped afterwards.
+    ///
+    /// A failing operation is a warning, not a failure: partial evidence with
+    /// the omission on the record beats no evidence at all.
+    pub fn prepare_targeted_context(
+        &self,
+        repository: &Path,
+        task: &str,
+        symbol: Option<&str>,
+        budget: u32,
+    ) -> Result<EvidenceBundle, WeavatrixError> {
+        let root = self.canonical_root(repository)?;
+        let mut sessions = self
+            .engines
+            .lock()
+            .map_err(|_| WeavatrixError::LockPoisoned)?;
+        let engine = Self::session(&mut sessions, &root)?;
+        let refreshed = engine.refresh_if_stale().map_err(|error| {
+            WeavatrixError::Engine(format!("Weavatrix refresh failed: {error}"))
+        })?;
+        let mut evidence = Vec::new();
+        let mut warnings: Vec<String> = refreshed
+            .then(|| "native Weavatrix graph refreshed from changed source evidence".to_owned())
+            .into_iter()
+            .collect();
+        for operation in crate::plan::plan(task, symbol, budget) {
+            match native_call(engine, operation.tool, operation.arguments.clone()) {
+                Ok(value) => evidence.extend(fragments(
+                    operation.id,
+                    operation.kind,
+                    &format!("weavatrix:{}", operation.tool),
+                    &value,
+                )),
+                Err(error) => warnings.push(format!("{} unavailable: {error}", operation.tool)),
+            }
+        }
+        Ok(EvidenceBundle {
+            repository: repository.to_string_lossy().into_owned(),
+            evidence,
+            warnings,
+        })
+    }
+
+    fn canonical_root(&self, repository: &Path) -> Result<PathBuf, WeavatrixError> {
+        let _ = self;
+        repository.canonicalize().map_err(|error| {
+            WeavatrixError::Engine(format!("cannot open {}: {error}", repository.display()))
+        })
+    }
+
+    fn session<'a>(
+        sessions: &'a mut HashMap<PathBuf, Weavatrix>,
+        root: &Path,
+    ) -> Result<&'a mut Weavatrix, WeavatrixError> {
+        if !sessions.contains_key(root) {
+            let engine = Weavatrix::open(root).map_err(|error| {
+                WeavatrixError::Engine(format!("Weavatrix graph build failed: {error}"))
+            })?;
+            sessions.insert(root.to_path_buf(), engine);
+        }
+        sessions.get_mut(root).ok_or_else(|| {
+            WeavatrixError::Engine("native Weavatrix session was not retained".to_owned())
+        })
+    }
+
     pub fn preview_refactor(
         &self,
         repository: &Path,
@@ -315,6 +408,7 @@ fn fragments(id: &str, kind: EvidenceKind, source: &str, value: &Value) -> Vec<E
             kind,
             source: source.to_owned(),
             content: part,
+            head: index == 0,
         })
         .collect()
 }

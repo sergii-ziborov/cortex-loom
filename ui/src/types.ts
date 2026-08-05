@@ -102,6 +102,13 @@ export interface GraphSummary {
   revision: number
   nodeCount: number
   edgeCount: number
+  description: string
+  /** Library root for an imported skill, otherwise the producing source. */
+  origin: string
+  /** Server-stated provenance, so the client never has to guess from a path. */
+  originKind: 'bundled' | 'imported' | 'local'
+  /** Distinct node kinds, so a picker can show what a workflow is made of. */
+  kinds: NodeKind[]
 }
 
 export type GraphSelection =
@@ -316,6 +323,53 @@ export interface UsageSampleRow {
   omittedTokens: number | null
   requiresUpstream: boolean | null
   latencyMs: number | null
+}
+
+// --- Methodology library import ---------------------------------------------
+
+export interface LibrarySkill {
+  source: string
+  id: string
+  name: string
+  nodeCount: number
+  edgeCount: number
+  renamedFrom?: string
+  /** Absent on preview; false when a graph with this id already existed. */
+  stored?: boolean
+}
+
+export interface LibrarySkipped {
+  source: string
+  reason: string
+}
+
+export interface LibraryNotice {
+  source: string
+  text: string
+}
+
+export interface LibraryResponse {
+  library: string
+  imported: boolean
+  skills: LibrarySkill[]
+  skipped: LibrarySkipped[]
+  notices: LibraryNotice[]
+  visited: number
+}
+
+// --- In-app documentation (read-only) --------------------------------------
+
+export interface DocSummary {
+  id: string
+  title: string
+  summary: string
+  length: number
+}
+
+export interface DocBody {
+  id: string
+  title: string
+  markdown: string
 }
 
 export interface TelemetrySnapshot {

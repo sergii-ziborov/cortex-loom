@@ -95,6 +95,64 @@ pub enum NodeKind {
     Output,
 }
 
+impl NodeKind {
+    /// The wire name, identical to the serialised form.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Input => "input",
+            Self::Deterministic => "deterministic",
+            Self::Weavatrix => "weavatrix",
+            Self::Skill => "skill",
+            Self::AgentTask => "agent_task",
+            Self::LocalModel => "local_model",
+            Self::QualityGate => "quality_gate",
+            Self::HumanGate => "human_gate",
+            Self::TestGate => "test_gate",
+            Self::ReviewGate => "review_gate",
+            Self::EvidenceGate => "evidence_gate",
+            Self::Branch => "branch",
+            Self::Retry => "retry",
+            Self::Handoff => "handoff",
+            Self::Terminal => "terminal",
+            Self::UpstreamAgent => "upstream_agent",
+            Self::Output => "output",
+        }
+    }
+
+    /// Parse a wire name. Hyphens and spaces are accepted so a human writing
+    /// `review-gate` in Markdown is not punished for it.
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        let normalized = value.trim().to_ascii_lowercase().replace([' ', '-'], "_");
+        Self::ALL
+            .iter()
+            .copied()
+            .find(|kind| kind.as_str() == normalized)
+    }
+
+    /// Every kind, in declaration order.
+    pub const ALL: [Self; 17] = [
+        Self::Input,
+        Self::Deterministic,
+        Self::Weavatrix,
+        Self::Skill,
+        Self::AgentTask,
+        Self::LocalModel,
+        Self::QualityGate,
+        Self::HumanGate,
+        Self::TestGate,
+        Self::ReviewGate,
+        Self::EvidenceGate,
+        Self::Branch,
+        Self::Retry,
+        Self::Handoff,
+        Self::Terminal,
+        Self::UpstreamAgent,
+        Self::Output,
+    ];
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct Position {
     pub x: f64,

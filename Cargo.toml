@@ -2,9 +2,11 @@
 members = [
   "apps/cortex-server",
   "crates/cortex-adapters",
+  "crates/cortex-bench",
   "crates/cortex-domain",
   "crates/cortex-context",
   "crates/cortex-eval",
+  "crates/cortex-llm",
   "crates/cortex-mcp",
   "crates/cortex-ollama",
   "crates/cortex-run",

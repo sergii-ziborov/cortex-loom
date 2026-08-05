@@ -22,6 +22,12 @@ can inspect and test:
   dropped, so a downstream agent can ask for it.
 - **Unverified input forces escalation.** Any non-verified item sets
   `requires_upstream`.
+- **Overlap is paid for once.** Evidence assembled from several tools repeats
+  itself, and no single tool can see that — each budgets its own answer in
+  isolation. With `deduplicate` (on by default) a line that a
+  higher-priority item already carried is dropped from the lower-priority
+  one, and `deduplicated_lines` reports how much. Short lines are never
+  touched, and an item that would render empty keeps its content.
 
 ```rust
 use cortex_context::{
@@ -48,11 +54,13 @@ let request = ContextRequest {
         },
     ],
     max_tokens: 4_000,
+    deduplicate: true,
 };
 
 let packet = compile_context(&request).expect("the budget fits both items");
 assert_eq!(packet.included_ids, ["TASK", "SRC-1"]);
 assert!(!packet.requires_upstream);
+assert_eq!(packet.deduplicated_lines, 0, "nothing overlapped here");
 ```
 
 ## Ranking

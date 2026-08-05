@@ -2,6 +2,7 @@
 
 mod export;
 mod import;
+pub mod library;
 
 use std::fmt::{Display, Formatter};
 
@@ -9,6 +10,10 @@ use cortex_domain::{GraphDocument, GraphError};
 
 pub use export::export_skill_markdown;
 pub use import::import_skill_markdown;
+pub use library::{
+    ImportedSkill, LibraryEntry, LibraryImport, LibraryNotice, SkillIndexEntry, import_library,
+    index_entry, render_index,
+};
 
 /// A failure to parse, validate, or export a skill workflow.
 ///
@@ -88,6 +93,36 @@ pub const fn bundled_skills() -> &'static [BundledSkill] {
             id: "grounded-review",
             source: "cortex-skills/fixtures/grounded-review.md",
             markdown: include_str!("../fixtures/grounded-review.md"),
+        },
+        BundledSkill {
+            id: "evidence-first-change",
+            source: "cortex-skills/fixtures/evidence-first-change.md",
+            markdown: include_str!("../fixtures/evidence-first-change.md"),
+        },
+        BundledSkill {
+            id: "blast-radius-analysis",
+            source: "cortex-skills/fixtures/blast-radius-analysis.md",
+            markdown: include_str!("../fixtures/blast-radius-analysis.md"),
+        },
+        BundledSkill {
+            id: "interface-contract-change",
+            source: "cortex-skills/fixtures/interface-contract-change.md",
+            markdown: include_str!("../fixtures/interface-contract-change.md"),
+        },
+        BundledSkill {
+            id: "dependency-upgrade",
+            source: "cortex-skills/fixtures/dependency-upgrade.md",
+            markdown: include_str!("../fixtures/dependency-upgrade.md"),
+        },
+        BundledSkill {
+            id: "performance-investigation",
+            source: "cortex-skills/fixtures/performance-investigation.md",
+            markdown: include_str!("../fixtures/performance-investigation.md"),
+        },
+        BundledSkill {
+            id: "incident-response",
+            source: "cortex-skills/fixtures/incident-response.md",
+            markdown: include_str!("../fixtures/incident-response.md"),
         },
     ]
 }

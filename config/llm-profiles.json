@@ -1,0 +1,51 @@
+{
+  "_comment": [
+    "Local model deployment for the development machine measured 2026-08-05:",
+    "Intel Core Ultra 7 255U (Arrow Lake-U), AI Boost NPU driver 32.0.100.4724,",
+    "Intel Graphics 4 Xe-LPG cores / 64 EU @ 2.1 GHz, 47.5 GB shared RAM.",
+    "",
+    "gatePassed is a claim about a (model, device, runtime) triple, not about a",
+    "model. A profile that passed on Ollama/CPU has NOT passed on NPU: the",
+    "quantisation and the runtime both change, so the vectors and the labels can",
+    "change with them. Re-run cortex-eval against the deployed endpoint before",
+    "flipping a flag here."
+  ],
+  "policy": {
+    "allowed": ["npu", "gpu"]
+  },
+  "profiles": [
+    {
+      "id": "npu-embedding",
+      "role": "embedding",
+      "model": "Qwen3-Embedding-0.6B-int8-ov",
+      "device": "npu",
+      "runtime": "open_ai_compatible",
+      "baseUrl": "http://127.0.0.1:8000",
+      "timeoutSeconds": 15,
+      "gatePassed": false,
+      "note": "Target for the hot path. The model passed the retrieval gate at Recall@k 1.00 / nDCG 0.96 as qwen3-embedding:0.6b on Ollama; the NPU deployment must re-pass it before this flag moves."
+    },
+    {
+      "id": "npu-classifier",
+      "role": "classification",
+      "model": "Qwen2.5-1.5B-Instruct-int4-ov",
+      "device": "npu",
+      "runtime": "open_ai_compatible",
+      "baseUrl": "http://127.0.0.1:8000",
+      "timeoutSeconds": 20,
+      "gatePassed": false,
+      "note": "Named as NPU-supported by OpenVINO GenAI. Must pass the local_small gate: classification >= 0.80 and zero missed escalations."
+    },
+    {
+      "id": "gpu-digest",
+      "role": "digest",
+      "model": "qwen3.5:9b",
+      "device": "gpu",
+      "runtime": "ollama",
+      "baseUrl": "http://127.0.0.1:11434",
+      "timeoutSeconds": 900,
+      "gatePassed": false,
+      "note": "Quality tier, off the hot path: precompute a per-revision structural digest and cache it. 4 Xe cores are slow, which costs nothing here because nothing waits on it. The model passed local_medium with perfect citation preservation on CPU; the GPU placement must be re-measured."
+    }
+  ]
+}

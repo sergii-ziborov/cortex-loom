@@ -34,6 +34,28 @@ interface DragState {
 const kindLabel = (kind: string) => kind.replaceAll('_', ' ')
 const shortText = (value: string, length: number) => value.length > length ? `${value.slice(0, length - 1)}…` : value
 
+/** Kinds that stop a run until something is decided. Worth seeing at a glance. */
+const GATE_KINDS = new Set(['quality_gate', 'human_gate', 'test_gate', 'review_gate', 'evidence_gate'])
+
+/**
+ * Split a label over two lines at a word boundary.
+ *
+ * One line of nineteen characters truncated most real step text to an
+ * ellipsis, which made the canvas unreadable without clicking every node.
+ */
+function titleLines(label: string, perLine: number): string[] {
+  if (label.length <= perLine) return [label]
+  const words = label.split(/\s+/)
+  const first: string[] = []
+  let used = 0
+  while (words.length > 0 && used + words[0].length + (first.length > 0 ? 1 : 0) <= perLine) {
+    used += words[0].length + (first.length > 0 ? 1 : 0)
+    first.push(words.shift() as string)
+  }
+  if (first.length === 0) return [shortText(label, perLine), '']
+  return [first.join(' '), shortText(words.join(' '), perLine)]
+}
+
 export function GraphCanvas({
   graph,
   run,
@@ -270,12 +292,21 @@ export function GraphCanvas({
                   <rect width={NODE_WIDTH} height={NODE_HEIGHT} rx="14" className="node-card" />
                   <rect width="6" height={NODE_HEIGHT} className="node-accent" clipPath="url(#node-card-shape)" />
                   <text x="19" y="26" className="node-kind">{kindLabel(node.kind)}</text>
-                  <text x="19" y="58" className="node-title">{shortText(node.label, 19)}</text>
-                  <text x="19" y="83" className="node-description">
-                    {shortText(node.description || node.id, 26)}
-                  </text>
+                  {GATE_KINDS.has(node.kind) && (
+                    <text x={NODE_WIDTH - 30} y="26" className="node-gate-mark" textAnchor="end">gate</text>
+                  )}
+                  {titleLines(node.label, 24).map((line, index) => (
+                    line ? (
+                      <text key={index} x="19" y={index === 0 ? 52 : 71} className="node-title">{line}</text>
+                    ) : null
+                  ))}
+                  {node.description && !runState && (
+                    <text x="19" y="90" className="node-description">
+                      {shortText(node.description, 30)}
+                    </text>
+                  )}
                   {runState && (
-                    <text x={NODE_WIDTH - 17} y="83" className="node-run-status" textAnchor="end">
+                    <text x={NODE_WIDTH - 17} y="90" className="node-run-status" textAnchor="end">
                       {runState.status}{runState.attempt > 0 ? ` · #${runState.attempt}` : ''}
                     </text>
                   )}

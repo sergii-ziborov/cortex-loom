@@ -10,13 +10,13 @@
 use std::fmt::{Display, Formatter};
 
 use cortex_domain::GraphDocument;
-use cortex_skills::export_skill_markdown;
+use cortex_skills::{SkillIndexEntry, export_skill_markdown, index_entry, render_index};
 use serde::{Deserialize, Serialize};
 
 pub const MCP_SERVER_NAME: &str = "cortex-loom";
 
 /// Shared usage contract embedded into every vendor instruction file.
-const USAGE_NOTE: &str = "Use `route_work` before acting on a task, passing `runId` when you execute a run node. Fetch bounded, citable repository evidence with `weavatrix_context_compile` (default `maxTokens: 4000` — the measured sweet spot; large fragments arrive as split `WX-*-n` sub-citations) and keep every `TASK`/`WX-*` citation ID in derived output. When you finish a task, self-report your consumption with `usage_report { runId, agent, inputTokens, outputTokens }` so savings can be credited against real upstream cost. Local-model output is advisory only. High-risk, ambiguous, unverified, or mutating work stays with the upstream agent or a human gate, and Weavatrix Refactor remains preview-only.";
+const USAGE_NOTE: &str = "Call `skill_index` to see which workflows exist and fetch at most one with `skill_read { id }` once a task matches it — never preload workflow bodies. Use `route_work` before acting on a task, passing `runId` when you execute a run node. Fetch bounded, citable repository evidence with `weavatrix_context_compile` (default `maxTokens: 4000` — the measured sweet spot; large fragments arrive as split `WX-*-n` sub-citations) and keep every `TASK`/`WX-*` citation ID in derived output. When you finish a task, self-report your consumption with `usage_report { runId, agent, inputTokens, outputTokens }` so savings can be credited against real upstream cost. Local-model output is advisory only. High-risk, ambiguous, unverified, or mutating work stays with the upstream agent or a human gate, and Weavatrix Refactor remains preview-only.";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -89,6 +89,98 @@ impl Display for AdapterError {
 
 impl std::error::Error for AdapterError {}
 
+/// Render the wiring an agent needs for a whole library.
+///
+/// The difference from [`export_adapter`] is what lands in the file the agent
+/// reads on **every** turn. A single workflow inlined there is affordable; a
+/// library is not, and the vendors differ in whether they can defer:
+///
+/// * Claude Code loads only each skill's frontmatter until one is used, so
+///   every workflow gets its own file and the deferral is the vendor's.
+/// * Codex and Copilot have no such mechanism — an instruction file is always
+///   applied — so they get the **catalogue** and fetch bodies through
+///   `skill_read` at runtime. Writing thirty workflows into an always-applied
+///   file would charge the user for thirty workflows on every prompt.
+///
+/// # Errors
+///
+/// Returns [`AdapterError::Skill`] when a graph claims this compiler but
+/// cannot be exported.
+pub fn export_library_adapter(
+    graphs: &[GraphDocument],
+    agent: AgentKind,
+    launch: &McpLaunch,
+) -> Result<AdapterBundle, AdapterError> {
+    let entries: Vec<SkillIndexEntry> = graphs.iter().filter_map(index_entry).collect();
+    let catalogue = format!("{}\n{USAGE_NOTE}\n", render_index(&entries));
+    let mut bundle = match agent {
+        AgentKind::ClaudeCode => {
+            let mut files = Vec::with_capacity(graphs.len() + 1);
+            for graph in graphs {
+                let markdown =
+                    export_skill_markdown(graph).map_err(|error| AdapterError::Skill(error.to_string()))?;
+                files.push(AdapterFile {
+                    path: format!(".claude/skills/{}/SKILL.md", graph.id),
+                    content: with_usage_note(&markdown),
+                });
+            }
+            files.push(AdapterFile {
+                path: ".mcp.json".to_owned(),
+                content: pretty_json(&claude_mcp(launch)),
+            });
+            AdapterBundle {
+                agent,
+                graph_id: format!("{} workflows", graphs.len()),
+                files,
+                notes: vec![
+                    "Preview-only: nothing was written; place the files yourself.".to_owned(),
+                    "Claude Code keeps only each skill's frontmatter in context until the skill is used.".to_owned(),
+                ],
+            }
+        }
+        AgentKind::Codex => AdapterBundle {
+            agent,
+            graph_id: format!("{} workflows", graphs.len()),
+            files: vec![
+                AdapterFile {
+                    path: "docs/agents/cortex-loom-catalogue.md".to_owned(),
+                    content: catalogue,
+                },
+                AdapterFile {
+                    path: "codex-config-snippet.toml".to_owned(),
+                    content: codex_config(launch),
+                },
+            ],
+            notes: vec![
+                "Preview-only: nothing was written; place the files yourself.".to_owned(),
+                "Reference the catalogue from AGENTS.md. Do not paste workflow bodies into it — they are fetched with skill_read.".to_owned(),
+            ],
+        },
+        AgentKind::Copilot => AdapterBundle {
+            agent,
+            graph_id: format!("{} workflows", graphs.len()),
+            files: vec![
+                AdapterFile {
+                    path: ".github/instructions/cortex-loom.instructions.md".to_owned(),
+                    content: format!("---\napplyTo: \"**\"\n---\n\n{catalogue}"),
+                },
+                AdapterFile {
+                    path: ".vscode/mcp.json".to_owned(),
+                    content: pretty_json(&copilot_mcp(launch)),
+                },
+            ],
+            notes: vec![
+                "Preview-only: nothing was written; place the files yourself.".to_owned(),
+                "This file is always applied, so it carries the catalogue only.".to_owned(),
+            ],
+        },
+    };
+    bundle
+        .notes
+        .push(format!("{} workflows catalogued.", entries.len()));
+    Ok(bundle)
+}
+
 /// Render the wiring files for one agent from one canonical graph.
 ///
 /// Graphs compiled by `cortex-skills` reuse the round-trip `SKILL.md` view;
@@ -149,8 +241,8 @@ fn graph_instructions(graph: &GraphDocument) -> String {
     output
 }
 
-fn claude_code(graph: &GraphDocument, skill: &str, launch: &McpLaunch) -> AdapterBundle {
-    let mcp = serde_json::json!({
+fn claude_mcp(launch: &McpLaunch) -> serde_json::Value {
+    serde_json::json!({
         "mcpServers": {
             "cortex-loom": {
                 "type": "stdio",
@@ -159,7 +251,36 @@ fn claude_code(graph: &GraphDocument, skill: &str, launch: &McpLaunch) -> Adapte
                 "tools": ["*"]
             }
         }
-    });
+    })
+}
+
+fn copilot_mcp(launch: &McpLaunch) -> serde_json::Value {
+    serde_json::json!({
+        "servers": {
+            "cortex-loom": {
+                "type": "stdio",
+                "command": launch.command,
+                "args": launch.args
+            }
+        }
+    })
+}
+
+fn codex_config(launch: &McpLaunch) -> String {
+    let args = launch
+        .args
+        .iter()
+        .map(|argument| toml_string(argument))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "[mcp_servers.{MCP_SERVER_NAME}]\ncommand = {}\nargs = [{args}]\n",
+        toml_string(&launch.command)
+    )
+}
+
+fn claude_code(graph: &GraphDocument, skill: &str, launch: &McpLaunch) -> AdapterBundle {
+    let mcp = claude_mcp(launch);
     AdapterBundle {
         agent: AgentKind::ClaudeCode,
         graph_id: graph.id.clone(),
@@ -181,16 +302,7 @@ fn claude_code(graph: &GraphDocument, skill: &str, launch: &McpLaunch) -> Adapte
 }
 
 fn codex(graph: &GraphDocument, skill: &str, launch: &McpLaunch) -> AdapterBundle {
-    let args = launch
-        .args
-        .iter()
-        .map(|argument| toml_string(argument))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let config = format!(
-        "[mcp_servers.{MCP_SERVER_NAME}]\ncommand = {}\nargs = [{args}]\n",
-        toml_string(&launch.command)
-    );
+    let config = codex_config(launch);
     AdapterBundle {
         agent: AgentKind::Codex,
         graph_id: graph.id.clone(),
@@ -216,15 +328,7 @@ fn codex(graph: &GraphDocument, skill: &str, launch: &McpLaunch) -> AdapterBundl
 }
 
 fn copilot(graph: &GraphDocument, skill: &str, launch: &McpLaunch) -> AdapterBundle {
-    let mcp = serde_json::json!({
-        "servers": {
-            "cortex-loom": {
-                "type": "stdio",
-                "command": launch.command,
-                "args": launch.args
-            }
-        }
-    });
+    let mcp = copilot_mcp(launch);
     AdapterBundle {
         agent: AgentKind::Copilot,
         graph_id: graph.id.clone(),

@@ -49,7 +49,7 @@ pub fn compile_evidence_bundle(
         relevance: relevance.map(|_| 1.0),
     });
     items.extend(evidence.into_iter().map(|fragment| {
-        let (priority, state) = evidence_policy(fragment.kind);
+        let (priority, state) = evidence_policy(fragment.kind, fragment.head);
         let score = relevance.and_then(|scores| scores.get(&fragment.id).copied());
         EvidenceItem {
             id: fragment.id,
@@ -60,7 +60,14 @@ pub fn compile_evidence_bundle(
             relevance: score,
         }
     }));
-    let context = compile_context(&ContextRequest { items, max_tokens })?;
+    // Fragments come from several Weavatrix operations that budget
+    // independently, so the same source lines arrive more than once. Only
+    // this layer can see that.
+    let context = compile_context(&ContextRequest {
+        items,
+        max_tokens,
+        deduplicate: true,
+    })?;
     Ok(CompiledEvidenceBundle {
         repository,
         task: task.to_owned(),
@@ -71,12 +78,26 @@ pub fn compile_evidence_bundle(
     })
 }
 
-const fn evidence_policy(kind: EvidenceKind) -> (EvidencePriority, EvidenceState) {
+/// Priority and trust for one fragment.
+///
+/// `head` is the first sub-citation of a split tool result. Criticality
+/// attaches to the head only: the definition of a symbol must never be
+/// dropped by a budget, but the twentieth page of its reference list is
+/// ordinary high-priority evidence. Marking every split part critical made a
+/// 4 000-token compile fail outright whenever symbol evidence was present.
+const fn evidence_policy(kind: EvidenceKind, head: bool) -> (EvidencePriority, EvidenceState) {
     match kind {
-        EvidenceKind::GraphStats => (EvidencePriority::Normal, EvidenceState::Verified),
-        EvidenceKind::ModuleMap => (EvidencePriority::High, EvidenceState::Verified),
+        EvidenceKind::GraphStats | EvidenceKind::Dependents => {
+            (EvidencePriority::Normal, EvidenceState::Verified)
+        }
+        // A planned change is the one kind that is not yet a fact.
         EvidenceKind::ChangePlan => (EvidencePriority::High, EvidenceState::Unverified),
-        EvidenceKind::SymbolContext => (EvidencePriority::Critical, EvidenceState::Verified),
+        EvidenceKind::SymbolContext if head => {
+            (EvidencePriority::Critical, EvidenceState::Verified)
+        }
+        EvidenceKind::ModuleMap | EvidenceKind::SearchHits | EvidenceKind::SymbolContext => {
+            (EvidencePriority::High, EvidenceState::Verified)
+        }
     }
 }
 
@@ -91,7 +112,69 @@ mod tests {
             kind,
             source: format!("weavatrix:{id}"),
             content: content.to_owned(),
+            head: true,
         }
+    }
+
+    fn tail(id: &str, kind: EvidenceKind, content: &str) -> EvidenceFragment {
+        EvidenceFragment {
+            head: false,
+            ..fragment(id, kind, content)
+        }
+    }
+
+    #[test]
+    fn a_split_symbol_bundle_no_longer_refuses_a_small_budget() {
+        // The head is critical and survives; the tail is high priority and is
+        // truncated by the budget instead of failing the whole compile.
+        let bundle = EvidenceBundle {
+            repository: "repo".to_owned(),
+            evidence: vec![
+                fragment("WX-SYMBOL-1", EvidenceKind::SymbolContext, "definition"),
+                tail(
+                    "WX-SYMBOL-2",
+                    EvidenceKind::SymbolContext,
+                    &"x".repeat(4_000),
+                ),
+                tail(
+                    "WX-SYMBOL-3",
+                    EvidenceKind::SymbolContext,
+                    &"y".repeat(4_000),
+                ),
+            ],
+            warnings: Vec::new(),
+        };
+        let compiled = compile_evidence_bundle(bundle, "task", 100, None).unwrap();
+        assert_eq!(compiled.context.included_ids, ["TASK", "WX-SYMBOL-1"]);
+        assert_eq!(
+            compiled.context.omitted_ids,
+            ["WX-SYMBOL-2", "WX-SYMBOL-3"],
+            "the tail is omitted and reported, not fatal"
+        );
+    }
+
+    #[test]
+    fn search_hits_outrank_structure_but_never_the_task() {
+        let bundle = EvidenceBundle {
+            repository: "repo".to_owned(),
+            // Submitted last, so its position proves priority and not order.
+            evidence: vec![
+                fragment("WX-GRAPH", EvidenceKind::GraphStats, "stats"),
+                fragment("WX-DEPENDENTS", EvidenceKind::Dependents, "callers"),
+                fragment("WX-SEARCH", EvidenceKind::SearchHits, "MAX_RETRY_ATTEMPTS"),
+            ],
+            warnings: Vec::new(),
+        };
+        let compiled = compile_evidence_bundle(bundle, "task", 1_000, None).unwrap();
+        assert_eq!(
+            compiled.context.included_ids,
+            ["TASK", "WX-SEARCH", "WX-GRAPH", "WX-DEPENDENTS"],
+            "search hits rise above structure; the two Normal items keep submission order"
+        );
+        assert!(
+            !compiled.context.requires_upstream,
+            "search hits are verified evidence"
+        );
     }
 
     #[test]

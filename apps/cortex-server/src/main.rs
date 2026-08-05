@@ -19,6 +19,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tower_http::services::ServeDir;
 
+mod docs;
+mod library;
 mod runs;
 
 const DEFAULT_ADDRESS: &str = "127.0.0.1:43817";
@@ -63,6 +65,62 @@ struct GraphSummary {
     revision: u64,
     node_count: usize,
     edge_count: usize,
+    /// From `metadata["description"]`, which the skill compiler writes.
+    description: String,
+    /// Where the document came from: the library root for an imported skill,
+    /// otherwise the compiler or generator that produced it.
+    origin: String,
+    /// Provenance the server can state rather than a client guess: an
+    /// imported library writes `metadata["library"]`, a bundled skill's
+    /// source sits under this crate's fixtures, and anything else was
+    /// authored here.
+    origin_kind: &'static str,
+    /// Node kinds present, sorted, so a picker can show what a workflow is
+    /// made of without fetching every document.
+    kinds: Vec<&'static str>,
+}
+
+fn summarize(graph: &GraphDocument) -> GraphSummary {
+    let mut kinds: Vec<&'static str> = graph
+        .nodes
+        .iter()
+        .map(|node| node.kind.as_str())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    kinds.truncate(8);
+    GraphSummary {
+        id: graph.id.clone(),
+        name: graph.name.clone(),
+        revision: graph.revision,
+        node_count: graph.nodes.len(),
+        edge_count: graph.edges.len(),
+        description: graph
+            .metadata
+            .get("description")
+            .cloned()
+            .unwrap_or_default(),
+        origin: graph
+            .metadata
+            .get("library")
+            .or_else(|| graph.metadata.get("source"))
+            .cloned()
+            .unwrap_or_else(|| "local".to_owned()),
+        origin_kind: origin_kind(graph),
+        kinds,
+    }
+}
+
+const BUNDLED_SOURCE_PREFIX: &str = "cortex-skills/fixtures/";
+
+fn origin_kind(graph: &GraphDocument) -> &'static str {
+    if graph.metadata.contains_key("library") {
+        return "imported";
+    }
+    match graph.metadata.get("source") {
+        Some(source) if source.starts_with(BUNDLED_SOURCE_PREFIX) => "bundled",
+        _ => "local",
+    }
 }
 
 #[derive(Debug)]
@@ -122,15 +180,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let store = GraphStore::open(&settings.database)?;
     store.seed_if_missing(&default_control_plane())?;
-    // Ship working methodology rather than an empty editor. Seeding is
-    // idempotent and never overwrites a graph the user has edited.
+    // Ship working methodology rather than an empty editor. An improved
+    // bundled workflow replaces a copy nobody has saved; the moment a user
+    // saves one it is theirs and an upgrade leaves it alone.
     for skill in cortex_skills::bundled_skills() {
         match import_skill_markdown(skill.source, skill.markdown) {
-            Ok(graph) => {
-                if let Err(error) = store.seed_if_missing(&graph) {
+            Ok(graph) => match store.seed_or_refresh_unsaved(&graph) {
+                Ok(true) => println!("Seeded methodology: {}", graph.name),
+                Ok(false) => {}
+                Err(error) => {
                     eprintln!("cortex-server: could not seed skill {}: {error}", skill.id);
                 }
-            }
+            },
             Err(error) => eprintln!(
                 "cortex-server: bundled skill {} is invalid: {error}",
                 skill.id
@@ -152,6 +213,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/usage/samples", get(usage_samples))
         .route("/api/usage/reports", get(usage_reports).post(usage_report))
         .route("/api/adapters/{agent}", get(adapter_bundle))
+        .merge(docs::routes())
+        .merge(library::routes())
         .merge(runs::routes())
         .with_state(state);
     let use_embedded = !settings.explicit_ui_directory && !EMBEDDED_UI.entries().is_empty();
@@ -189,20 +252,7 @@ async fn status(State(state): State<AppState>) -> Result<Json<StatusResponse>, A
 }
 
 async fn list_graphs(State(state): State<AppState>) -> Result<Json<Vec<GraphSummary>>, ApiError> {
-    Ok(Json(
-        state
-            .store
-            .list()?
-            .into_iter()
-            .map(|graph| GraphSummary {
-                id: graph.id,
-                name: graph.name,
-                revision: graph.revision,
-                node_count: graph.nodes.len(),
-                edge_count: graph.edges.len(),
-            })
-            .collect(),
-    ))
+    Ok(Json(state.store.list()?.iter().map(summarize).collect()))
 }
 
 async fn get_graph(

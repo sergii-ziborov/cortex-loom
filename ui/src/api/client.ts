@@ -1,7 +1,10 @@
 ﻿import { parseGraphDocument } from '../model/graph'
 import type {
+  DocBody,
+  DocSummary,
   GraphDocument,
   GraphSummary,
+  LibraryResponse,
   ReplayVerification,
   RunCommand,
   RunDocument,
@@ -110,6 +113,10 @@ export async function listGraphs(signal?: AbortSignal): Promise<GraphSummary[]> 
       || !Number.isSafeInteger(summary.revision)
       || !Number.isSafeInteger(summary.nodeCount)
       || !Number.isSafeInteger(summary.edgeCount)
+      || typeof summary.description !== 'string'
+      || typeof summary.origin !== 'string'
+      || !['bundled', 'imported', 'local'].includes(summary.originKind as string)
+      || !Array.isArray(summary.kinds)
   })) {
     throw new Error('The server returned an invalid graph list.')
   }
@@ -234,6 +241,71 @@ async function getJson<T>(url: string): Promise<T> {
   const response = await fetch(url, { headers: { accept: 'application/json' } })
   if (!response.ok) throw new ApiError(await responseMessage(response), response.status)
   return (await response.json()) as T
+}
+
+// --- Methodology library import ---------------------------------------------
+// Preview never writes. Import stores only graphs whose id is not taken, so
+// running it twice cannot overwrite a workflow the user has since edited.
+
+async function libraryResponse(url: string, path: string): Promise<LibraryResponse> {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  })
+  if (!response.ok) throw new ApiError(await responseMessage(response), response.status)
+  const body: unknown = await response.json()
+  if (typeof body !== 'object' || body === null
+    || !Array.isArray((body as Partial<LibraryResponse>).skills)
+    || !Array.isArray((body as Partial<LibraryResponse>).skipped)
+    || !Array.isArray((body as Partial<LibraryResponse>).notices)) {
+    throw new Error('The server returned an invalid library report.')
+  }
+  return body as LibraryResponse
+}
+
+export async function previewLibrary(path: string): Promise<LibraryResponse> {
+  return libraryResponse('/api/skills/library/preview', path)
+}
+
+export async function importLibrary(path: string): Promise<LibraryResponse> {
+  return libraryResponse('/api/skills/library/import', path)
+}
+
+// --- In-app documentation ---------------------------------------------------
+// The server returns Markdown verbatim from documents baked into the binary,
+// so the reader works with no network and nothing to render but text.
+
+export async function listDocs(signal?: AbortSignal): Promise<DocSummary[]> {
+  const response = await fetch('/api/docs', { signal, headers: { accept: 'application/json' } })
+  if (!response.ok) throw new ApiError(await responseMessage(response), response.status)
+  const body: unknown = await response.json()
+  if (!Array.isArray(body) || body.some(item => {
+    if (typeof item !== 'object' || item === null) return true
+    const doc = item as Partial<DocSummary>
+    return typeof doc.id !== 'string'
+      || typeof doc.title !== 'string'
+      || typeof doc.summary !== 'string'
+      || !Number.isSafeInteger(doc.length)
+  })) {
+    throw new Error('The server returned an invalid document list.')
+  }
+  return body as DocSummary[]
+}
+
+export async function readDoc(id: string, signal?: AbortSignal): Promise<DocBody> {
+  const response = await fetch(`/api/docs/${encodeURIComponent(id)}`, {
+    signal,
+    headers: { accept: 'application/json' },
+  })
+  if (!response.ok) throw new ApiError(await responseMessage(response), response.status)
+  const body: unknown = await response.json()
+  if (typeof body !== 'object' || body === null
+    || typeof (body as Partial<DocBody>).markdown !== 'string'
+    || typeof (body as Partial<DocBody>).title !== 'string') {
+    throw new Error('The server returned an invalid document.')
+  }
+  return body as DocBody
 }
 
 export async function fetchTelemetry(): Promise<TelemetrySnapshot> {

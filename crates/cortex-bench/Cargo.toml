@@ -1,0 +1,17 @@
+[package]
+name = "cortex-bench"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+cortex-context = { path = "../cortex-context" }
+cortex-weavatrix = { path = "../cortex-weavatrix" }
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

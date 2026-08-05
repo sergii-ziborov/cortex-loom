@@ -142,6 +142,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cortex-bench"
+version = "0.1.0"
+dependencies = [
+ "blazingly-json",
+ "cortex-context",
+ "cortex-weavatrix",
+ "serde",
+]
+
+[[package]]
 name = "cortex-context"
 version = "0.1.0"
 dependencies = [
@@ -164,6 +174,14 @@ dependencies = [
  "cortex-context",
  "cortex-ollama",
  "cortex-router",
+ "serde",
+]
+
+[[package]]
+name = "cortex-llm"
+version = "0.1.0"
+dependencies = [
+ "blazingly-json",
  "serde",
 ]
 

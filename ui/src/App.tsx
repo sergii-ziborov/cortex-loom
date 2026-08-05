@@ -5,7 +5,10 @@ import { GraphCanvas } from './components/GraphCanvas'
 import { GraphToolbar } from './components/GraphToolbar'
 import { RunControls } from './components/RunControls'
 import { ExportDialog } from './components/ExportDialog'
+import { HelpPanel } from './components/HelpPanel'
 import { ImportDialog } from './components/ImportDialog'
+import { LibraryDialog } from './components/LibraryDialog'
+import { LibraryPanel } from './components/LibraryPanel'
 import { Inspector } from './components/Inspector'
 import { TelemetryPanel } from './components/TelemetryPanel'
 import { InspectorResizeHandle } from './components/InspectorResizeHandle'
@@ -33,6 +36,9 @@ export default function App() {
   const [importOpen, setImportOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
   const [telemetryOpen, setTelemetryOpen] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
+  const [libraryOpen, setLibraryOpen] = useState(false)
+  const [browserOpen, setBrowserOpen] = useState(false)
   const graph = graphState.graph
 
   useEffect(() => {
@@ -128,6 +134,7 @@ export default function App() {
         theme={theme}
         onToggleTheme={() => setTheme(value => value === 'dark' ? 'light' : 'dark')}
         onOpenTelemetry={() => setTelemetryOpen(true)}
+        onOpenHelp={() => setHelpOpen(true)}
       />
       <GraphToolbar
         connectActive={connectState !== undefined}
@@ -146,6 +153,8 @@ export default function App() {
         onConnect={() => setConnectState(value => value === undefined ? null : undefined)}
         onExport={() => setExportOpen(true)}
         onImport={() => setImportOpen(true)}
+        onImportLibrary={() => setLibraryOpen(true)}
+        onBrowseLibrary={() => setBrowserOpen(true)}
         onReload={reload}
         onSelectGraph={id => {
           if (graphState.dirty && !window.confirm('Discard unsaved changes and switch graphs?')) return
@@ -229,6 +238,30 @@ export default function App() {
       {importOpen && <ImportDialog onClose={() => setImportOpen(false)} onImport={importGraph} />}
       {exportOpen && <ExportDialog graph={graph} onClose={() => setExportOpen(false)} />}
       {telemetryOpen && <TelemetryPanel onClose={() => setTelemetryOpen(false)} />}
+      {helpOpen && <HelpPanel onClose={() => setHelpOpen(false)} />}
+      {browserOpen && (
+        <LibraryPanel
+          graphs={graphState.graphs}
+          currentId={graph.id}
+          onClose={() => setBrowserOpen(false)}
+          onOpen={id => {
+            if (graphState.dirty && !window.confirm('Discard unsaved changes and open this workflow?')) return
+            setSelection(null)
+            setConnectState(undefined)
+            setBrowserOpen(false)
+            void graphState.selectGraph(id)
+          }}
+          onImportLibrary={() => { setBrowserOpen(false); setLibraryOpen(true) }}
+        />
+      )}
+      {libraryOpen && (
+        <LibraryDialog
+          onClose={() => setLibraryOpen(false)}
+          // Imported graphs appear in the selector without disturbing the
+          // document currently open, saved or not.
+          onImported={() => void graphState.refreshList()}
+        />
+      )}
     </div>
   )
 }

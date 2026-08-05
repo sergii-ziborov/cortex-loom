@@ -1,5 +1,6 @@
 mod adapter;
 mod context;
+pub mod plan;
 mod transport;
 
 pub use adapter::{

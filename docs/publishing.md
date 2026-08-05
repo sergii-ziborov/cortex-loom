@@ -36,18 +36,23 @@ cargo publish -p cortex-router
 cargo publish -p cortex-skills
 ```
 
-## Blocking: the repository link 404s
+## Why 0.1.0 can ship now
 
-All four crates inherit `repository = "https://github.com/sergii-ziborov/cortex-loom"`,
-which is **private**. Every crates.io and docs.rs visitor would follow that
-link to a 404. Before the first upload, either make the repository public or
-override `repository` per crate to point somewhere real.
+The four crates deliberately omit `repository`: the workspace URL points at
+this private repository and a link that 404s is worse than no link. Add it in
+the next release once a public repository exists.
 
-## Decisions that are one-way doors
+Everything else that gates a first upload is done and verified: metadata,
+per-crate README rendered as compiled doctests, both license texts inside the
+tarball, versioned path dependencies, no `unwrap`/`expect`/`panic!` in any
+production path, and `cargo package` passing with full compile verification.
 
-Publishing is irreversible: a version can be yanked but never removed, the
-name is claimed permanently, and the public API becomes a compatibility
-promise. Each item below is cheap to change now and breaking afterwards.
+The list below is a **1.0** list, not a 0.1 list. In Rust, `0.x` is an
+explicit statement that breaking changes are expected, and cargo enforces it:
+every `0.x` bump is treated as incompatible, so each item can still be
+changed with a normal minor release. Settle them before promising `1.0`.
+
+## Decisions to settle before 1.0
 
 1. **The version floor on `blazingly-json`.** `GraphNode::config` is
    `HashMap<String, blazingly_json::Value>`, so `cortex-domain` exposes that

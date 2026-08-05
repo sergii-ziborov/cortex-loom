@@ -4,7 +4,9 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
-repository.workspace = true
+# The repository field is intentionally absent: the workspace URL points at a
+# private repository and would 404 for every crates.io visitor. Add it back
+# once a public repository exists.
 license = "MIT OR Apache-2.0"
 description = "Fail-closed, model-free routing policy that decides between deterministic tools, local models, and an upstream agent."
 documentation = "https://docs.rs/cortex-router"

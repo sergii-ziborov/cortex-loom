@@ -78,6 +78,9 @@ fn render_deltas(out: &mut String, task: &TaskResult) {
         // And the control: the same planned evidence with Weavatrix's own
         // budget and no compiler. Whatever separates these two is ours.
         (ArmKind::WeavatrixPlanned, ArmKind::CortexLoomTargeted),
+        // Does trimming cost facts? If not, the trimmed operations were
+        // dead weight.
+        (ArmKind::CortexLoomFull, ArmKind::CortexLoomTargeted),
         (ArmKind::Naive, ArmKind::CortexLoomTargeted),
     ];
     for (from, to) in pairs {
@@ -108,6 +111,7 @@ fn render_totals(out: &mut String, report: &BenchReport) {
         ArmKind::CortexLoom,
         ArmKind::WeavatrixPlanned,
         ArmKind::CortexLoomTargeted,
+        ArmKind::CortexLoomFull,
     ] {
         let arms: Vec<&ArmMeasurement> = report
             .tasks

@@ -58,6 +58,13 @@ pub enum ArmKind {
     CortexLoom,
     /// Task-planned Weavatrix operations through the same compiler.
     CortexLoomTargeted,
+    /// The same plan with nothing trimmed, so the operations the budget
+    /// normally drops are fetched anyway.
+    ///
+    /// This is the control for the trimming itself: if it delivers no more
+    /// facts than `cortex-targeted`, the trimmed operations were dead weight
+    /// and dropping them was free.
+    CortexLoomFull,
 }
 
 impl ArmKind {
@@ -70,6 +77,7 @@ impl ArmKind {
             Self::WeavatrixPlanned => "weavatrix-planned",
             Self::CortexLoom => "cortex-loom",
             Self::CortexLoomTargeted => "cortex-targeted",
+            Self::CortexLoomFull => "cortex-full",
         }
     }
 
@@ -82,6 +90,7 @@ impl ArmKind {
             Self::WeavatrixPlanned => "planned operations, Weavatrix's own budget, no compiler",
             Self::CortexLoom => "the same four operations through the bounded compiler",
             Self::CortexLoomTargeted => "operations planned from the task, then compiled",
+            Self::CortexLoomFull => "the same plan with nothing trimmed",
         }
     }
 }

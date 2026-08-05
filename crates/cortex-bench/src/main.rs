@@ -20,6 +20,7 @@ use cortex_bench::{
     ArmKind, ArmMeasurement, BenchReport, DEFAULT_BUDGET, TaskResult, measure, measure_scoped,
     unavailable,
 };
+use cortex_weavatrix::plan::PlanPolicy;
 use cortex_weavatrix::{
     EvidenceBundle, WeavatrixAdapter, WeavatrixConfig, compile_evidence_bundle,
 };
@@ -122,6 +123,24 @@ fn run_task(
                     arms.push(unavailable(ArmKind::WeavatrixPlanned, reason.clone()));
                     arms.push(unavailable(ArmKind::CortexLoomTargeted, reason));
                 }
+            }
+            // Nothing trimmed: the operations the budget normally drops are
+            // fetched anyway, so the trimming itself can be scored.
+            let untrimmed = PlanPolicy {
+                overcommit: 1_000,
+                ..PlanPolicy::default()
+            };
+            match adapter.prepare_targeted_context_with(
+                &settings.repository,
+                task.prompt,
+                task.symbol,
+                settings.budget,
+                untrimmed,
+            ) {
+                Ok(bundle) => {
+                    arms.push(cortex_arm(ArmKind::CortexLoomFull, settings, task, bundle));
+                }
+                Err(error) => arms.push(unavailable(ArmKind::CortexLoomFull, error.to_string())),
             }
         }
     }

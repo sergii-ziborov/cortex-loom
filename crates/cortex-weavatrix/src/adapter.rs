@@ -273,6 +273,35 @@ impl WeavatrixAdapter {
         symbol: Option<&str>,
         budget: u32,
     ) -> Result<EvidenceBundle, WeavatrixError> {
+        self.prepare_targeted_context_with(
+            repository,
+            task,
+            symbol,
+            budget,
+            crate::plan::PlanPolicy::default(),
+        )
+    }
+
+    /// As [`WeavatrixAdapter::prepare_targeted_context`], with an explicit
+    /// cost policy.
+    ///
+    /// The default policy drops operations whose estimated cost the budget
+    /// cannot carry. Raising `overcommit` asks for them anyway, which is what
+    /// a benchmark needs in order to establish whether an operation that is
+    /// normally trimmed was worth trimming.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WeavatrixError`] when the repository cannot be opened or the
+    /// native graph cannot be built or refreshed.
+    pub fn prepare_targeted_context_with(
+        &self,
+        repository: &Path,
+        task: &str,
+        symbol: Option<&str>,
+        budget: u32,
+        policy: crate::plan::PlanPolicy,
+    ) -> Result<EvidenceBundle, WeavatrixError> {
         let root = self.canonical_root(repository)?;
         let mut sessions = self
             .engines
@@ -287,7 +316,7 @@ impl WeavatrixAdapter {
             .then(|| "native Weavatrix graph refreshed from changed source evidence".to_owned())
             .into_iter()
             .collect();
-        for operation in crate::plan::plan(task, symbol, budget) {
+        for operation in crate::plan::plan_with(task, symbol, budget, policy) {
             match native_call(engine, operation.tool, operation.arguments.clone()) {
                 Ok(value) => {
                     if let Some(overrun) = budget_overrun(operation.tool, &value) {

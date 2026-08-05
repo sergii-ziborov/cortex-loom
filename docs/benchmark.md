@@ -265,6 +265,32 @@ recall.** Most of that is work not done at all: latency, Weavatrix CPU, and
 evidence assembled only to be discarded. No single Weavatrix operation can
 make this decision — it requires knowing what the others already committed.
 
+## Was the trimming free? — `cortex-full`
+
+Trimming an operation away is only a saving if the operation carried nothing.
+Asserting that would be cheap, so there is an arm for it: `cortex-full` runs
+the identical plan with `PlanPolicy { overcommit: 1_000, .. }`, which asks for
+every operation the budget would normally drop — including the
+~6 000-token `verified_change` — and then compiles the result the same way.
+
+| arm | tokens | facts |
+| --- | ---: | ---: |
+| `cortex-targeted` | 13 906 | 18/24 |
+| `cortex-full` | 15 001 | **18/24** |
+
+**Not one extra fact.** On `usage-quality-tool` the two arms are byte-identical
+(3 774 tokens, same omitted ids) because the compiler discarded the extra
+evidence anyway — the fetch was pure waste. Across the set, asking for
+everything costs 1 095 more delivered tokens plus roughly 6 000 tokens of
+Weavatrix work per task, and returns nothing.
+
+**The limit of this claim.** These four fixtures score identifier-level facts,
+and `verified_change` produces a *change plan* — advice, not identifiers.
+Anchor recall cannot see advice, so this measures that the plan carries no
+required **facts**, not that it is worthless to a reader. Deciding the latter
+needs a fixture set whose anchors are structural (dependents, blast radius,
+transport contracts), which the current set deliberately lacks.
+
 ## Next measurements worth taking
 
 1. A fifth arm using `read_source` on the files `search_code` hit, to test

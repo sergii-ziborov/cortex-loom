@@ -23,7 +23,8 @@ Evolve a persisted schema without trapping old readers or writers.
 
 ## Close
 
-6. Remove the old decoder after retention and a final scan. [kind: terminal] [depends: 5]
+6. Escalate when retention or dual-read cannot be funded. [kind: upstream_agent] [depends: 5]
+7. Remove the old decoder after retention and a final scan. [kind: terminal] [depends: 5]
 
 ```text
 Writers first is how you strand your readers.

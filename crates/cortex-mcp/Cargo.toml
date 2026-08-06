@@ -12,6 +12,7 @@ axum.workspace = true
 cortex-adapters = { path = "../cortex-adapters" }
 cortex-context = { path = "../cortex-context" }
 cortex-domain = { path = "../cortex-domain" }
+cortex-llm = { path = "../cortex-llm" }
 cortex-ollama = { path = "../cortex-ollama" }
 cortex-run = { path = "../cortex-run" }
 cortex-router = { path = "../cortex-router" }

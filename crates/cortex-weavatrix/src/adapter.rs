@@ -675,7 +675,7 @@ fn append_source_reads(
                 ));
             }
             Err(error) => {
-                warnings.push(format!("read_source unavailable for {}: {error}", hit.path))
+                warnings.push(format!("read_source unavailable for {}: {error}", hit.path));
             }
         }
     }

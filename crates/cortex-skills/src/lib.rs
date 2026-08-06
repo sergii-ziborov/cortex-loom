@@ -77,6 +77,7 @@ pub struct BundledSkill {
 /// # Ok::<(), cortex_skills::SkillError>(())
 /// ```
 #[must_use]
+#[allow(clippy::too_many_lines)] // static table of thirty methodology fixtures
 pub const fn bundled_skills() -> &'static [BundledSkill] {
     &[
         BundledSkill {

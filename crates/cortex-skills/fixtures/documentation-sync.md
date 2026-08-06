@@ -24,7 +24,8 @@ Update the docs that would lie after this change lands.
 ## Check
 
 6. Have a second person follow the doc once cold. [kind: human_gate] [depends: 5]
-7. Land docs in the same change as the behaviour. [kind: terminal] [depends: 6]
+7. Escalate when the product owner will not accept the doc change with the code. [kind: upstream_agent] [depends: 6]
+8. Land docs in the same change as the behaviour. [kind: terminal] [depends: 6]
 
 ```text
 Docs that disagree with the code train people to ignore both.

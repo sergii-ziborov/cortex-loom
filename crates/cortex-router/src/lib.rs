@@ -205,7 +205,19 @@ pub struct ContextPlan {
 /// Select a target through deterministic, fail-closed routing rules.
 #[must_use]
 pub fn route(request: &RoutingRequest) -> RoutingDecision {
-    let classification = classify(&request.task);
+    route_with_classification(request, classify(&request.task))
+}
+
+/// Same policy as [`route`], with a precomputed classification.
+///
+/// Keeps every guard and target rule. Callers that ask a gated local model for
+/// a tier still go through this path so lexical under-calls cannot bypass
+/// high-risk or mutation floors.
+#[must_use]
+pub fn route_with_classification(
+    request: &RoutingRequest,
+    classification: Classification,
+) -> RoutingDecision {
     let mut reasons = guard_reasons(request);
     if classification.class.requires_verified_evidence()
         && request.evidence == EvidenceStatus::NotRequired
@@ -292,6 +304,99 @@ pub fn route(request: &RoutingRequest) -> RoutingDecision {
             vec![RoutingReason::HighRiskTask(classification.class)],
             request,
         ),
+    }
+}
+
+/// Map a task class to the model tier the routing policy grants it.
+#[must_use]
+pub const fn policy_tier(class: TaskClass) -> ModelTier {
+    match class {
+        TaskClass::Deterministic | TaskClass::RepositoryAnalysis => ModelTier::None,
+        TaskClass::StructuredExtraction => ModelTier::LocalSmall,
+        TaskClass::ContextCompression | TaskClass::AdvisoryDraft => ModelTier::LocalMedium,
+        TaskClass::Implementation
+        | TaskClass::Security
+        | TaskClass::Authentication
+        | TaskClass::Concurrency
+        | TaskClass::Migration
+        | TaskClass::Release
+        | TaskClass::Deployment
+        | TaskClass::Publication
+        | TaskClass::Ambiguous => ModelTier::UpstreamStrong,
+    }
+}
+
+/// Rank tiers so under-calls are detectable without floating point.
+#[must_use]
+pub const fn tier_rank(tier: ModelTier) -> u8 {
+    match tier {
+        ModelTier::None => 0,
+        ModelTier::LocalSmall => 1,
+        ModelTier::LocalMedium => 2,
+        ModelTier::UpstreamStrong => 3,
+    }
+}
+
+/// Parse a closed-set label into a [`ModelTier`].
+#[must_use]
+pub fn parse_model_tier(label: &str) -> Option<ModelTier> {
+    match label.trim().to_ascii_lowercase().as_str() {
+        "none" => Some(ModelTier::None),
+        "local_small" => Some(ModelTier::LocalSmall),
+        "local_medium" => Some(ModelTier::LocalMedium),
+        "upstream_strong" => Some(ModelTier::UpstreamStrong),
+        _ => None,
+    }
+}
+
+/// Turn a model-chosen tier into a [`Classification`], retaining lexical
+/// mutation cues and preferring a more specific lexical class when the tier
+/// matches.
+#[must_use]
+pub fn classification_for_tier(tier: ModelTier, lexical: Classification) -> Classification {
+    let class = match tier {
+        ModelTier::None => {
+            if matches!(lexical.class, TaskClass::RepositoryAnalysis) {
+                TaskClass::RepositoryAnalysis
+            } else {
+                TaskClass::Deterministic
+            }
+        }
+        ModelTier::LocalSmall => TaskClass::StructuredExtraction,
+        ModelTier::LocalMedium => {
+            if matches!(lexical.class, TaskClass::ContextCompression) {
+                TaskClass::ContextCompression
+            } else {
+                TaskClass::AdvisoryDraft
+            }
+        }
+        ModelTier::UpstreamStrong => {
+            if lexical.class.is_high_risk()
+                || matches!(
+                    lexical.class,
+                    TaskClass::Implementation | TaskClass::Ambiguous
+                )
+            {
+                lexical.class
+            } else {
+                TaskClass::Ambiguous
+            }
+        }
+    };
+    let risk = if class.is_high_risk() {
+        RiskLevel::High
+    } else if matches!(
+        class,
+        TaskClass::Implementation | TaskClass::RepositoryAnalysis
+    ) {
+        RiskLevel::Medium
+    } else {
+        RiskLevel::Low
+    };
+    Classification {
+        class,
+        risk,
+        mutation_likely: lexical.mutation_likely,
     }
 }
 

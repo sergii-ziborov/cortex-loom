@@ -134,3 +134,42 @@ fn words_containing_auth_are_not_authentication() {
         TaskClass::Authentication
     );
 }
+
+#[test]
+fn policy_tier_matches_the_routing_contract() {
+    assert_eq!(policy_tier(TaskClass::Deterministic), ModelTier::None);
+    assert_eq!(
+        policy_tier(TaskClass::StructuredExtraction),
+        ModelTier::LocalSmall
+    );
+    assert_eq!(
+        policy_tier(TaskClass::AdvisoryDraft),
+        ModelTier::LocalMedium
+    );
+    assert_eq!(policy_tier(TaskClass::Security), ModelTier::UpstreamStrong);
+}
+
+#[test]
+fn a_model_tier_cannot_under_call_lexical_upstream() {
+    let lexical = classify("Tag the version bump for the milestone");
+    assert_eq!(policy_tier(lexical.class), ModelTier::UpstreamStrong);
+    let under = classification_for_tier(ModelTier::LocalMedium, lexical);
+    // Mapping alone would produce a local class; callers must reject it via
+    // tier_rank before invoking route_with_classification.
+    assert!(tier_rank(ModelTier::LocalMedium) < tier_rank(policy_tier(lexical.class)));
+    assert_eq!(under.class, TaskClass::AdvisoryDraft);
+}
+
+#[test]
+fn route_with_classification_keeps_guards() {
+    let mut request = RoutingRequest::new("Summarize the evidence");
+    request.evidence = EvidenceStatus::Missing;
+    let classification = Classification {
+        class: TaskClass::AdvisoryDraft,
+        risk: RiskLevel::Low,
+        mutation_likely: false,
+    };
+    let decision = route_with_classification(&request, classification);
+    assert_eq!(decision.target, ExecutionTarget::Upstream);
+    assert!(decision.reasons.contains(&RoutingReason::MissingEvidence));
+}

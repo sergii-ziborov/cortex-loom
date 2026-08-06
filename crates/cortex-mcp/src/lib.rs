@@ -20,9 +20,11 @@ use serde::Deserialize;
 use serde_json::Value;
 
 pub mod http;
+mod llm_route;
 mod run_tools;
 mod semantic;
 
+use llm_route::{LlmRouteConfig, LlmRouter};
 use semantic::{SemanticConfig, SemanticScorer};
 
 const DEFAULT_GRAPH_ID: &str = "default-control-plane";
@@ -39,6 +41,9 @@ pub struct CortexMcpState {
     /// gated model; reorders evidence within priority bands and falls back
     /// to deterministic order on any failure.
     semantic: Option<Arc<SemanticScorer>>,
+    /// Present only under explicit `CORTEX_LLM=1` with a gated classification
+    /// profile; may escalate above the lexical floor and fails closed to it.
+    llm_router: Option<Arc<LlmRouter>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -206,11 +211,19 @@ impl CortexMcpState {
                 None
             }
         };
+        let llm_router = match LlmRouter::from_config(&LlmRouteConfig::from_env()) {
+            Ok(router) => router.map(Arc::new),
+            Err(error) => {
+                eprintln!("cortex-mcp: local classifier disabled: {error}");
+                None
+            }
+        };
         Ok(Self {
             store,
             weavatrix,
             shadow,
             semantic,
+            llm_router,
         })
     }
 }
@@ -589,7 +602,7 @@ pub fn build_server(state: CortexMcpState) -> ConcurrentMcpServer {
         )
         .typed_tool(
             "route_work",
-            "Deterministically choose deterministic analysis, Weavatrix, bounded Ollama advice, or upstream execution. Never uses model self-confidence.",
+            "Choose deterministic analysis, Weavatrix, bounded Ollama advice, or upstream execution. Lexical rules are the floor; when CORTEX_LLM=1 and a gated classifier is up, the model may only escalate. Failures and under-calls keep the lexical decision.",
             json!({
                 "type": "object",
                 "properties": {
@@ -636,7 +649,15 @@ pub fn build_server(state: CortexMcpState) -> ConcurrentMcpServer {
                 if context.is_cancelled() {
                     return ToolReply::error("cancelled");
                 }
-                let decision = route(&arguments.request);
+                let routed = route_state.llm_router.as_ref().map_or_else(
+                    || llm_route::RoutedWork {
+                        decision: route(&arguments.request),
+                        latency_ms: None,
+                        classifier_profile: None,
+                    },
+                    |router| router.decide(&arguments.request),
+                );
+                let decision = &routed.decision;
                 if let Some(shadow) = &route_state.shadow {
                     shadow.observe(ShadowTask::RouteClassification {
                         task: arguments.request.task.clone(),
@@ -660,7 +681,7 @@ pub fn build_server(state: CortexMcpState) -> ConcurrentMcpServer {
                         selected_tokens: None,
                         omitted_tokens: None,
                         requires_upstream: None,
-                        latency_ms: None,
+                        latency_ms: routed.latency_ms,
                     },
                 );
                 ToolReply::structured(decision)

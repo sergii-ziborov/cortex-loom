@@ -22,8 +22,9 @@ Ship dark, open gradually, and keep the flag from becoming permanent debt.
 
 ## Clean
 
-5. Delete the flag and the losing branch once exposure is total. [kind: terminal] [depends: 4]
-6. Refuse a second flag that depends on this one still existing. [kind: quality_gate] [depends: 5]
+5. Escalate when the flag cannot be disabled in production. [kind: upstream_agent] [depends: 3]
+6. Delete the flag and the losing branch once exposure is total. [kind: terminal] [depends: 4]
+7. Refuse a second flag that depends on this one still existing. [kind: quality_gate] [depends: 6]
 
 ```text
 A flag that outlives its rollout is a second configuration system.

@@ -265,16 +265,17 @@ Ollama on this box means CPU or iGPU — it has no NPU path.
 `cortex-llm` ships the device policy, the profile registry, the loopback
 endpoint and the OpenAI-compatible provider, with tests. Embedding
 (`gatePassed: true` on GPU) and classification (`gatePassed: true` on NPU with
-Qwen3-8B) are measured. The stack is **not yet wired into `cortex-mcp`**, so
-local routing is not live in the agent path. Remaining work, in order:
+Qwen3-8B) are measured. **`route_work` uses the gated classifier when
+`CORTEX_LLM=1`** (profiles from `CORTEX_LLM_PROFILES`, default
+`config/llm-profiles.json`): the model may only escalate above the lexical
+floor; endpoint failure, unknown labels, and under-calls keep the lexical
+decision. Remaining work, in order:
 
-1. Wire `cortex-llm` into `cortex-mcp` / the router so `gatePassed` profiles
-   actually decide local vs upstream (fail-closed when the endpoint is down).
-2. Prefer reading the device OVMS reports into `Placement::observed` when the
+1. Prefer reading the device OVMS reports into `Placement::observed` when the
    server exposes it; until then `device: unknown` stays the honest value.
-3. Optional accuracy polish: repository-analysis fixtures still over-call to
+2. Optional accuracy polish: repository-analysis fixtures still over-call to
    `upstream_strong` (fail-closed, does not block the gate).
-4. Add the `digest` role's cache, keyed by repository revision, and measure it
+3. Add the `digest` role's cache, keyed by repository revision, and measure it
    as a sixth benchmark arm.
 
 ## Sources

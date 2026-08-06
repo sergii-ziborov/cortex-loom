@@ -24,7 +24,8 @@ Turn a race into a reliable failure before changing synchronization.
 
 5. Apply the smallest correct synchronization or redesign. [depends: 4]
 6. Re-run the stress test until the failure rate collapses. [kind: quality_gate] [depends: 5]
-7. Record the invariant the lock or queue now protects. [kind: terminal] [depends: 6]
+7. Escalate when the race needs an architectural ownership change. [kind: upstream_agent] [depends: 6]
+8. Record the invariant the lock or queue now protects. [kind: terminal] [depends: 6]
 
 ```text
 If you cannot make it fail, you cannot know you fixed it.

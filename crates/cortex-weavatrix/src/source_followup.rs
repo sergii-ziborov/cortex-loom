@@ -41,11 +41,14 @@ pub fn hits_from_search(value: &Value) -> Vec<SearchHit> {
         if path.is_empty() {
             continue;
         }
-        let line = entry
-            .get("line")
-            .and_then(Value::as_u64)
-            .unwrap_or(1)
-            .clamp(1, u64::from(u32::MAX)) as u32;
+        let line = u32::try_from(
+            entry
+                .get("line")
+                .and_then(Value::as_u64)
+                .unwrap_or(1)
+                .clamp(1, u64::from(u32::MAX)),
+        )
+        .unwrap_or(1);
         hits.push(SearchHit {
             path: path.to_owned(),
             line,

@@ -23,7 +23,8 @@ Instrument the question you will ask at 2am before shipping the path.
 
 ## Ship
 
-6. Land the instrumentation with the feature, not after the page. [kind: terminal] [depends: 5]
+6. Escalate when the path is live but the named signals are dark. [kind: upstream_agent] [depends: 4]
+7. Land the instrumentation with the feature, not after the page. [kind: terminal] [depends: 5]
 
 ```text
 An unobservable feature is an unpaid incident.

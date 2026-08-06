@@ -19,11 +19,12 @@ Spend reliability budget on purpose, or stop the burn.
 
 3. If budget remains, proceed with explicit spend limits. [kind: branch] [depends: 2]
 4. If budget is exhausted, freeze risky deploys and fix reliability. [kind: quality_gate] [depends: 2]
-5. Escalate when product pressure demands burning a depleted budget. [kind: human_gate] [depends: 4]
+5. Escalate when product pressure demands burning a depleted budget. [kind: upstream_agent] [depends: 4]
 
 ## Learn
 
-6. Update the SLO or the remediation backlog from what burned. [kind: terminal] [depends: 5]
+6. Escalate when leadership demands spend after a freeze. [kind: upstream_agent] [depends: 5]
+7. Update the SLO or the remediation backlog from what burned. [kind: terminal] [depends: 5]
 
 ```text
 An SLO without a budget policy is a vanity metric.

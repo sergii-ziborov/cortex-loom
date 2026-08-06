@@ -7,13 +7,14 @@
 //!
 //! This module decides **which** operations to ask for, from the text of the
 //! task alone. It is deterministic and contains no model: identifiers are
-//! extracted by shape, and the plan is a pure function of the task, the
-//! optional symbol, and the budget. A planner that guessed would reintroduce
-//! exactly the unaccountability the rest of the crate exists to prevent.
+//! extracted by shape, intent cues pick structural tools when the question is
+//! about dependents or contracts, and the plan is a pure function of the task,
+//! the optional symbol, and the budget.
 
 use serde_json::{Value, json};
 
 use crate::EvidenceKind;
+use crate::plan_intent::{TaskIntent, detect};
 
 /// Most identifiers to carry into a search. Beyond this the alternation stops
 /// discriminating and the result is a repository-wide dump.
@@ -50,6 +51,7 @@ pub struct PlanPolicy {
     pub symbol_tokens: u32,
     pub modules_tokens: u32,
     pub dependents_tokens: u32,
+    pub endpoints_tokens: u32,
     pub change_plan_tokens: u32,
     /// How far the plan may commit beyond the budget before it stops asking.
     ///
@@ -65,6 +67,7 @@ impl Default for PlanPolicy {
             symbol_tokens: 4_900,
             modules_tokens: 100,
             dependents_tokens: 2_500,
+            endpoints_tokens: 400,
             change_plan_tokens: 6_000,
             overcommit: 2,
         }
@@ -114,14 +117,16 @@ pub struct PlannedOperation {
 ///
 /// Recognised shapes, each of which a human writes when naming real code:
 /// backticked spans, `snake_case`, `SCREAMING_SNAKE`, `PascalCase`,
-/// `camelCase`, paths ending in a source extension, and `a::b` segments.
-/// Ordinary prose words are deliberately not identifiers — searching for
-/// "change" matches everything and discriminates nothing.
+/// `camelCase`, paths ending in a source extension, URL-like `/api/...`
+/// paths, and `a::b` segments. Ordinary prose words are deliberately not
+/// identifiers — searching for "change" matches everything and discriminates
+/// nothing.
 #[must_use]
 pub fn extract_identifiers(task: &str) -> Vec<String> {
     let mut found: Vec<String> = Vec::new();
     for candidate in candidates(task) {
-        let candidate = candidate.trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
+        let candidate =
+            candidate.trim_matches(|c: char| !c.is_alphanumeric() && c != '_' && c != '/');
         if !is_identifier(candidate) {
             continue;
         }
@@ -155,6 +160,13 @@ const SOURCE_SUFFIXES: &[&str] = &[".rs", ".ts", ".tsx", ".toml", ".md", ".sql",
 fn is_identifier(value: &str) -> bool {
     if value.len() < 3 || value.len() > 96 {
         return false;
+    }
+    if value.starts_with('/')
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '_' | '-' | '{' | '}'))
+    {
+        return true;
     }
     let lowercase = value.to_ascii_lowercase();
     if value.contains("::")
@@ -198,8 +210,6 @@ pub fn search_pattern(identifiers: &[String]) -> String {
         .join("|")
 }
 
-/// Cumulative share above which an operation is not worth requesting.
-///
 /// The operations to run for one task, under the default policy.
 ///
 /// A bounded operation carries a `token_budget` and is held to it. An
@@ -253,6 +263,7 @@ fn plan_all(
     budget: u32,
     policy: PlanPolicy,
 ) -> Vec<PlannedOperation> {
+    let intent = detect(task);
     let identifiers = extract_identifiers(task);
     let search_budget = share(budget, SEARCH_BUDGET_NUMERATOR, SEARCH_BUDGET_DENOMINATOR);
     let remainder = budget
@@ -261,66 +272,113 @@ fn plan_all(
     let structural = share(remainder, 1, 3);
 
     let mut operations = Vec::with_capacity(6);
+    // Structural intents put the graph tool that answers the question first.
+    // Identifier-driven plans still prefer cheap search before orientation.
+    match intent {
+        TaskIntent::BlastRadius => {
+            if let Some(symbol) = symbol {
+                operations.push(dependents_op(symbol, policy));
+            }
+        }
+        TaskIntent::ApiContract => {
+            operations.push(endpoints_op(policy));
+        }
+        TaskIntent::IdentifierChange => {}
+    }
     if !identifiers.is_empty() {
-        operations.push(PlannedOperation {
-            id: "WX-SEARCH",
-            tool: "search_code",
-            kind: EvidenceKind::SearchHits,
-            arguments: json!({
-                "query": search_pattern(&identifiers),
-                "is_regex": true,
-                "before": 1,
-                "after": 1,
-                "max_results": 40,
-                "token_budget": search_budget,
-            }),
-            expected_tokens: policy.search_tokens.max(search_budget),
-            bounded: true,
-        });
+        operations.push(search_op(&identifiers, search_budget, policy));
     }
-    if let Some(symbol) = symbol {
-        operations.push(PlannedOperation {
-            id: "WX-SYMBOL",
-            // `context_bundle` bounds its answer; `inspect_symbol` does not
-            // and returned 4 834 tokens against an 800 request before 2.2.0
-            // started rejecting the parameter outright. Preferring the
-            // bounded operation is now both correct and cheaper.
-            tool: "context_bundle",
-            kind: EvidenceKind::SymbolContext,
-            arguments: json!({
-                "label": symbol,
-                "max_related": 30,
-                "max_references": 30,
-                "max_source_files": 12,
-                "token_budget": structural,
-            }),
-            expected_tokens: policy.symbol_tokens,
-            bounded: true,
-        });
+    // Blast-radius questions already have dependents; symbol source is
+    // secondary and often too large to keep under a 4k budget.
+    if let Some(symbol) = symbol
+        && intent != TaskIntent::BlastRadius
+    {
+        operations.push(symbol_op(symbol, structural, policy));
     }
-    // Ordered by measured value per token. `module_map` cost 55 tokens for a
-    // whole-repository orientation; `verified_change` cost 6 007 and was the
-    // first thing the budget threw away. Cheap orientation therefore outranks
-    // an expensive plan nobody read.
-    operations.push(PlannedOperation {
+    operations.push(modules_op(policy));
+    if let Some(symbol) = symbol
+        && intent != TaskIntent::BlastRadius
+    {
+        operations.push(dependents_op(symbol, policy));
+    }
+    operations.push(verify_op(task, policy));
+    operations
+}
+
+fn search_op(identifiers: &[String], search_budget: u32, policy: PlanPolicy) -> PlannedOperation {
+    PlannedOperation {
+        id: "WX-SEARCH",
+        tool: "search_code",
+        kind: EvidenceKind::SearchHits,
+        arguments: json!({
+            "query": search_pattern(identifiers),
+            "is_regex": true,
+            "before": 1,
+            "after": 1,
+            "max_results": 40,
+            "token_budget": search_budget,
+        }),
+        expected_tokens: policy.search_tokens.max(search_budget),
+        bounded: true,
+    }
+}
+
+fn symbol_op(symbol: &str, structural: u32, policy: PlanPolicy) -> PlannedOperation {
+    PlannedOperation {
+        id: "WX-SYMBOL",
+        // `context_bundle` bounds its answer; `inspect_symbol` does not
+        // and returned 4 834 tokens against an 800 request before 2.2.0
+        // started rejecting the parameter outright. Preferring the
+        // bounded operation is now both correct and cheaper.
+        tool: "context_bundle",
+        kind: EvidenceKind::SymbolContext,
+        arguments: json!({
+            "label": symbol,
+            "max_related": 30,
+            "max_references": 30,
+            "max_source_files": 12,
+            "token_budget": structural,
+        }),
+        expected_tokens: policy.symbol_tokens,
+        bounded: true,
+    }
+}
+
+fn modules_op(policy: PlanPolicy) -> PlannedOperation {
+    PlannedOperation {
         id: "WX-MODULES",
         tool: "module_map",
         kind: EvidenceKind::ModuleMap,
         arguments: json!({"top_n": 16, "include_non_product": false}),
         expected_tokens: policy.modules_tokens,
         bounded: false,
-    });
-    if let Some(symbol) = symbol {
-        operations.push(PlannedOperation {
-            id: "WX-DEPENDENTS",
-            tool: "get_dependents",
-            kind: EvidenceKind::Dependents,
-            arguments: json!({ "label": symbol }),
-            expected_tokens: policy.dependents_tokens,
-            bounded: false,
-        });
     }
-    operations.push(PlannedOperation {
+}
+
+fn dependents_op(symbol: &str, policy: PlanPolicy) -> PlannedOperation {
+    PlannedOperation {
+        id: "WX-DEPENDENTS",
+        tool: "get_dependents",
+        kind: EvidenceKind::Dependents,
+        arguments: json!({ "label": symbol }),
+        expected_tokens: policy.dependents_tokens,
+        bounded: false,
+    }
+}
+
+fn endpoints_op(policy: PlanPolicy) -> PlannedOperation {
+    PlannedOperation {
+        id: "WX-ENDPOINTS",
+        tool: "list_endpoints",
+        kind: EvidenceKind::Endpoints,
+        arguments: json!({}),
+        expected_tokens: policy.endpoints_tokens,
+        bounded: false,
+    }
+}
+
+fn verify_op(task: &str, policy: PlanPolicy) -> PlannedOperation {
+    PlannedOperation {
         id: "WX-VERIFY",
         tool: "verified_change",
         kind: EvidenceKind::ChangePlan,
@@ -332,8 +390,7 @@ fn plan_all(
         }),
         expected_tokens: policy.change_plan_tokens,
         bounded: false,
-    });
-    operations
+    }
 }
 
 fn share(budget: u32, numerator: u32, denominator: u32) -> u32 {
@@ -345,140 +402,5 @@ fn share(budget: u32, numerator: u32, denominator: u32) -> u32 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{BUDGET_HONOURING, EvidenceKind, extract_identifiers, plan, search_pattern};
-
-    #[test]
-    fn identifiers_are_recognised_by_shape_not_by_vocabulary() {
-        let found = extract_identifiers(
-            "Change bounded retry so MAX_RETRY_ATTEMPTS and maxAttempts agree, \
-             see crates/cortex-run/src/retry.rs and RunError::RetryLimitTooLarge.",
-        );
-        assert!(found.contains(&"MAX_RETRY_ATTEMPTS".to_owned()));
-        assert!(found.contains(&"maxAttempts".to_owned()));
-        assert!(found.iter().any(|value| value.ends_with("retry.rs")));
-        assert!(
-            found
-                .iter()
-                .any(|value| value.contains("RetryLimitTooLarge"))
-        );
-        // Prose is not an identifier: searching for it discriminates nothing.
-        for word in ["Change", "bounded", "retry", "and", "agree"] {
-            assert!(
-                !found.contains(&word.to_owned()),
-                "{word} was taken as code"
-            );
-        }
-    }
-
-    #[test]
-    fn backticked_spans_win_and_the_list_is_bounded() {
-        let task = "`alpha_one` `beta_two` `gamma_three` `delta_four` \
-                    `epsilon_five` `zeta_six` `eta_seven` `theta_eight` `iota_nine`";
-        let found = extract_identifiers(task);
-        assert_eq!(found.len(), super::MAX_IDENTIFIERS);
-        assert_eq!(found[0], "alpha_one", "first-seen order is stable");
-        assert!(
-            !found.contains(&"iota_nine".to_owned()),
-            "the tail is bounded"
-        );
-    }
-
-    #[test]
-    fn a_task_naming_code_asks_for_the_facts_a_summary_cannot_carry() {
-        let operations = plan("rename `RetryLimitTooLarge`", Some("apply_command"), 16_000);
-        let tools: Vec<&str> = operations.iter().map(|operation| operation.tool).collect();
-        assert_eq!(
-            tools,
-            [
-                "search_code",
-                "context_bundle",
-                "module_map",
-                "get_dependents",
-                "verified_change"
-            ],
-            "ordered by measured value per token, cheapest orientation early"
-        );
-
-        // At the budget the adapter contract recommends, the measured cost of
-        // the whole plan (about 14 700 tokens) exceeds what can be delivered,
-        // so the most expensive operation is not requested at all.
-        let recommended = plan("rename `RetryLimitTooLarge`", Some("apply_command"), 4_000);
-        let tools: Vec<&str> = recommended.iter().map(|operation| operation.tool).collect();
-        assert_eq!(
-            tools,
-            ["search_code", "context_bundle", "module_map"],
-            "symbol evidence really costs about 4 800 even when a budget is \
-             requested, so at 4 000 there is no room for dependents or a plan"
-        );
-        // Every operation carries a budget, so Weavatrix trims where it knows
-        // what to cut instead of a whole fragment being dropped afterwards.
-        // A budget is sent only where the runtime implements it. Sending it
-        // anywhere else is a hard error in weavatrix-rust 2.2.0, and before
-        // that it was silently ignored — which was worse.
-        for operation in &operations {
-            assert_eq!(
-                operation.arguments.get("token_budget").is_some(),
-                operation.bounded,
-                "{} sends a budget it does not honour, or honours one it was not sent",
-                operation.tool
-            );
-            assert_eq!(
-                operation.bounded,
-                BUDGET_HONOURING.contains(&operation.tool),
-                "{} disagrees with the runtime's own list",
-                operation.tool
-            );
-        }
-        assert_eq!(operations[0].kind, EvidenceKind::SearchHits);
-    }
-
-    #[test]
-    fn a_task_naming_no_code_falls_back_to_structure() {
-        let operations = plan("make the thing faster please", None, 4_000);
-        let tools: Vec<&str> = operations.iter().map(|operation| operation.tool).collect();
-        assert_eq!(tools, ["module_map", "verified_change"]);
-    }
-
-    #[test]
-    fn regex_metacharacters_in_identifiers_are_escaped() {
-        let pattern = search_pattern(&["a.b".to_owned(), "c::d".to_owned()]);
-        assert_eq!(pattern, "a\\.b|c\\:\\:d");
-    }
-
-    #[test]
-    fn a_small_budget_stops_asking_for_evidence_it_cannot_carry() {
-        // Measured: the tail of a full plan is fetched, paid for, and then
-        // dropped by the compiler without costing a fact. Only the layer
-        // holding the whole plan can see that; each operation budgets its own
-        // answer in isolation.
-        let generous = plan("rename `RetryLimitTooLarge`", Some("apply_command"), 16_000);
-        assert_eq!(generous.len(), 5, "a large budget carries the whole plan");
-
-        let tight = plan("rename `RetryLimitTooLarge`", Some("apply_command"), 600);
-        assert!(
-            tight.len() < generous.len(),
-            "a tight budget must drop the tail, got {} operations",
-            tight.len()
-        );
-        assert_eq!(
-            tight.first().map(|operation| operation.tool),
-            Some("search_code"),
-            "whatever survives, the fact-carrying search survives first"
-        );
-        assert!(
-            !tight
-                .iter()
-                .any(|operation| operation.tool == "verified_change"),
-            "the most expensive operation is the first to go"
-        );
-    }
-
-    #[test]
-    fn a_tiny_budget_still_produces_usable_operation_budgets() {
-        for operation in plan("touch `alpha_one`", None, 1) {
-            let budget = operation.arguments["token_budget"].as_u64().unwrap();
-            assert!(budget > 0, "{} received a zero budget", operation.tool);
-        }
-    }
-}
+#[path = "plan_tests.rs"]
+mod tests;

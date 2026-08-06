@@ -32,7 +32,7 @@
       "baseUrl": "http://127.0.0.1:8000",
       "timeoutSeconds": 20,
       "gatePassed": false,
-      "note": "Qwen2.5-1.5B-Instruct-int4-ov via OVMS on the NPU. Classification gate FAIL 2026-08-05: 28/28 schema-valid but accuracy 0.71 against a 0.80 threshold and TWO missed escalations against a zero-tolerance requirement. Latency p50/p95 4009/5346 ms. Serving works; the model is not trusted to route."
+      "note": "Qwen2.5-1.5B-Instruct-int4-ov via OVMS on the NPU. Classification gate FAIL 2026-08-05: 28/28 schema-valid but accuracy 0.71 against a 0.80 threshold and TWO missed escalations against a zero-tolerance requirement. Latency p50/p95 4009/5346 ms. Serving works; the model is not trusted to route. Remeasure 2026-08-06: %LOCALAPPDATA%\\cortex-loom\\models and ovms are absent on this host, OVMS :8000 is down, so the NPU triple cannot be re-run here. CPU control: Ollama qwen3.5:4b passes local_small (classification 0.82 / 0 missed escalations, extraction exact-match 0.80) under DevicePolicy CPU is excluded — next step is deploy Qwen3-4B-int4-ov (or a stronger NPU candidate) on OVMS/NPU and only then flip gatePassed."
     },
     {
       "id": "gpu-digest",

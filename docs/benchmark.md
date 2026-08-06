@@ -284,21 +284,82 @@ evidence anyway — the fetch was pure waste. Across the set, asking for
 everything costs 1 095 more delivered tokens plus roughly 6 000 tokens of
 Weavatrix work per task, and returns nothing.
 
-**The limit of this claim.** These four fixtures score identifier-level facts,
-and `verified_change` produces a *change plan* — advice, not identifiers.
-Anchor recall cannot see advice, so this measures that the plan carries no
-required **facts**, not that it is worthless to a reader. Deciding the latter
-needs a fixture set whose anchors are structural (dependents, blast radius,
-transport contracts), which the current set deliberately lacks.
+**The limit of this claim (identifier set).** Those four fixtures scored
+identifier-level facts, and `verified_change` produces a *change plan* —
+advice, not identifiers. Anchor recall cannot see advice, so that run measured
+that the plan carries no required **facts**, not that it is worthless to a
+reader.
+
+## Structural fixtures — blast radius, contracts, transport
+
+Three tasks were added whose anchors are structural facts Weavatrix graph
+tools should surface: dependents of `compile_context`, the
+`/api/skills/compile` HTTP contract, and readers of the Streamable HTTP
+`/mcp` transport. Anchors were taken from live `get_dependents` /
+`list_endpoints` evidence on this repository (graph CURRENT, ~2 638 nodes).
+
+Two planner gaps showed up immediately and were fixed with measurement:
+
+1. **Intent, not only identifier shape.** A "who depends / what breaks"
+   question was still planned like a rename, so at the 4 000-token budget
+   `get_dependents` was trimmed behind an expensive `context_bundle`.
+   Deterministic intent cues now put `get_dependents` first on blast-radius
+   questions and `list_endpoints` first on API/transport-contract questions.
+2. **Compiler priority.** `Dependents` / `Endpoints` sat at Normal and lost
+   to an unverified `ChangePlan` whenever `cortex-full` fetched both —
+   structural recall collapsed on the full arm until those kinds were raised
+   to High (verified facts beat unverified advice within the High band by
+   submission order; the change plan is what gets omitted).
+
+Stamp `structural-final-2026-08-06`, budget 4 000, **seven** tasks (4
+identifier + 3 structural):
+
+| arm | tokens | facts |
+| --- | ---: | ---: |
+| `naive` | 192 246 | 42/42 |
+| `weavatrix-raw` | 75 771 | 23/42 |
+| `weavatrix-planned` | 33 793 | 33/42 |
+| `cortex-targeted` | **22 165** | **33/42** |
+| `cortex-full` | 25 338 | **33/42** |
+
+**Token savings still hold.** Against naive, `cortex-targeted` is ~88 % fewer
+tokens at 33/42 facts. Against the unplanned `cortex-loom` fixed-ops arm
+(24 916 tokens, 21/42), the planned path is both cheaper and denser. Against
+`weavatrix-planned` (same ops, no compiler), the compiler saves another ~34 %
+at identical recall.
+
+### Structural tasks alone
+
+| task | targeted tokens | targeted facts | full tokens | full facts |
+| --- | ---: | ---: | ---: | ---: |
+| `compile-context-blast-radius` | 3 965 | **6/6** | 3 965 | **6/6** |
+| `skills-compile-contract` | 2 106 | 5/6 | 3 141 | 5/6 |
+| `mcp-transport-readers` | 2 132 | 4/6 | 3 168 | 4/6 |
+
+On blast radius, the planned path reaches full recall where the unplanned
+`cortex-loom` arm manages 2/6 — graph dependents win outright when asked for.
+On the contract/transport tasks, `list_endpoints` + `search_code` recover the
+route and most handlers; remaining misses (`COMPILE_URL`, `serve_http`,
+`fn endpoint`) need source beyond the endpoint inventory, which this plan
+does not yet request.
+
+### `verified_change` on the structural set
+
+**Still no extra facts.** After the priority fix, `cortex-full` matches
+`cortex-targeted` recall (33/42) while costing 3 173 more delivered tokens.
+On blast radius the two arms are equal (3 965, 6/6) because the compiler
+omits the entire `WX-VERIFY-*` split under budget and keeps dependents. On
+the contract tasks, full spends ~1 000 extra tokens for the same 5/6 and 4/6.
+Proven: forcing the change plan does not raise structural anchor recall.
+Not proven: that a human reader gains nothing from the plan text — anchors
+still cannot score advice.
 
 ## Next measurements worth taking
 
 1. A fifth arm using `read_source` on the files `search_code` hit, to test
-   whether recall reaches 24/24 while staying under the naive cost.
+   whether recall reaches 42/42 (or closes the contract/transport misses)
+   while staying under the naive cost.
 2. Recover the `evidence-priority-band` regression: the planner should keep a
    symbol bundle when the task names a function rather than a constant.
 3. Score against real upstream consumption from the usage ledger
    (`usage_report`) instead of the character estimate.
-4. Add tasks whose facts are structural — blast radius, dependents, transport
-   contracts — where the graph tools should win outright. The current fixture
-   set is deliberately unkind to them.

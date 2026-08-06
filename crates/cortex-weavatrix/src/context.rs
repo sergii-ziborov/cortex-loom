@@ -87,17 +87,20 @@ pub fn compile_evidence_bundle(
 /// 4 000-token compile fail outright whenever symbol evidence was present.
 const fn evidence_policy(kind: EvidenceKind, head: bool) -> (EvidencePriority, EvidenceState) {
     match kind {
-        EvidenceKind::GraphStats | EvidenceKind::Dependents => {
-            (EvidencePriority::Normal, EvidenceState::Verified)
-        }
+        EvidenceKind::GraphStats => (EvidencePriority::Normal, EvidenceState::Verified),
         // A planned change is the one kind that is not yet a fact.
         EvidenceKind::ChangePlan => (EvidencePriority::High, EvidenceState::Unverified),
         EvidenceKind::SymbolContext if head => {
             (EvidencePriority::Critical, EvidenceState::Verified)
         }
-        EvidenceKind::ModuleMap | EvidenceKind::SearchHits | EvidenceKind::SymbolContext => {
-            (EvidencePriority::High, EvidenceState::Verified)
-        }
+        // Dependents and endpoints share High with search/modules: they used
+        // to sit at Normal and lost to an unverified change plan whenever
+        // both were fetched — measured on the structural fixture set.
+        EvidenceKind::Dependents
+        | EvidenceKind::Endpoints
+        | EvidenceKind::ModuleMap
+        | EvidenceKind::SearchHits
+        | EvidenceKind::SymbolContext => (EvidencePriority::High, EvidenceState::Verified),
     }
 }
 
@@ -154,10 +157,10 @@ mod tests {
     }
 
     #[test]
-    fn search_hits_outrank_structure_but_never_the_task() {
+    fn search_and_dependents_outrank_graph_stats_but_never_the_task() {
         let bundle = EvidenceBundle {
             repository: "repo".to_owned(),
-            // Submitted last, so its position proves priority and not order.
+            // Graph first in submission order; High-band facts must still rise.
             evidence: vec![
                 fragment("WX-GRAPH", EvidenceKind::GraphStats, "stats"),
                 fragment("WX-DEPENDENTS", EvidenceKind::Dependents, "callers"),
@@ -168,8 +171,8 @@ mod tests {
         let compiled = compile_evidence_bundle(bundle, "task", 1_000, None).unwrap();
         assert_eq!(
             compiled.context.included_ids,
-            ["TASK", "WX-SEARCH", "WX-GRAPH", "WX-DEPENDENTS"],
-            "search hits rise above structure; the two Normal items keep submission order"
+            ["TASK", "WX-DEPENDENTS", "WX-SEARCH", "WX-GRAPH"],
+            "dependents and search share High; graph stats stay Normal"
         );
         assert!(
             !compiled.context.requires_upstream,

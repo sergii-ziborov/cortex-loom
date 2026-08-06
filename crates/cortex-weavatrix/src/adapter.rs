@@ -68,6 +68,8 @@ pub enum EvidenceKind {
     SearchHits,
     /// Callers and dependents of a symbol.
     Dependents,
+    /// Statically extracted HTTP/API endpoints and transport contracts.
+    Endpoints,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]

@@ -171,6 +171,113 @@ tool alongside the existing `usage_read` and `usage_report` tools.",
                 },
             ],
         },
+        // Structural tasks: anchors are dependents, endpoints, and transport
+        // readers — facts graph tools should surface without a file dump.
+        BenchTask {
+            id: "compile-context-blast-radius",
+            prompt: "Who depends on `compile_context` and what breaks if its signature changes?",
+            symbol: Some("compile_context"),
+            naive_globs: &[
+                "crates/cortex-context/src/*.rs",
+                "crates/cortex-weavatrix/src/*.rs",
+                "crates/cortex-mcp/src/*.rs",
+                "crates/cortex-bench/src/*.rs",
+            ],
+            anchors: &[
+                Anchor {
+                    id: "direct-adapter-caller",
+                    any_of: &["compile_evidence_bundle"],
+                },
+                Anchor {
+                    id: "mcp-server-builder",
+                    any_of: &["build_server"],
+                },
+                Anchor {
+                    id: "http-transport-reader",
+                    any_of: &["serve_http"],
+                },
+                Anchor {
+                    id: "bench-consumer",
+                    any_of: &["cortex_arm"],
+                },
+                Anchor {
+                    id: "seed-symbol",
+                    any_of: &["compile_context"],
+                },
+                Anchor {
+                    id: "owning-module",
+                    any_of: &["cortex-context"],
+                },
+            ],
+        },
+        BenchTask {
+            id: "skills-compile-contract",
+            prompt: "What breaks if the `/api/skills/compile` HTTP contract changes?",
+            symbol: None,
+            naive_globs: &[
+                "apps/cortex-server/src/*.rs",
+                "ui/src/api/*.ts",
+                "crates/cortex-skills/src/*.rs",
+            ],
+            anchors: &[
+                Anchor {
+                    id: "http-route",
+                    any_of: &["/api/skills/compile"],
+                },
+                Anchor {
+                    id: "server-handler",
+                    any_of: &["compile_skill"],
+                },
+                Anchor {
+                    id: "ui-client-constant",
+                    any_of: &["COMPILE_URL"],
+                },
+                Anchor {
+                    id: "sibling-export-route",
+                    any_of: &["/api/skills/export"],
+                },
+                Anchor {
+                    id: "library-limit-comment",
+                    any_of: &["single-document limit"],
+                },
+                Anchor {
+                    id: "owning-surface",
+                    any_of: &["cortex-server", "apps/cortex-server"],
+                },
+            ],
+        },
+        BenchTask {
+            id: "mcp-transport-readers",
+            prompt: "Which services read the Streamable HTTP MCP transport at `/mcp`?",
+            symbol: None,
+            naive_globs: &["crates/cortex-mcp/src/*.rs", "crates/cortex-mcp/tests/*.rs"],
+            anchors: &[
+                Anchor {
+                    id: "transport-path",
+                    any_of: &["/mcp"],
+                },
+                Anchor {
+                    id: "serve-entry",
+                    any_of: &["serve_http"],
+                },
+                Anchor {
+                    id: "session-header",
+                    any_of: &["Mcp-Session-Id", "mcp-session-id"],
+                },
+                Anchor {
+                    id: "streamable-label",
+                    any_of: &["Streamable HTTP", "streamable http"],
+                },
+                Anchor {
+                    id: "endpoint-handler",
+                    any_of: &["any(endpoint)", "fn endpoint"],
+                },
+                Anchor {
+                    id: "owning-module",
+                    any_of: &["cortex-mcp"],
+                },
+            ],
+        },
     ]
 }
 

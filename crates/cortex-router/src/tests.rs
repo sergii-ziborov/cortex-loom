@@ -8,6 +8,7 @@ fn high_risk_phrases_never_route_locally() {
         "resolve a concurrency race condition",
         "prepare a database migration",
         "create the release tag",
+        "Tag the version bump for the milestone",
         "deploy to production",
         "publish this crate",
         "rotate an OAuth access token",

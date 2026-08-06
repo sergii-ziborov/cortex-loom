@@ -339,9 +339,9 @@ at identical recall.
 On blast radius, the planned path reaches full recall where the unplanned
 `cortex-loom` arm manages 2/6 — graph dependents win outright when asked for.
 On the contract/transport tasks, `list_endpoints` + `search_code` recover the
-route and most handlers; remaining misses (`COMPILE_URL`, `serve_http`,
-`fn endpoint`) need source beyond the endpoint inventory, which this plan
-does not yet request.
+route and handlers once prose acronyms stop polluting the search regex — see
+`cortex-source` below; at stamp `structural-final-2026-08-06` those misses were
+still open because `|HTTP` hid the real hits.
 
 ### `verified_change` on the structural set
 
@@ -354,12 +354,45 @@ Proven: forcing the change plan does not raise structural anchor recall.
 Not proven: that a human reader gains nothing from the plan text — anchors
 still cannot score advice.
 
+## `cortex-source` — bounded `read_source` on search hits
+
+Stamp `source-followup-fixed-2026-08-06`, budget 4 000, seven tasks. A new arm
+runs the targeted plan, then opens ranked `read_source` windows on the files
+`search_code` hit (product `.rs`/`.ts` preferred over docs/bench fixtures).
+
+Two search bugs had to be fixed before the arm could see the missing facts:
+
+1. **Prose acronyms.** `HTTP` (and similar all-caps tokens without `_`) were
+   treated as identifiers, so the regex became `/api/skills/compile|HTTP` and
+   drowned the UI client hit. Acronyms are no longer identifiers.
+2. **Rust-regex escapes.** Escaping `/` as `\/` is rejected by Rust's `regex`
+   crate; only real metacharacters are escaped now.
+
+| arm | tokens | facts |
+| --- | ---: | ---: |
+| `naive` | 195 906 | 42/42 |
+| `cortex-targeted` | **21 431** | **35/42** |
+| `cortex-source` | 26 320 | **36/42** |
+| `cortex-full` | 25 637 | 35/42 |
+
+### Structural tasks after the search fixes
+
+| task | targeted | source | naive |
+| --- | ---: | ---: | ---: |
+| `skills-compile-contract` | **1 475 / 6/6** | 3 189 / 6/6 | 30 438 / 6/6 |
+| `mcp-transport-readers` | **2 219 / 6/6** | 3 745 / 6/6 | 24 677 / 6/6 |
+
+**Verdict.** The acronym/escape fixes closed the contract and transport misses
+on `cortex-targeted` alone — no source follow-up required for those fixtures.
+`cortex-source` recovers one extra identifier-set fact (`priority-ordering` on
+`evidence-priority-band`) at roughly 5 000 more delivered tokens than targeted,
+still ~87 % below naive. Source follow-up is insurance for identifier-adjacent
+facts, not the primary structural fix.
+
 ## Next measurements worth taking
 
-1. A fifth arm using `read_source` on the files `search_code` hit, to test
-   whether recall reaches 42/42 (or closes the contract/transport misses)
-   while staying under the naive cost.
-2. Recover the `evidence-priority-band` regression: the planner should keep a
-   symbol bundle when the task names a function rather than a constant.
-3. Score against real upstream consumption from the usage ledger
+1. Recover the remaining identifier-set misses (`CriticalItemExceedsBudget`,
+   `unquote`, `heading_text`, `tools/list`, `RetryLimitTooLarge`) without
+   approaching naive cost — likely tighter symbol windows, not more ops.
+2. Score against real upstream consumption from the usage ledger
    (`usage_report`) instead of the character estimate.

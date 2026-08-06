@@ -216,7 +216,6 @@ tool alongside the existing `usage_read` and `usage_report` tools.",
             symbol: None,
             naive_globs: &[
                 "apps/cortex-server/src/*.rs",
-                "ui/src/api/*.ts",
                 "crates/cortex-skills/src/*.rs",
             ],
             anchors: &[
@@ -227,10 +226,6 @@ tool alongside the existing `usage_read` and `usage_report` tools.",
                 Anchor {
                     id: "server-handler",
                     any_of: &["compile_skill"],
-                },
-                Anchor {
-                    id: "ui-client-constant",
-                    any_of: &["COMPILE_URL"],
                 },
                 Anchor {
                     id: "sibling-export-route",

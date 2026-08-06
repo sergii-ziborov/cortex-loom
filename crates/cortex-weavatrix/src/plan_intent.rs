@@ -14,17 +14,23 @@ pub enum TaskIntent {
     BlastRadius,
     /// HTTP/API/transport contracts and who reads them.
     ApiContract,
+    /// Module / crate ownership and repository topology.
+    ModuleTopology,
 }
 
 /// Classify `task` from stable structural cues in the prose.
 #[must_use]
 pub fn detect(task: &str) -> TaskIntent {
     let lower = task.to_ascii_lowercase();
+    // Contract cues win over blast-radius "what breaks" when both appear.
     if api_contract_cue(&lower) {
         return TaskIntent::ApiContract;
     }
     if blast_radius_cue(&lower) {
         return TaskIntent::BlastRadius;
+    }
+    if module_topology_cue(&lower) {
+        return TaskIntent::ModuleTopology;
     }
     TaskIntent::IdentifierChange
 }
@@ -67,12 +73,28 @@ fn api_contract_cue(lower: &str) -> bool {
         || (lower.contains("transport") && (lower.contains("read") || lower.contains("serve")))
 }
 
+fn module_topology_cue(lower: &str) -> bool {
+    const CUES: &[&str] = &[
+        "module map",
+        "module topology",
+        "which module",
+        "which crate",
+        "owning module",
+        "owning crate",
+        "where does",
+        "where is",
+        "crate layout",
+        "package layout",
+    ];
+    CUES.iter().any(|cue| lower.contains(cue))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{TaskIntent, detect};
 
     #[test]
-    fn blast_and_contract_cues_are_recognised() {
+    fn blast_contract_and_topology_cues_are_recognised() {
         assert_eq!(
             detect("Who depends on compile_context if its signature changes?"),
             TaskIntent::BlastRadius
@@ -84,6 +106,10 @@ mod tests {
         assert_eq!(
             detect("Which services read the Streamable HTTP MCP transport at `/mcp`?"),
             TaskIntent::ApiContract
+        );
+        assert_eq!(
+            detect("Which module owns compile_context, and where does the crate layout put it?"),
+            TaskIntent::ModuleTopology
         );
         assert_eq!(
             detect("Rename RetryLimitTooLarge in retry.rs"),

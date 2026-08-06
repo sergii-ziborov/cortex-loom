@@ -62,8 +62,14 @@ const MIGRATION: &[&str] = &[
 const RELEASE: &[&str] = &[
     "release",
     "version bump",
+    "bump the version",
+    "bump version",
+    "git tag",
+    "tag the version",
     "release tag",
     "changelog release",
+    "semver",
+    "cut a release",
 ];
 const DEPLOYMENT: &[&str] = &[
     "deployment",

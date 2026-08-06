@@ -70,6 +70,8 @@ pub enum EvidenceKind {
     Dependents,
     /// Statically extracted HTTP/API endpoints and transport contracts.
     Endpoints,
+    /// Bounded source windows around search hits (`read_source`).
+    SourceReads,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -304,6 +306,40 @@ impl WeavatrixAdapter {
         budget: u32,
         policy: crate::plan::PlanPolicy,
     ) -> Result<EvidenceBundle, WeavatrixError> {
+        self.collect_targeted(repository, task, symbol, budget, policy, false)
+    }
+
+    /// As [`WeavatrixAdapter::prepare_targeted_context_with`], then open
+    /// bounded `read_source` windows on the files `search_code` hit.
+    ///
+    /// This is the control for whether identifier-adjacent facts that live a
+    /// few lines past a search match (`compile_skill`, `fn endpoint`) can be
+    /// recovered without paying the naive whole-file cost.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WeavatrixError`] when the repository cannot be opened or the
+    /// native graph cannot be built or refreshed.
+    pub fn prepare_targeted_context_with_source_reads(
+        &self,
+        repository: &Path,
+        task: &str,
+        symbol: Option<&str>,
+        budget: u32,
+        policy: crate::plan::PlanPolicy,
+    ) -> Result<EvidenceBundle, WeavatrixError> {
+        self.collect_targeted(repository, task, symbol, budget, policy, true)
+    }
+
+    fn collect_targeted(
+        &self,
+        repository: &Path,
+        task: &str,
+        symbol: Option<&str>,
+        budget: u32,
+        policy: crate::plan::PlanPolicy,
+        source_followup: bool,
+    ) -> Result<EvidenceBundle, WeavatrixError> {
         let root = self.canonical_root(repository)?;
         let mut sessions = self
             .engines
@@ -318,11 +354,15 @@ impl WeavatrixAdapter {
             .then(|| "native Weavatrix graph refreshed from changed source evidence".to_owned())
             .into_iter()
             .collect();
+        let mut search_hits = Vec::new();
         for operation in crate::plan::plan_with(task, symbol, budget, policy) {
             match native_call(engine, operation.tool, operation.arguments.clone()) {
                 Ok(value) => {
                     if let Some(overrun) = budget_overrun(operation.tool, &value) {
                         warnings.push(overrun);
+                    }
+                    if operation.tool == "search_code" {
+                        search_hits.extend(crate::source_followup::hits_from_search(&value));
                     }
                     evidence.extend(fragments(
                         operation.id,
@@ -333,6 +373,16 @@ impl WeavatrixAdapter {
                 }
                 Err(error) => warnings.push(format!("{} unavailable: {error}", operation.tool)),
             }
+        }
+        if source_followup {
+            append_source_reads(
+                engine,
+                &mut evidence,
+                &mut warnings,
+                &search_hits,
+                budget,
+                policy,
+            );
         }
         Ok(EvidenceBundle {
             repository: repository.to_string_lossy().into_owned(),
@@ -589,6 +639,46 @@ fn native_call(
     arguments: Value,
 ) -> Result<Value, WeavatrixError> {
     operations::call(engine, name, arguments).map_err(WeavatrixError::Engine)
+}
+
+fn append_source_reads(
+    engine: &mut Weavatrix,
+    evidence: &mut Vec<EvidenceFragment>,
+    warnings: &mut Vec<String>,
+    search_hits: &[crate::source_followup::SearchHit],
+    budget: u32,
+    policy: crate::plan::PlanPolicy,
+) {
+    let paths =
+        crate::source_followup::unique_paths(search_hits, crate::source_followup::MAX_SOURCE_FILES);
+    if paths.is_empty() {
+        warnings.push("source follow-up skipped: search returned no file paths".to_owned());
+        return;
+    }
+    let per_file = crate::source_followup::per_file_budget(budget, paths.len(), policy);
+    warnings.push(format!(
+        "source follow-up: {} file(s), ~{per_file} tokens each",
+        paths.len()
+    ));
+    for (index, hit) in paths.iter().enumerate() {
+        let arguments = crate::source_followup::read_arguments(hit, per_file);
+        match native_call(engine, "read_source", arguments) {
+            Ok(value) => {
+                if let Some(overrun) = budget_overrun("read_source", &value) {
+                    warnings.push(overrun);
+                }
+                evidence.extend(fragments(
+                    &format!("WX-SOURCE-{}", index + 1),
+                    EvidenceKind::SourceReads,
+                    "weavatrix:read_source",
+                    &value,
+                ));
+            }
+            Err(error) => {
+                warnings.push(format!("read_source unavailable for {}: {error}", hit.path))
+            }
+        }
+    }
 }
 
 fn extract_text(value: &Value) -> String {

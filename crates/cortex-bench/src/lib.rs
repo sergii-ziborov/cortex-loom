@@ -65,6 +65,11 @@ pub enum ArmKind {
     /// facts than `cortex-targeted`, the trimmed operations were dead weight
     /// and dropping them was free.
     CortexLoomFull,
+    /// Targeted plan plus bounded `read_source` windows on search-hit files.
+    ///
+    /// Asks whether identifier-adjacent facts past a search match can be
+    /// recovered without paying the naive whole-file cost.
+    CortexLoomSource,
 }
 
 impl ArmKind {
@@ -78,6 +83,7 @@ impl ArmKind {
             Self::CortexLoom => "cortex-loom",
             Self::CortexLoomTargeted => "cortex-targeted",
             Self::CortexLoomFull => "cortex-full",
+            Self::CortexLoomSource => "cortex-source",
         }
     }
 
@@ -91,6 +97,7 @@ impl ArmKind {
             Self::CortexLoom => "the same four operations through the bounded compiler",
             Self::CortexLoomTargeted => "operations planned from the task, then compiled",
             Self::CortexLoomFull => "the same plan with nothing trimmed",
+            Self::CortexLoomSource => "targeted plan plus bounded read_source on search hits",
         }
     }
 }

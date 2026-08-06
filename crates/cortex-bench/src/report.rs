@@ -82,6 +82,9 @@ fn render_deltas(out: &mut String, task: &TaskResult) {
         // dead weight.
         (ArmKind::CortexLoomFull, ArmKind::CortexLoomTargeted),
         (ArmKind::Naive, ArmKind::CortexLoomTargeted),
+        // Does a bounded read_source follow-up close facts the plan missed?
+        (ArmKind::CortexLoomTargeted, ArmKind::CortexLoomSource),
+        (ArmKind::Naive, ArmKind::CortexLoomSource),
     ];
     for (from, to) in pairs {
         let (Some(from_arm), Some(to_arm)) = (task.arm(from), task.arm(to)) else {
@@ -112,6 +115,7 @@ fn render_totals(out: &mut String, report: &BenchReport) {
         ArmKind::WeavatrixPlanned,
         ArmKind::CortexLoomTargeted,
         ArmKind::CortexLoomFull,
+        ArmKind::CortexLoomSource,
     ] {
         let arms: Vec<&ArmMeasurement> = report
             .tasks

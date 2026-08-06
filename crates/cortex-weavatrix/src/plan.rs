@@ -53,6 +53,8 @@ pub struct PlanPolicy {
     pub dependents_tokens: u32,
     pub endpoints_tokens: u32,
     pub change_plan_tokens: u32,
+    /// Pool for bounded `read_source` windows after search hits.
+    pub source_tokens: u32,
     /// How far the plan may commit beyond the budget before it stops asking.
     ///
     /// Above 1 because an operation often returns less than its estimate, so
@@ -69,6 +71,7 @@ impl Default for PlanPolicy {
             dependents_tokens: 2_500,
             endpoints_tokens: 400,
             change_plan_tokens: 6_000,
+            source_tokens: 1_600,
             overcommit: 2,
         }
     }
@@ -182,32 +185,43 @@ fn is_identifier(value: &str) -> bool {
     {
         return false;
     }
-    // snake_case and SCREAMING_SNAKE, or a case change *inside* the word:
-    // `maxAttempts` and `RetryLimitTooLarge` qualify, a sentence-initial
-    // "Change" does not. Requiring the capital past the first character is
-    // what keeps ordinary prose out of the search pattern.
-    value.contains('_') || value.chars().skip(1).any(|c| c.is_ascii_uppercase())
+    // snake_case / SCREAMING_SNAKE (underscore), or true camel/Pascal case
+    // (both a lowercase letter and an interior capital). All-caps tokens
+    // without an underscore — `HTTP`, `API`, `MCP` — are prose acronyms; if
+    // they enter the regex as alternation arms they match half the tree and
+    // crowd out the real hit.
+    value.contains('_')
+        || (value.chars().any(|c| c.is_ascii_lowercase())
+            && value.chars().skip(1).any(|c| c.is_ascii_uppercase()))
 }
 
 /// A Rust-regex alternation matching any of `identifiers`, literal-escaped.
+///
+/// Only metacharacters recognised by Rust's `regex` crate are escaped.
+/// Escaping `/` as `\/` is rejected there (unnecessary escapes are errors),
+/// which made URL-path identifiers silently fail to match TypeScript and
+/// other non-Rust hits — measured on the skills-compile-contract fixture.
 #[must_use]
 pub fn search_pattern(identifiers: &[String]) -> String {
     identifiers
         .iter()
-        .map(|identifier| {
-            identifier
-                .chars()
-                .map(|c| {
-                    if c.is_ascii_alphanumeric() || c == '_' {
-                        c.to_string()
-                    } else {
-                        format!("\\{c}")
-                    }
-                })
-                .collect::<String>()
-        })
+        .map(|identifier| escape_regex_literal(identifier))
         .collect::<Vec<_>>()
         .join("|")
+}
+
+fn escape_regex_literal(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        if matches!(
+            character,
+            '\\' | '.' | '+' | '*' | '?' | '(' | ')' | '|' | '[' | ']' | '{' | '}' | '^' | '$'
+        ) {
+            escaped.push('\\');
+        }
+        escaped.push(character);
+    }
+    escaped
 }
 
 /// The operations to run for one task, under the default policy.
@@ -283,6 +297,9 @@ fn plan_all(
         TaskIntent::ApiContract => {
             operations.push(endpoints_op(policy));
         }
+        TaskIntent::ModuleTopology => {
+            operations.push(modules_op(policy));
+        }
         TaskIntent::IdentifierChange => {}
     }
     if !identifiers.is_empty() {
@@ -295,7 +312,9 @@ fn plan_all(
     {
         operations.push(symbol_op(symbol, structural, policy));
     }
-    operations.push(modules_op(policy));
+    if intent != TaskIntent::ModuleTopology {
+        operations.push(modules_op(policy));
+    }
     if let Some(symbol) = symbol
         && intent != TaskIntent::BlastRadius
     {
@@ -316,6 +335,8 @@ fn search_op(identifiers: &[String], search_budget: u32, policy: PlanPolicy) -> 
             "before": 1,
             "after": 1,
             "max_results": 40,
+            // Prefer Rust product trees; docs/bench noise burns the budget first.
+            "glob": "{apps,crates}/**/*.rs",
             "token_budget": search_budget,
         }),
         expected_tokens: policy.search_tokens.max(search_budget),

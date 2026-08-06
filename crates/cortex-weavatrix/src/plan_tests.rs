@@ -28,6 +28,12 @@ fn url_paths_and_backticks_are_identifiers() {
         extract_identifiers("What breaks if `POST` `/api/skills/compile` changes, see `/mcp`?");
     assert!(found.contains(&"/api/skills/compile".to_owned()));
     assert!(found.contains(&"/mcp".to_owned()));
+    assert!(
+        !found
+            .iter()
+            .any(|value| value == "HTTP" || value == "POST" || value == "API"),
+        "prose acronyms must not enter the search alternation, got {found:?}"
+    );
     let task = "`alpha_one` `beta_two` `gamma_three` `delta_four` \
                 `epsilon_five` `zeta_six` `eta_seven` `theta_eight` `iota_nine`";
     let found = extract_identifiers(task);
@@ -112,6 +118,27 @@ fn api_contract_intent_asks_for_endpoints() {
 }
 
 #[test]
+fn module_topology_intent_asks_for_module_map_first() {
+    let operations = plan(
+        "Which module owns `compile_context`, and where does the crate layout put it?",
+        Some("compile_context"),
+        4_000,
+    );
+    let tools: Vec<&str> = operations.iter().map(|operation| operation.tool).collect();
+    assert_eq!(
+        tools.first().copied(),
+        Some("module_map"),
+        "topology questions must keep module_map under a 4k budget, got {tools:?}"
+    );
+    assert!(tools.contains(&"search_code"));
+    assert_eq!(
+        tools.iter().filter(|tool| **tool == "module_map").count(),
+        1,
+        "module_map must not be planned twice"
+    );
+}
+
+#[test]
 fn a_task_naming_no_code_falls_back_to_structure() {
     let operations = plan("make the thing faster please", None, 4_000);
     let tools: Vec<&str> = operations.iter().map(|operation| operation.tool).collect();
@@ -121,7 +148,12 @@ fn a_task_naming_no_code_falls_back_to_structure() {
 #[test]
 fn regex_metacharacters_in_identifiers_are_escaped() {
     let pattern = search_pattern(&["a.b".to_owned(), "c::d".to_owned()]);
-    assert_eq!(pattern, "a\\.b|c\\:\\:d");
+    assert_eq!(pattern, "a\\.b|c::d");
+    // Slashes must stay literal: Rust's regex crate rejects `\/`.
+    assert_eq!(
+        search_pattern(&["/api/skills/compile".to_owned()]),
+        "/api/skills/compile"
+    );
 }
 
 #[test]

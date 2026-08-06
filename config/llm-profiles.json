@@ -26,13 +26,13 @@
     {
       "id": "npu-classifier",
       "role": "classification",
-      "model": "qwen25-1.5b",
+      "model": "qwen3-8b",
       "device": "npu",
       "runtime": "open_ai_compatible",
       "baseUrl": "http://127.0.0.1:8000",
-      "timeoutSeconds": 20,
-      "gatePassed": false,
-      "note": "Qwen2.5-1.5B-Instruct-int4-ov via OVMS on the NPU. Classification gate FAIL 2026-08-05: 28/28 schema-valid but accuracy 0.71 against a 0.80 threshold and TWO missed escalations against a zero-tolerance requirement. Latency p50/p95 4009/5346 ms. Serving works; the model is not trusted to route. Remeasure 2026-08-06: %LOCALAPPDATA%\\cortex-loom\\models and ovms are absent on this host, OVMS :8000 is down, so the NPU triple cannot be re-run here. CPU control: Ollama qwen3.5:4b passes local_small (classification 0.82 / 0 missed escalations, extraction exact-match 0.80) under DevicePolicy CPU is excluded — next step is deploy Qwen3-4B-int4-ov (or a stronger NPU candidate) on OVMS/NPU and only then flip gatePassed."
+      "timeoutSeconds": 60,
+      "gatePassed": true,
+      "note": "Qwen3-8B-int4-cw-ov (NPU channel-wise IR) via OVMS 2026.3.0 on NPU. No OpenVINO/Qwen3-7B-int4-ov on Hugging Face; 8B is the ~7B-class IR. Classification+extraction gate PASS 2026-08-06 (eval-1786013596, eval-prompts-v5, chat_template_kwargs.enable_thinking=false): classification 28/28 schema-valid, accuracy 0.86 (≥0.80), under-called 0, missed escalations 0; extraction schema-valid 1.00, action 1.00, exact-match 0.70 (≥0.60). Latency p50/p95 7289/12893 ms. Remaining disagreements are fail-closed over-calls on repository_analysis (none→upstream_strong). Prior 1.5B: 0.71 / 2 missed; prior 8B under v3: 0.86 / 1 missed (cls-rel-2)."
     },
     {
       "id": "gpu-digest",

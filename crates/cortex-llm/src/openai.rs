@@ -225,10 +225,13 @@ impl LlmProvider for OpenAiProvider {
             request.labels.join(", "),
             request.input.trim()
         );
+        // Qwen3 chat templates default to thinking mode; leave it off so the
+        // closed label fits in the token budget instead of a <think> preamble.
         let body = serde_json::json!({
             "model": self.profile.model,
             "max_tokens": CLASSIFY_MAX_TOKENS,
             "temperature": 0,
+            "chat_template_kwargs": {"enable_thinking": false},
             "messages": [{"role": "user", "content": prompt}],
         });
         let (response, latency_ms): (ChatResponse, u64) = self.post("/chat/completions", &body)?;

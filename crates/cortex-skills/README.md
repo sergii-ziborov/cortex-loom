@@ -54,6 +54,27 @@ consumer starts from working workflows instead of an empty editor:
 | Dependency Upgrade | adopting behaviour someone else authored |
 | Performance Investigation | a workload that is slower than its target |
 | Incident Response | production is broken right now |
+| Migration Cutover | traffic or data must move with a one-step rollback |
+| API Versioning | a published contract already has outside callers |
+| Flaky Test Quarantine | an intermittent test is blocking honest signal |
+| Security Threat Model | a new trust boundary, secret, or privilege |
+| Observability First | a path that will be hard to inspect once live |
+| Data Migration | stored shape changes under live traffic |
+| Feature Flag Rollout | staged exposure that must not become permanent debt |
+| Documentation Sync | behaviour changed and docs would otherwise lie |
+| Release Checklist | before tagging, publishing, or a production deploy |
+| Backlog Triage | the queue is longer than the next planning window |
+| Accessibility Audit | UI focus, names, or contrast changed |
+| Configuration Drift | live config cannot be explained from the source |
+| Cache Invalidation | a cache can serve wrong data after writes |
+| Concurrency Bug Hunt | races, locks, or shared mutable state |
+| Schema Evolution | persisted or wire formats must change safely |
+| Dependency Audit | adding a package or responding to an advisory |
+| Error Budget Review | SLOs exist and budget is being spent |
+| Capacity Planning | load is rising or a launch multiplies traffic |
+| Rollback Drill | practice the rollback before the risky window |
+| Contract Testing | two sides share a schema that must fail in CI |
+| Postmortem Writeup | after a mitigated incident, while memory is fresh |
 
 ```rust
 for skill in cortex_skills::bundled_skills() {

@@ -3,9 +3,9 @@
   "timeoutSecs": 300,
   "profiles": [
     {
-      "id": "npu-classifier-qwen2.5-1.5b-int4-ov",
+      "id": "npu-classifier-qwen3-8b-int4-cw-ov",
       "tier": "local_small",
-      "model": "qwen25-1.5b",
+      "model": "qwen3-8b",
       "maxInputTokens": 6144,
       "maxOutputTokens": 1024,
       "contextTokens": 8192

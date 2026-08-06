@@ -199,11 +199,14 @@ impl EvalBackend for OpenAiEvalBackend {
                 })
             })
             .collect();
+        // Qwen3 chat templates default to thinking mode; without this, long
+        // structured replies burn the token budget on <think> and truncate mid-JSON.
         let body = serde_json::json!({
             "model": self.model_for(&request.profile),
             "messages": messages,
             "max_tokens": request.requested_output_tokens,
             "temperature": 0,
+            "chat_template_kwargs": {"enable_thinking": false},
             "response_format": {
                 "type": "json_schema",
                 "json_schema": {"name": "eval", "strict": true, "schema": request.schema},

@@ -98,6 +98,7 @@ const fn evidence_policy(kind: EvidenceKind, head: bool) -> (EvidencePriority, E
         // both were fetched — measured on the structural fixture set.
         EvidenceKind::Dependents
         | EvidenceKind::Endpoints
+        | EvidenceKind::SourceReads
         | EvidenceKind::ModuleMap
         | EvidenceKind::SearchHits
         | EvidenceKind::SymbolContext => (EvidencePriority::High, EvidenceState::Verified),

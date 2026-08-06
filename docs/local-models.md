@@ -206,6 +206,28 @@ one failure this project treats as disqualifying: the model sent work
 downward that should have gone upstream. **`gatePassed` stays `false`.** The
 plumbing is correct and the model is not trusted to route.
 
+**Classification — `Qwen3-8B-int4-cw-ov`, NPU: PASS (2026-08-06)**
+
+No `OpenVINO/Qwen3-7B-int4-ov` on Hugging Face; the NPU-oriented channel-wise
+IR is `Qwen3-8B-int4-cw-ov`. Served with OVMS 2026.3.0 `--target_device NPU`.
+Eval used pinned `eval-prompts-v5` and
+`chat_template_kwargs.enable_thinking=false` (without it, extraction truncated
+mid-JSON). Report: `.cortex-loom/eval/eval-1786013596.json`.
+
+| metric | measured | required |
+| --- | ---: | ---: |
+| classification accuracy | **0.86** | ≥ 0.80 |
+| missed escalations | **0** | **0** |
+| under-called | **0** | — |
+| extraction schema-valid | **1.00** | ≥ 0.95 |
+| extraction action accuracy | **1.00** | ≥ 0.80 |
+| extraction exact-match | **0.70** | ≥ 0.60 |
+
+Latency p50/p95 7 289 / 12 893 ms over 38 calls. The remaining disagreements
+are fail-closed over-calls on repository-analysis fixtures (`none` →
+`upstream_strong`). Release/version-tag disambiguation closed the prior
+`cls-rel-2` miss. **`gatePassed: true`** for this triple.
+
 The report also prints `device: unknown`, because OVMS does not say. That is
 the honest value, not a defect.
 
@@ -227,10 +249,11 @@ $ovms = "$env:LOCALAPPDATA\cortex-loom\ovms\ovms.exe"
         --model_name qwen3-embed --task embeddings --pooling LAST `
         --target_device GPU --rest_port 8001 --rest_bind_address 127.0.0.1
 
-# Text generation for the classifier role.
-& $ovms --model_path "$env:LOCALAPPDATA\cortex-loom\models\qwen2.5-1.5b-instruct-int4-ov" `
-        --model_name qwen25-1.5b --task text_generation `
-        --target_device NPU --rest_port 8000 --rest_bind_address 127.0.0.1
+# Text generation for the classifier role (Qwen3-8B NPU IR; no 7B OV IR published).
+& $ovms --model_path "$env:LOCALAPPDATA\cortex-loom\models\qwen3-8b-int4-cw-ov" `
+        --model_name qwen3-8b --task text_generation `
+        --target_device NPU --rest_port 8000 --rest_bind_address 127.0.0.1 `
+        --cache_dir "$env:LOCALAPPDATA\cortex-loom\cache\qwen3-8b-npu"
 ```
 
 Ollama stays supported as a runtime and is what is installed today
@@ -240,16 +263,17 @@ Ollama on this box means CPU or iGPU — it has no NPU path.
 ## Status
 
 `cortex-llm` ships the device policy, the profile registry, the loopback
-endpoint and the provider contract, with tests. It is **not yet wired into
-`cortex-mcp`**, and no profile has passed a gate on an accelerator, so nothing
-in this document is a claim that the NPU has run anything here. The remaining
-work, in order:
+endpoint and the OpenAI-compatible provider, with tests. Embedding
+(`gatePassed: true` on GPU) and classification (`gatePassed: true` on NPU with
+Qwen3-8B) are measured. The stack is **not yet wired into `cortex-mcp`**, so
+local routing is not live in the agent path. Remaining work, in order:
 
-1. Convert both NPU models to OpenVINO IR and serve them with OVMS.
-2. Implement the OpenAI-compatible provider against that endpoint, reading the
-   device the server reports into `Placement::observed`.
-3. Re-run `cortex-eval` against the deployed endpoints and only then set
-   `gatePassed`.
+1. Wire `cortex-llm` into `cortex-mcp` / the router so `gatePassed` profiles
+   actually decide local vs upstream (fail-closed when the endpoint is down).
+2. Prefer reading the device OVMS reports into `Placement::observed` when the
+   server exposes it; until then `device: unknown` stays the honest value.
+3. Optional accuracy polish: repository-analysis fixtures still over-call to
+   `upstream_strong` (fail-closed, does not block the gate).
 4. Add the `digest` role's cache, keyed by repository revision, and measure it
    as a sixth benchmark arm.
 

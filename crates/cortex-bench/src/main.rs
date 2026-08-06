@@ -142,6 +142,28 @@ fn run_task(
                 }
                 Err(error) => arms.push(unavailable(ArmKind::CortexLoomFull, error.to_string())),
             }
+            // Search hits name files; open bounded windows there and ask
+            // whether the remaining contract/transport facts appear without
+            // paying the naive whole-file cost.
+            match adapter.prepare_targeted_context_with_source_reads(
+                &settings.repository,
+                task.prompt,
+                task.symbol,
+                settings.budget,
+                PlanPolicy::default(),
+            ) {
+                Ok(bundle) => {
+                    arms.push(cortex_arm(
+                        ArmKind::CortexLoomSource,
+                        settings,
+                        task,
+                        bundle,
+                    ));
+                }
+                Err(error) => {
+                    arms.push(unavailable(ArmKind::CortexLoomSource, error.to_string()));
+                }
+            }
         }
     }
     TaskResult {

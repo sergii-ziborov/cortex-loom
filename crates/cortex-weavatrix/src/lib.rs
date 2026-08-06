@@ -2,6 +2,7 @@ mod adapter;
 mod context;
 pub mod plan;
 mod plan_intent;
+mod source_followup;
 mod transport;
 
 pub use adapter::{

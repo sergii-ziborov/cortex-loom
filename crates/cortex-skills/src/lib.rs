@@ -124,6 +124,111 @@ pub const fn bundled_skills() -> &'static [BundledSkill] {
             source: "cortex-skills/fixtures/incident-response.md",
             markdown: include_str!("../fixtures/incident-response.md"),
         },
+        BundledSkill {
+            id: "migration-cutover",
+            source: "cortex-skills/fixtures/migration-cutover.md",
+            markdown: include_str!("../fixtures/migration-cutover.md"),
+        },
+        BundledSkill {
+            id: "api-versioning",
+            source: "cortex-skills/fixtures/api-versioning.md",
+            markdown: include_str!("../fixtures/api-versioning.md"),
+        },
+        BundledSkill {
+            id: "flaky-test-quarantine",
+            source: "cortex-skills/fixtures/flaky-test-quarantine.md",
+            markdown: include_str!("../fixtures/flaky-test-quarantine.md"),
+        },
+        BundledSkill {
+            id: "security-threat-model",
+            source: "cortex-skills/fixtures/security-threat-model.md",
+            markdown: include_str!("../fixtures/security-threat-model.md"),
+        },
+        BundledSkill {
+            id: "observability-first",
+            source: "cortex-skills/fixtures/observability-first.md",
+            markdown: include_str!("../fixtures/observability-first.md"),
+        },
+        BundledSkill {
+            id: "data-migration",
+            source: "cortex-skills/fixtures/data-migration.md",
+            markdown: include_str!("../fixtures/data-migration.md"),
+        },
+        BundledSkill {
+            id: "feature-flag-rollout",
+            source: "cortex-skills/fixtures/feature-flag-rollout.md",
+            markdown: include_str!("../fixtures/feature-flag-rollout.md"),
+        },
+        BundledSkill {
+            id: "documentation-sync",
+            source: "cortex-skills/fixtures/documentation-sync.md",
+            markdown: include_str!("../fixtures/documentation-sync.md"),
+        },
+        BundledSkill {
+            id: "release-checklist",
+            source: "cortex-skills/fixtures/release-checklist.md",
+            markdown: include_str!("../fixtures/release-checklist.md"),
+        },
+        BundledSkill {
+            id: "backlog-triage",
+            source: "cortex-skills/fixtures/backlog-triage.md",
+            markdown: include_str!("../fixtures/backlog-triage.md"),
+        },
+        BundledSkill {
+            id: "accessibility-audit",
+            source: "cortex-skills/fixtures/accessibility-audit.md",
+            markdown: include_str!("../fixtures/accessibility-audit.md"),
+        },
+        BundledSkill {
+            id: "configuration-drift",
+            source: "cortex-skills/fixtures/configuration-drift.md",
+            markdown: include_str!("../fixtures/configuration-drift.md"),
+        },
+        BundledSkill {
+            id: "cache-invalidation",
+            source: "cortex-skills/fixtures/cache-invalidation.md",
+            markdown: include_str!("../fixtures/cache-invalidation.md"),
+        },
+        BundledSkill {
+            id: "concurrency-bug-hunt",
+            source: "cortex-skills/fixtures/concurrency-bug-hunt.md",
+            markdown: include_str!("../fixtures/concurrency-bug-hunt.md"),
+        },
+        BundledSkill {
+            id: "schema-evolution",
+            source: "cortex-skills/fixtures/schema-evolution.md",
+            markdown: include_str!("../fixtures/schema-evolution.md"),
+        },
+        BundledSkill {
+            id: "dependency-audit",
+            source: "cortex-skills/fixtures/dependency-audit.md",
+            markdown: include_str!("../fixtures/dependency-audit.md"),
+        },
+        BundledSkill {
+            id: "error-budget-review",
+            source: "cortex-skills/fixtures/error-budget-review.md",
+            markdown: include_str!("../fixtures/error-budget-review.md"),
+        },
+        BundledSkill {
+            id: "capacity-planning",
+            source: "cortex-skills/fixtures/capacity-planning.md",
+            markdown: include_str!("../fixtures/capacity-planning.md"),
+        },
+        BundledSkill {
+            id: "rollback-drill",
+            source: "cortex-skills/fixtures/rollback-drill.md",
+            markdown: include_str!("../fixtures/rollback-drill.md"),
+        },
+        BundledSkill {
+            id: "contract-testing",
+            source: "cortex-skills/fixtures/contract-testing.md",
+            markdown: include_str!("../fixtures/contract-testing.md"),
+        },
+        BundledSkill {
+            id: "postmortem-writeup",
+            source: "cortex-skills/fixtures/postmortem-writeup.md",
+            markdown: include_str!("../fixtures/postmortem-writeup.md"),
+        },
     ]
 }
 

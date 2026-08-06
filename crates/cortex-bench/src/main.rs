@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use cortex_bench::naive::{NaiveScan, scan};
+use cortex_bench::probe_tasks::probe_tasks;
 use cortex_bench::report::render;
 use cortex_bench::tasks::{BenchTask, find, tasks};
 use cortex_bench::{
@@ -53,9 +54,12 @@ fn main() -> ExitCode {
 }
 
 fn run(settings: &Settings) -> Result<BenchReport, String> {
-    let selected: Vec<&BenchTask> = match &settings.task {
-        Some(id) => vec![find(id).ok_or_else(|| format!("unknown task: {id}"))?],
-        None => tasks().iter().collect(),
+    let selected: Vec<&BenchTask> = match (&settings.task, settings.set.as_str()) {
+        (Some(id), _) => vec![find_any(id).ok_or_else(|| format!("unknown task: {id}"))?],
+        (None, "probe") => probe_tasks().iter().collect(),
+        (None, "core") => tasks().iter().collect(),
+        (None, "all") => tasks().iter().chain(probe_tasks().iter()).collect(),
+        (None, other) => return Err(format!("unknown --set value: {other} (core|probe|all)")),
     };
     let weavatrix = if settings.use_weavatrix {
         Some(WeavatrixAdapter::new(
@@ -340,6 +344,7 @@ struct Settings {
     repository: PathBuf,
     budget: u32,
     task: Option<String>,
+    set: String,
     out: PathBuf,
     use_weavatrix: bool,
     stamp: Option<String>,
@@ -351,6 +356,7 @@ impl Settings {
             repository: PathBuf::from("."),
             budget: DEFAULT_BUDGET,
             task: None,
+            set: "core".to_owned(),
             out: Path::new(".cortex-loom").join("bench").join("report.json"),
             use_weavatrix: true,
             stamp: None,
@@ -365,11 +371,15 @@ impl Settings {
                         .map_err(|_| "--budget expects a positive integer".to_owned())?;
                 }
                 "--task" => settings.task = Some(next(&mut arguments, "--task")?),
+                "--set" => settings.set = next(&mut arguments, "--set")?,
                 "--out" => settings.out = PathBuf::from(next(&mut arguments, "--out")?),
                 "--stamp" => settings.stamp = Some(next(&mut arguments, "--stamp")?),
                 "--no-weavatrix" => settings.use_weavatrix = false,
                 "--list" => {
                     for task in tasks() {
+                        println!("{}", task.id);
+                    }
+                    for task in probe_tasks() {
                         println!("{}", task.id);
                     }
                     std::process::exit(0);
@@ -382,6 +392,10 @@ impl Settings {
         }
         Ok(settings)
     }
+}
+
+fn find_any(id: &str) -> Option<&'static BenchTask> {
+    find(id).or_else(|| probe_tasks().iter().find(|task| task.id == id))
 }
 
 fn next(arguments: &mut impl Iterator<Item = String>, flag: &str) -> Result<String, String> {

@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use crate::naive::{matches, scan};
+use crate::probe_tasks;
 use crate::tasks::tasks;
 use crate::{Anchor, ArmKind, measure, token_delta, unavailable};
 
@@ -92,7 +93,7 @@ fn fixture_anchors_exist_in_the_repository() {
     if !root.join("Cargo.toml").exists() {
         return;
     }
-    for task in tasks() {
+    for task in tasks().iter().chain(probe_tasks::probe_tasks().iter()) {
         let found = scan(&root, task.naive_globs).expect("scan the workspace");
         assert!(
             !found.files.is_empty(),

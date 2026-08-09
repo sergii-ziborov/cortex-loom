@@ -1,0 +1,85 @@
+.header-actions-desktop { display: flex; align-items: center; gap: 9px; }
+.icon-button svg, .compact-menu-icon svg {
+  width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.7;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+.header-actions-menu, .toolbar-actions-menu { display: none; position: relative; }
+.header-actions-menu summary, .toolbar-actions-menu summary {
+  min-height: 32px; display: inline-flex; align-items: center; padding: 6px 10px;
+  border: 1px solid var(--border); border-radius: 7px; color: var(--text);
+  background: var(--surface-raised); font-size: 11px; font-weight: 700; list-style: none; cursor: pointer;
+}
+.header-actions-menu summary::-webkit-details-marker,
+.toolbar-actions-menu summary::-webkit-details-marker { display: none; }
+.header-actions-menu summary:focus-visible, .toolbar-actions-menu summary:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 3px;
+}
+.header-actions-menu summary::after, .toolbar-actions-menu summary::after {
+  content: "\25BE"; margin-left: 7px; color: var(--muted);
+}
+.header-actions-menu[open] summary, .toolbar-actions-menu[open] summary {
+  border-color: var(--accent); background: var(--accent-soft);
+}
+.compact-menu-panel {
+  position: absolute; inset-block-start: calc(100% + 7px); inset-inline-end: 0; z-index: 30;
+  width: min(280px, calc(100vw - 20px)); display: grid; gap: 3px; padding: 7px;
+  border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow);
+}
+.compact-menu-panel button {
+  min-height: 44px; display: flex; align-items: center; gap: 9px; padding: 8px 10px;
+  border: 0; border-radius: 7px; color: var(--text); background: transparent; text-align: left; font-size: 12px;
+}
+.compact-menu-panel button:hover { background: var(--surface-hover); }
+.compact-menu-meta {
+  padding: 8px 10px 5px; border-top: 1px solid var(--border); color: var(--subtle);
+  font: 600 10px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere;
+}
+.toolbar-main, .toolbar-actions-desktop {
+  display: flex; align-items: center; gap: 6px; min-width: 0;
+}
+
+@media (max-width: 720px) {
+  html, body, #root, .app-shell { max-width: 100%; min-width: 0; }
+  .app-shell { width: 100%; overflow-x: clip; }
+  .app-header, .graph-toolbar, .run-controls, .editor-main { min-width: 0; max-width: 100%; }
+  .header-actions-desktop, .toolbar-actions-desktop, .toolbar-reload { display: none; }
+  .app-header .header-spacer { display: none; }
+  .app-header .brand-copy { flex: 1 1 auto; }
+  .app-header .brand-copy span { display: none; }
+  .header-actions-menu, .toolbar-actions-menu { display: block; flex: 0 0 auto; }
+  .header-actions-menu summary, .toolbar-actions-menu summary,
+  .toolbar-main > .primary-button, .save-button { min-height: 44px; }
+  .toolbar-main { width: 100%; }
+  .graph-picker { min-width: 0; flex: 1 1 auto; }
+  .graph-picker select { width: 100%; max-width: none; min-height: 44px; }
+  .toolbar-spacer { display: none; }
+  .zoom-controls { min-height: 44px; }
+  .zoom-controls button { min-width: 40px; height: 42px; }
+  .save-status { margin-left: 0; }
+  .run-controls select, .run-controls input, .run-controls button { min-height: 44px; font-size: 11px; }
+  .canvas-panel { max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-gutter: stable; }
+  .canvas-wrap { width: 720px; min-width: 720px; }
+}
+
+@media (max-width: 620px) {
+  .app-header { padding: 0 10px; }
+  .brand-copy span { max-width: 46vw; }
+  .graph-toolbar { padding: 7px 8px; }
+  .connect-hint { width: 100%; order: 2; }
+  .zoom-controls { margin-left: 0; }
+  .save-status { max-width: 105px; }
+  .run-primary { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; }
+  .run-primary strong { flex: 1 0 100%; }
+  .run-primary strong, .run-primary .run-chip, .run-primary .run-warning, .run-primary .replay-verdict { grid-column: 1 / -1; }
+  .run-primary select { max-width: none; min-width: 0; width: 100%; }
+  .run-action-group { align-items: stretch; }
+  .run-action-label { width: auto; flex: 1 0 100%; }
+  .run-action-group input, .run-action-group select {
+    min-width: 0; max-width: none; width: 100%; flex: 1 1 100%;
+  }
+  .run-action-group select[multiple] { min-width: 0; }
+  .replay-verdict { flex: 1 0 100%; }
+  .canvas-panel { padding: 7px; }
+  .editor-main { grid-template-rows: minmax(430px, 65vh) auto; }
+  .two-columns { grid-template-columns: 1fr; }
+}

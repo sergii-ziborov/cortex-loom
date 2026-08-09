@@ -6,21 +6,6 @@ use sha2::{Digest, Sha256};
 
 use crate::SequenceError;
 
-const DISCOVER_AND_PLAN: &str = r#"---
-name: Discover and Plan
-description: Turn a task into a bounded evidence-backed implementation plan.
-version: "1.0.0"
----
-# Discover and Plan
-
-1. Classify the task, risk, mutation scope, and required proof. [kind: deterministic]
-2. Gather revision-bound repository evidence for named identifiers and contracts. [kind: weavatrix] [depends: 1]
-3. Check that the evidence covers every required decision. [kind: evidence_gate] [depends: 2]
-4. Hand ambiguity or high-risk decisions to the upstream coding agent. [kind: upstream_agent] [depends: 3]
-5. Produce a bounded plan with files, tests, risks, and acceptance criteria. [kind: agent_task] [depends: 3]
-6. Finish only when the plan cites its deciding evidence. [kind: terminal] [depends: 5]
-"#;
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "camelCase")]
 pub struct TemplateVersion {
@@ -76,26 +61,9 @@ pub struct TemplateRef {
     pub fingerprint: String,
 }
 
-static TEMPLATES: [SequenceTemplate; 1] = [SequenceTemplate {
-    id: "discover-and-plan",
-    version: TemplateVersion::new(1, 0, 0),
-    title: "Discover and Plan",
-    description: "Turn a task into a bounded evidence-backed implementation plan.",
-    markdown: DISCOVER_AND_PLAN,
-    changelog: "Initial Cortex-native sequence.",
-    activation: ActivationHints {
-        task_classes: &["analysis", "planning", "implementation"],
-        intents: &["discover", "plan", "design"],
-        risks: &["low", "medium", "high"],
-        mutation: false,
-        evidence_classes: &["source", "dependents", "contracts"],
-        lexical_cues: &["plan", "design", "understand", "impact"],
-    },
-}];
-
 #[must_use]
 pub const fn templates() -> &'static [SequenceTemplate] {
-    &TEMPLATES
+    &crate::catalog::TEMPLATES
 }
 
 /// Create a detached, editable graph from an immutable built-in template.

@@ -16,7 +16,7 @@ fn a_copy_is_editable_and_detached_from_its_template() {
 #[test]
 fn catalog_ids_and_fingerprints_are_unique_and_stable() {
     let catalog = templates();
-    assert_eq!(catalog.len(), 1);
+    assert_eq!(catalog.len(), 7);
     let ids: HashSet<_> = catalog.iter().map(|template| template.id).collect();
     assert_eq!(ids.len(), catalog.len());
 
@@ -27,6 +27,87 @@ fn catalog_ids_and_fingerprints_are_unique_and_stable() {
         second.metadata["sequence.templateFingerprint"]
     );
     assert_eq!(first.metadata["sequence.templateFingerprint"].len(), 64);
+}
+
+#[test]
+fn catalog_templates_are_safe_complete_and_round_trip_stably() {
+    use cortex_domain::NodeKind;
+
+    for template in templates() {
+        assert!(
+            template.markdown.lines().count() < 140,
+            "{} is too long",
+            template.id
+        );
+        assert!(
+            !template
+                .markdown
+                .to_ascii_lowercase()
+                .contains("superpowers")
+        );
+        let graph = instantiate_template(template.id, "copy", template.title).unwrap();
+        assert!(
+            graph
+                .nodes
+                .iter()
+                .any(|node| node.kind == NodeKind::Terminal),
+            "{} has no terminal",
+            template.id
+        );
+        assert!(
+            graph
+                .nodes
+                .iter()
+                .any(|node| matches!(node.kind, NodeKind::UpstreamAgent | NodeKind::Handoff)),
+            "{} has no upstream/handoff path",
+            template.id
+        );
+        assert!(
+            graph.nodes.iter().any(|node| matches!(
+                node.kind,
+                NodeKind::EvidenceGate
+                    | NodeKind::TestGate
+                    | NodeKind::ReviewGate
+                    | NodeKind::QualityGate
+            )),
+            "{} has no proof gate",
+            template.id
+        );
+        let exported = cortex_skills::export_skill_markdown(&graph).unwrap();
+        let reimported = cortex_skills::import_skill_markdown("roundtrip.md", &exported).unwrap();
+        let second = cortex_skills::export_skill_markdown(&reimported).unwrap();
+        assert_eq!(exported, second, "{} is not a fixpoint", template.id);
+    }
+}
+
+#[test]
+fn selected_upstream_mechanics_are_fully_covered_without_bootstrap_hook() {
+    let expected: HashSet<_> = [
+        "brainstorming",
+        "dispatching-parallel-agents",
+        "executing-plans",
+        "finishing-a-development-branch",
+        "receiving-code-review",
+        "requesting-code-review",
+        "subagent-driven-development",
+        "systematic-debugging",
+        "test-driven-development",
+        "using-git-worktrees",
+        "verification-before-completion",
+        "writing-plans",
+        "writing-skills",
+    ]
+    .into_iter()
+    .collect();
+    let covered: HashSet<_> = templates()
+        .iter()
+        .flat_map(|template| template.markdown.lines())
+        .filter_map(|line| line.strip_prefix("mechanics: "))
+        .flat_map(|value| value.split(',').map(str::trim))
+        .collect();
+
+    assert_eq!(covered, expected);
+    assert!(!covered.contains("using-superpowers"));
 }
 
 #[test]

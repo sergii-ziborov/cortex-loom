@@ -1,3 +1,4 @@
+mod catalog;
 mod error;
 mod template;
 

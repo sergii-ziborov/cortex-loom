@@ -13,6 +13,7 @@ cortex-adapters = { path = "../../crates/cortex-adapters" }
 cortex-domain = { path = "../../crates/cortex-domain" }
 include_dir.workspace = true
 cortex-run = { path = "../../crates/cortex-run" }
+cortex-sequences = { path = "../../crates/cortex-sequences" }
 cortex-skills = { path = "../../crates/cortex-skills" }
 cortex-store = { path = "../../crates/cortex-store" }
 serde.workspace = true

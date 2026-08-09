@@ -274,6 +274,7 @@ dependencies = [
  "cortex-adapters",
  "cortex-domain",
  "cortex-run",
+ "cortex-sequences",
  "cortex-skills",
  "cortex-store",
  "include_dir",

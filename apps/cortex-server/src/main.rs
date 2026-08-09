@@ -22,6 +22,7 @@ use tower_http::services::ServeDir;
 mod docs;
 mod library;
 mod runs;
+mod sequences;
 
 const DEFAULT_ADDRESS: &str = "127.0.0.1:43817";
 
@@ -216,6 +217,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .merge(docs::routes())
         .merge(library::routes())
         .merge(runs::routes())
+        .merge(sequences::routes())
         .with_state(state);
     let use_embedded = !settings.explicit_ui_directory && !EMBEDDED_UI.entries().is_empty();
     let app = if use_embedded {

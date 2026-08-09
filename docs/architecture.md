@@ -32,7 +32,7 @@ Generated Markdown is a view; the typed, versioned graph is canonical.
 - `cortex-eval`: offline benchmark and calibration harness for local model profiles; pure comparators and pinned prompts shared with shadow mode; never pulls a model.
 - `cortex-shadow`: opt-in shadow observation of local profiles on real MCP traffic; bounded queue, dedicated worker thread, append-only samples, zero workflow influence.
 - `cortex-adapters`: preview-only vendor wiring (Claude Code, Codex, Copilot) rendered from the canonical graph; never writes files.
-- `cortex-weavatrix`: native `weavatrix-rust` evidence, typed conversion into the transport-independent context compiler, plus a compatibility client for safe Weavatrix Refactor previews.
+- `cortex-weavatrix`: native `weavatrix-rust` evidence, typed conversion into the transport-independent context compiler, and bounded Rust validation/rendering of upstream-authored `weavatrix.refactor-plan.v1` plans.
 - `cortex-mcp`: bounded stdio tools for Codex and Claude.
 - `cortex-server`: local HTTP API and embedded graph UI host.
 - `ui`: controlled React/SVG editor; it never owns canonical persistence.
@@ -44,7 +44,7 @@ The protocol-independent crates do not depend on MCP, HTTP, or the UI. `cortex-m
 - Stable MCP `2025-11-25` is the compatibility baseline; newer revisions are negotiated, not assumed.
 - The Streamable HTTP transport shares the stdio tool registry and runtime limits: each HTTP session is one in-process MCP loop, sessions are bounded and idle-expired, non-loopback origins are rejected, and the server initiates no streams. Bind beyond loopback only behind an authenticating proxy.
 - All frames, queues, tool runtimes, model contexts, graph sizes, and response sizes are bounded.
-- Weavatrix Refactor is preview-only in the first milestone. Apply/rollback is intentionally absent.
+- Refactor planning intelligence is not claimed locally: an upstream coding agent authors the exact plan, then native Rust parsing, path confinement, hash checks, and `weavatrix-edit` render a read-only preview. Apply, confirmation tokens, rollback, worktrees, and process spawning are absent.
 - Graph writes require the current revision; stale clients receive a conflict instead of overwriting newer state.
 - Runs retain the exact graph revision and snapshot from which they were created; graph edits never rewrite an active run.
 - Every run command requires the current run revision and appends one durable event in the same SQLite transaction.
@@ -69,7 +69,7 @@ The protocol-independent crates do not depend on MCP, HTTP, or the UI. `cortex-m
 - Weavatrix change-plan evidence is requested only when the task explicitly asks for a change or implementation plan. It remains unverified until an upstream agent or later verification phase resolves it. A truncated tail is reported in `omittedIds` and counted in `omittedEstimatedTokens`, so an omission is recorded rather than hidden.
 - An optional active skill contributes only typed `PlanHints` (`intent`, `sourceFollowup`, `skipChangePlan`) through frontmatter. The skill compiler and MCP transport do not enter the planner. Gathered evidence is checked for the evidence classes implied by the intent, receives at most one bounded wide-search/source recovery pass, and is checked again after compiler selection. A packet that remains thin is returned with `requiresUpstream: true` and an explicit `sufficiency` report.
 - `evidence_gate` has run-time semantics even when a graph author omits an execution policy: a successful completion must cite submitted, current-attempt evidence. The generic `requireEvidence` policy continues to provide the same boundary for other node kinds.
-- Refactor confirmation/apply tokens are recursively removed from requests and preview responses.
+- Refactor preview accepts only `{ repository, plan }`; the response contains the validated preview and no apply/rollback authority.
 - Secrets are read only from runtime configuration and never stored in graph documents.
 - Hardware/device placement is measured. Ollama GPU residency is not reported as NPU execution.
 

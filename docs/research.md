@@ -6,6 +6,10 @@
 
 Cortex Loom imports the format and models the methodology as typed workflow semantics. It does not copy the full prose. Any future redistribution of copied upstream material must retain the [MIT notice](https://raw.githubusercontent.com/obra/superpowers/main/LICENSE).
 
+## Weavatrix refactor boundary
+
+The backend uses first-party Rust crates only: `weavatrix-rust` for read-only repository evidence, `weavatrix-refactor-plan` for bounded parsing/validation/fingerprints, and `weavatrix-edit` for exact in-memory rendering. These crates do not provide a native semantic rename/signature/move planner, so Cortex does not claim one. A strong upstream coding agent authors the plan from cited evidence; Cortex validates and previews it and never applies it.
+
 ## MCP
 
 Codex supports local stdio and Streamable HTTP servers, shared host configuration, server instructions, allowlists, approvals, and bounded startup/tool timeouts in the current [Codex MCP documentation](https://learn.chatgpt.com/docs/extend/mcp). Claude Code supports local/remote scopes, tools, resources, prompts, and plugin-bundled MCP configuration in its [official MCP guide](https://code.claude.com/docs/en/mcp).

@@ -5,6 +5,8 @@
 > For one engineering task on one repository, how many context tokens reach the
 > upstream agent, and how many of the facts the task needs are in them?
 
+The context benchmark does not exercise refactor planning. The current refactor boundary is Rust-only and preview-only: an upstream-authored exact plan is validated and rendered without changing files. No JavaScript planner, confirmation token, or apply path participates in these measurements.
+
 Three arms answer it:
 
 | arm | what it stands for |

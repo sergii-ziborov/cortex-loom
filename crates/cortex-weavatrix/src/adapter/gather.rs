@@ -4,7 +4,7 @@ use serde_json::json;
 
 use super::evidence::{
     EvidenceBundle, EvidenceKind, append_source_reads, budget_overrun, fragments, native_call,
-    retry_wide_search,
+    normalize_graph_stats, retry_wide_search,
 };
 use super::{WeavatrixAdapter, WeavatrixError};
 
@@ -29,7 +29,8 @@ impl WeavatrixAdapter {
         let refreshed = engine.refresh_if_stale().map_err(|error| {
             WeavatrixError::Engine(format!("Weavatrix refresh failed: {error}"))
         })?;
-        let graph_status = native_call(engine, "graph_stats", json!({}))?;
+        let mut graph_status = native_call(engine, "graph_stats", json!({}))?;
+        normalize_graph_stats(&mut graph_status);
         let module_map = native_call(
             engine,
             "module_map",

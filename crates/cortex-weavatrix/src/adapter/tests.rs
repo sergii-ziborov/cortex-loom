@@ -1,6 +1,18 @@
 use serde_json::json;
 
-use super::evidence::{EvidenceKind, MAX_FRAGMENT_CHARS, extract_text, fragments, split_content};
+use super::evidence::{
+    EvidenceKind, MAX_FRAGMENT_CHARS, extract_text, fragments, normalize_graph_stats, split_content,
+};
+
+#[test]
+fn graph_stats_drop_volatile_build_latency_before_context_compilation() {
+    let mut first = json!({"nodes": 42, "build_ms": 11.234_567_89});
+    let mut second = json!({"nodes": 42, "build_ms": 987.2});
+    normalize_graph_stats(&mut first);
+    normalize_graph_stats(&mut second);
+    assert_eq!(first, second);
+    assert_eq!(first, json!({"nodes": 42}));
+}
 
 #[test]
 fn extracts_structured_text_before_fallback_content() {

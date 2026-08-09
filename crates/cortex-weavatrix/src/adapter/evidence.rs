@@ -7,6 +7,17 @@ use super::WeavatrixError;
 const MAX_EVIDENCE_CHARS: usize = 24_000;
 pub(super) const MAX_FRAGMENT_CHARS: usize = 4_096;
 
+/// Remove per-process telemetry that is not repository evidence.
+///
+/// Native `graph_stats` reports the cold graph build duration. Including it
+/// in an evidence packet makes identical repositories produce different
+/// context bytes and token counts on every process start.
+pub(super) fn normalize_graph_stats(value: &mut Value) {
+    if let Value::Object(fields) = value {
+        fields.remove("build_ms");
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EvidenceBundle {

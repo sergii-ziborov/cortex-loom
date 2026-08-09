@@ -108,6 +108,13 @@ fn blast_radius_intent_asks_for_dependents_first() {
         "blast-radius questions must keep dependents under a 4k budget, got {tools:?}"
     );
     assert!(tools.contains(&"get_dependents"));
+    let search = operations
+        .iter()
+        .find(|operation| operation.tool == "search_code")
+        .expect("blast-radius plan searches for definitions and callers");
+    let query = search.arguments["query"].as_str().unwrap();
+    assert!(query.contains("(fn|struct|enum|trait|type)"));
+    assert!(query.contains(",\\s*compile_context"));
     assert!(
         !tools.contains(&"context_bundle"),
         "symbol source is secondary on a dependents question"

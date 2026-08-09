@@ -3,8 +3,8 @@ use std::path::Path;
 use serde_json::json;
 
 use super::evidence::{
-    EvidenceBundle, EvidenceKind, append_source_reads, budget_overrun, fragments, native_call,
-    normalize_graph_stats, retry_wide_search,
+    EvidenceBundle, EvidenceKind, SourceReadPlan, append_source_reads, budget_overrun, fragments,
+    native_call, normalize_graph_stats, retry_wide_search,
 };
 use super::{WeavatrixAdapter, WeavatrixError};
 
@@ -275,7 +275,10 @@ impl WeavatrixAdapter {
                 &search_hits,
                 budget,
                 policy,
-                "WX-SOURCE",
+                SourceReadPlan {
+                    id_prefix: "WX-SOURCE",
+                    preferred_patterns: &[],
+                },
             );
         }
         Ok(TargetedEvidence {
@@ -332,6 +335,8 @@ impl WeavatrixAdapter {
             if source_followup {
                 let retry_hits = gathered.search_hits[first_retry_hit..].to_vec();
                 if !retry_hits.is_empty() {
+                    let preferred_patterns =
+                        crate::verify::source_priority_patterns(task, symbol, hints);
                     gathered
                         .bundle
                         .evidence
@@ -340,10 +345,13 @@ impl WeavatrixAdapter {
                         engine,
                         &mut gathered.bundle.evidence,
                         &mut gathered.bundle.warnings,
-                        &retry_hits,
+                        &gathered.search_hits,
                         budget,
                         policy,
-                        "WX-RETRY-SOURCE",
+                        SourceReadPlan {
+                            id_prefix: "WX-RETRY-SOURCE",
+                            preferred_patterns: &preferred_patterns,
+                        },
                     );
                 }
             }
@@ -384,7 +392,10 @@ impl WeavatrixAdapter {
                 &gathered.search_hits,
                 budget,
                 policy,
-                "WX-RETRY-SOURCE",
+                SourceReadPlan {
+                    id_prefix: "WX-RETRY-SOURCE",
+                    preferred_patterns: &[],
+                },
             );
         }
         Ok(())

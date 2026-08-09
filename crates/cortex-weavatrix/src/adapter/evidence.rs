@@ -153,6 +153,12 @@ pub(super) fn native_call(
     operations::call(engine, name, arguments).map_err(WeavatrixError::Engine)
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct SourceReadPlan<'a> {
+    pub id_prefix: &'a str,
+    pub preferred_patterns: &'a [String],
+}
+
 pub(super) fn append_source_reads(
     engine: &mut Weavatrix,
     evidence: &mut Vec<EvidenceFragment>,
@@ -160,10 +166,13 @@ pub(super) fn append_source_reads(
     search_hits: &[crate::source_followup::SearchHit],
     budget: u32,
     policy: crate::plan::PlanPolicy,
-    id_prefix: &str,
+    plan: SourceReadPlan<'_>,
 ) {
-    let paths =
-        crate::source_followup::unique_paths(search_hits, crate::source_followup::MAX_SOURCE_FILES);
+    let paths = crate::source_followup::unique_paths_for_patterns(
+        search_hits,
+        crate::source_followup::MAX_SOURCE_FILES,
+        plan.preferred_patterns,
+    );
     if paths.is_empty() {
         warnings.push("source follow-up skipped: search returned no file paths".to_owned());
         return;
@@ -181,7 +190,7 @@ pub(super) fn append_source_reads(
                     warnings.push(overrun);
                 }
                 evidence.extend(fragments(
-                    &format!("{id_prefix}-{}", index + 1),
+                    &format!("{}-{}", plan.id_prefix, index + 1),
                     EvidenceKind::SourceReads,
                     "weavatrix:read_source",
                     &value,
@@ -207,8 +216,8 @@ pub(super) fn retry_wide_search(
     budget: u32,
     policy: crate::plan::PlanPolicy,
 ) {
-    let query = crate::verify::retry_search_pattern(task, symbol, hints, missing);
-    if query.is_empty() {
+    let queries = crate::verify::retry_search_queries(task, symbol, hints, missing);
+    if queries.is_empty() {
         warnings.push("wide search retry skipped: no missing semantic terms".to_owned());
         return;
     }
@@ -216,26 +225,30 @@ pub(super) fn retry_wide_search(
         .search_tokens
         .min(budget.saturating_mul(2) / 5)
         .max(200);
-    let arguments = json!({
-        "query": query,
-        "is_regex": true,
-        "before": 2,
-        "after": 2,
-        "max_results": 80,
-        "glob": "{apps,crates,ui,config}/**/*",
-        "token_budget": token_budget,
-    });
-    match native_call(engine, "search_code", arguments) {
-        Ok(value) => {
-            search_hits.extend(crate::source_followup::hits_from_search(&value));
-            evidence.extend(fragments(
-                "WX-RETRY-SEARCH",
-                EvidenceKind::SearchHits,
-                "weavatrix:search_code",
-                &value,
-            ));
+    let query_count = u32::try_from(queries.len()).unwrap_or(u32::MAX).max(1);
+    let per_query_budget = (token_budget / query_count).max(200);
+    for (index, query) in queries.into_iter().enumerate() {
+        let arguments = json!({
+            "query": query,
+            "is_regex": true,
+            "before": 2,
+            "after": 2,
+            "max_results": 40,
+            "glob": "{apps,crates,ui,config}/**/*",
+            "token_budget": per_query_budget,
+        });
+        match native_call(engine, "search_code", arguments) {
+            Ok(value) => {
+                search_hits.extend(crate::source_followup::hits_from_search(&value));
+                evidence.extend(fragments(
+                    &format!("WX-RETRY-SEARCH-{}", index + 1),
+                    EvidenceKind::SearchHits,
+                    "weavatrix:search_code",
+                    &value,
+                ));
+            }
+            Err(error) => warnings.push(format!("wide search retry unavailable: {error}")),
         }
-        Err(error) => warnings.push(format!("wide search retry unavailable: {error}")),
     }
 }
 

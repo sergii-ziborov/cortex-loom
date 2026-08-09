@@ -36,3 +36,5 @@ pub const MAX_EXECUTOR_ID_BYTES: usize = 256;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_leases;

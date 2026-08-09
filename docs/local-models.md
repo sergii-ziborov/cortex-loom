@@ -10,6 +10,21 @@ Measured on the development machine 2026-08-05.
 | Memory | 47.5 GB, shared with the iGPU |
 | Platform AI | **24 peak TOPS INT8 — CPU, GPU and NPU combined** |
 
+Current configured roles (checked 2026-08-09):
+
+| profile | authority | gate/runtime state |
+| --- | --- | --- |
+| `gpu-embedding` | within-band evidence ordering only | gate passed for Qwen3-Embedding-0.6B INT8 on OVMS/GPU; endpoint `:8001` was not running during the final check, so deterministic order remains active |
+| `npu-classifier` | may only escalate above the lexical routing floor | gate passed for Qwen3-8B INT4 on OVMS/NPU; endpoint `:8000` was healthy |
+| `gpu-digest` | future off-path, per-revision digest cache only | `qwen3.5:9b` candidate, gate false; no hot-path authority |
+| `npu-micro-extract-qwen3-0.6b` | future verified-input literal extraction only | endpoint `:8002` absent and gate false; not selectable |
+
+The editor already exposes each node's execution target, risk, input/output
+budgets, exact `modelProfile`, evidence requirement, upstream review, and
+mutation flag. Local-model mutation is rejected, and Ollama nodes cannot turn
+off upstream review. Automatic weak-model assignment therefore remains a
+calibration problem, not a missing UI control.
+
 Two facts set the whole policy. The platform total is 24 TOPS, so this is not
 a 40-TOPS Copilot+ part and the NPU alone is a fraction of that. And the iGPU
 is four Xe cores — it can *hold* a 9B model in shared memory but will run it
@@ -49,9 +64,9 @@ review, or any mutation.
 
 The first shadow candidate is `Qwen3-0.6B`: it is multilingual, has a
 32K context, and uses the same family already deployed here. `Gemma-3-270m-it`
-and `SmolLM2-360M-Instruct` are useful controls, not trusted defaults. No
-profile is present in `config/llm-profiles.json` as `gatePassed: false`; it is
-configuration for measurement, not permission to run trusted work. The exact
+and `SmolLM2-360M-Instruct` are useful controls, not trusted defaults. The
+candidate is present in `config/llm-profiles.json` with `gatePassed: false`;
+that is configuration for measurement, not permission to run trusted work. The exact
 *(model, quantization, device, runtime)* tuple must pass the micro-extraction
 gate: schema validity 1.00, field precision and recall >= 0.95, exact match >=
 0.90, zero unsupported fields, zero routing/mutation output, and p95 <= 1.5 s.

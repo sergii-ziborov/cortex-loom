@@ -98,12 +98,16 @@ const fn evidence_policy(kind: EvidenceKind, head: bool) -> (EvidencePriority, E
         EvidenceKind::SymbolContext if head => {
             (EvidencePriority::Critical, EvidenceState::Verified)
         }
+        // Source follow-up is the verified answer-bearing layer. Its shared
+        // pool is already bounded by the gatherer, so letting earlier search
+        // metadata evict it can report a sufficient gather while delivering
+        // a packet that omits the very runtime/config fact the retry found.
+        EvidenceKind::SourceReads => (EvidencePriority::Critical, EvidenceState::Verified),
         // Dependents and endpoints share High with search/modules: they used
         // to sit at Normal and lost to an unverified change plan whenever
         // both were fetched — measured on the structural fixture set.
         EvidenceKind::Dependents
         | EvidenceKind::Endpoints
-        | EvidenceKind::SourceReads
         | EvidenceKind::ModuleMap
         | EvidenceKind::SearchHits
         | EvidenceKind::SymbolContext => (EvidencePriority::High, EvidenceState::Verified),

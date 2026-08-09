@@ -25,6 +25,7 @@ pub const SOURCE_AFTER: u32 = 48;
 pub struct SearchHit {
     pub path: String,
     pub line: u32,
+    pub text: String,
 }
 
 /// Collect path/line pairs from a `search_code` result, first-seen order.
@@ -52,6 +53,11 @@ pub fn hits_from_search(value: &Value) -> Vec<SearchHit> {
         hits.push(SearchHit {
             path: path.to_owned(),
             line,
+            text: entry
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
         });
     }
     hits
@@ -63,19 +69,55 @@ pub fn hits_from_search(value: &Value) -> Vec<SearchHit> {
 /// fixtures, and the benchmark's own task list — otherwise the first hits are
 /// README noise and the server route that answers the contract question never
 /// opens.
+/// Prefer hits that carry a missing semantic term, plus other hits in the
+/// same file. This keeps a broad recovery query from spending every source
+/// window on generic matches such as framework `Router` imports.
 #[must_use]
-pub fn unique_paths(hits: &[SearchHit], max_files: usize) -> Vec<SearchHit> {
+pub fn unique_paths_for_patterns(
+    hits: &[SearchHit],
+    max_files: usize,
+    preferred_patterns: &[String],
+) -> Vec<SearchHit> {
+    let mut preferred_paths: std::collections::HashMap<&str, std::collections::HashSet<&str>> =
+        std::collections::HashMap::new();
+    for hit in hits {
+        let lower = hit.text.to_ascii_lowercase();
+        for pattern in preferred_patterns {
+            if !pattern.is_empty() && lower.contains(pattern.as_str()) {
+                preferred_paths
+                    .entry(hit.path.as_str())
+                    .or_default()
+                    .insert(pattern.as_str());
+            }
+        }
+    }
     let mut ranked: Vec<(i32, usize, &SearchHit)> = hits
         .iter()
         .enumerate()
-        .map(|(index, hit)| (path_rank(&hit.path), index, hit))
+        .map(|(index, hit)| {
+            let affinity = preferred_paths
+                .get(hit.path.as_str())
+                .map_or(0, |patterns| {
+                    patterns
+                        .iter()
+                        .map(|pattern| i32::try_from(pattern.len()).unwrap_or(i32::MAX) * 5)
+                        .fold(0, i32::saturating_add)
+                });
+            (
+                path_rank(&hit.path)
+                    .saturating_mul(10)
+                    .saturating_add(affinity)
+                    .saturating_add(preference_score(&hit.text, preferred_patterns)),
+                index,
+                hit,
+            )
+        })
         .collect();
     ranked.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(&right.1)));
     let mut chosen = Vec::new();
     for (_, _, hit) in ranked {
         if chosen.iter().any(|seen: &SearchHit| {
-            seen.path == hit.path
-                && seen.line.abs_diff(hit.line) <= SOURCE_BEFORE.saturating_add(SOURCE_AFTER)
+            seen.path == hit.path && seen.line.abs_diff(hit.line) <= SOURCE_BEFORE
         }) {
             continue;
         }
@@ -85,6 +127,19 @@ pub fn unique_paths(hits: &[SearchHit], max_files: usize) -> Vec<SearchHit> {
         }
     }
     chosen
+}
+
+fn preference_score(text: &str, patterns: &[String]) -> i32 {
+    let lower = text.to_ascii_lowercase();
+    patterns
+        .iter()
+        .filter(|pattern| !pattern.is_empty() && lower.contains(pattern.as_str()))
+        .map(|pattern| {
+            i32::try_from(pattern.len())
+                .unwrap_or(i32::MAX)
+                .saturating_mul(10)
+        })
+        .fold(0, i32::saturating_add)
 }
 
 fn path_rank(path: &str) -> i32 {
@@ -109,6 +164,8 @@ fn path_rank(path: &str) -> i32 {
         score += 35;
     }
     if lower.contains("/bench/")
+        || lower.contains("/cortex-bench/")
+        || lower.ends_with("/probe_tasks.rs")
         || lower.ends_with("/tasks.rs")
         || lower.contains("/fixtures/")
         || lower.contains("plan_tests.rs")
@@ -127,12 +184,13 @@ fn path_rank(path: &str) -> i32 {
 /// Arguments for one bounded `read_source` call around a hit.
 #[must_use]
 pub fn read_arguments(hit: &SearchHit, token_budget: u32) -> Value {
-    let start_line = hit.line.saturating_sub(SOURCE_BEFORE).max(1);
+    let bounded_before = SOURCE_BEFORE.min(token_budget / 48);
+    let start_line = hit.line.saturating_sub(bounded_before).max(1);
     json!({
         "path": hit.path,
         "start_line": start_line,
         "before": 0,
-        "after": SOURCE_BEFORE + SOURCE_AFTER,
+        "after": bounded_before + SOURCE_AFTER,
         "token_budget": token_budget.max(200),
     })
 }
@@ -157,6 +215,14 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    fn hit(path: &str, line: u32) -> SearchHit {
+        SearchHit {
+            path: path.to_owned(),
+            line,
+            text: String::new(),
+        }
+    }
+
     #[test]
     fn hits_are_deduplicated_by_path_keeping_first_line() {
         let value = json!({
@@ -168,66 +234,34 @@ mod tests {
             ]
         });
         let hits = hits_from_search(&value);
-        let unique = unique_paths(&hits, 2);
+        let unique = unique_paths_for_patterns(&hits, 2, &[]);
         assert_eq!(
             unique,
-            vec![
-                SearchHit {
-                    path: "crates/a/src/a.rs".to_owned(),
-                    line: 10
-                },
-                SearchHit {
-                    path: "crates/b/src/b.rs".to_owned(),
-                    line: 2
-                },
-            ]
+            vec![hit("crates/a/src/a.rs", 10), hit("crates/b/src/b.rs", 2),]
         );
     }
 
     #[test]
     fn distant_hits_in_one_file_keep_separate_source_windows() {
         let hits = vec![
-            SearchHit {
-                path: "crates/a/src/lib.rs".to_owned(),
-                line: 10,
-            },
-            SearchHit {
-                path: "crates/a/src/lib.rs".to_owned(),
-                line: 200,
-            },
+            hit("crates/a/src/lib.rs", 10),
+            hit("crates/a/src/lib.rs", 200),
         ];
-        assert_eq!(unique_paths(&hits, 6), hits);
+        assert_eq!(unique_paths_for_patterns(&hits, 6, &[]), hits);
     }
 
     #[test]
     fn product_rust_outranks_docs_ui_and_bench_fixtures() {
         let hits = vec![
-            SearchHit {
-                path: "README.md".to_owned(),
-                line: 1,
-            },
-            SearchHit {
-                path: "crates/cortex-bench/src/tasks.rs".to_owned(),
-                line: 2,
-            },
-            SearchHit {
-                path: "docs/benchmark.md".to_owned(),
-                line: 3,
-            },
-            SearchHit {
-                path: "ui/src/api/client.ts".to_owned(),
-                line: 22,
-            },
-            SearchHit {
-                path: "apps/cortex-server/src/main.rs".to_owned(),
-                line: 207,
-            },
-            SearchHit {
-                path: "apps/cortex-server/src/library.rs".to_owned(),
-                line: 39,
-            },
+            hit("README.md", 1),
+            hit("crates/cortex-bench/src/tasks.rs", 2),
+            hit("crates/cortex-bench/src/probe_tasks.rs", 2),
+            hit("docs/benchmark.md", 3),
+            hit("ui/src/api/client.ts", 22),
+            hit("apps/cortex-server/src/main.rs", 207),
+            hit("apps/cortex-server/src/library.rs", 39),
         ];
-        let unique = unique_paths(&hits, 2);
+        let unique = unique_paths_for_patterns(&hits, 2, &[]);
         assert_eq!(unique[0].path, "apps/cortex-server/src/main.rs");
         assert_eq!(unique[1].path, "apps/cortex-server/src/library.rs");
     }
@@ -235,32 +269,30 @@ mod tests {
     #[test]
     fn runtime_config_outranks_docs_and_ui() {
         let hits = vec![
-            SearchHit {
-                path: "docs/local-models.md".to_owned(),
-                line: 20,
-            },
-            SearchHit {
-                path: "ui/src/types.ts".to_owned(),
-                line: 10,
-            },
-            SearchHit {
-                path: "config/llm-profiles.json".to_owned(),
-                line: 15,
-            },
+            hit("docs/local-models.md", 20),
+            hit("ui/src/types.ts", 10),
+            hit("config/llm-profiles.json", 15),
         ];
-        let unique = unique_paths(&hits, 1);
+        let unique = unique_paths_for_patterns(&hits, 1, &[]);
         assert_eq!(unique[0].path, "config/llm-profiles.json");
     }
 
     #[test]
+    fn missing_contract_term_outranks_generic_router_matches() {
+        let mut generic = hit("apps/cortex-server/src/docs.rs", 10);
+        generic.text = "use axum::{Json, Router};".to_owned();
+        let mut contract = hit("crates/cortex-mcp/src/llm_route.rs", 99);
+        contract.text = "let classification = merge_tiers(lexical, tier);".to_owned();
+        let chosen = unique_paths_for_patterns(&[generic, contract], 1, &["merge_".to_owned()]);
+        assert_eq!(chosen[0].path, "crates/cortex-mcp/src/llm_route.rs");
+    }
+
+    #[test]
     fn read_arguments_open_a_window_around_the_hit() {
-        let hit = SearchHit {
-            path: "crates/cortex-mcp/src/http.rs".to_owned(),
-            line: 63,
-        };
+        let hit = hit("crates/cortex-mcp/src/http.rs", 63);
         let args = read_arguments(&hit, 400);
         assert_eq!(args["path"], "crates/cortex-mcp/src/http.rs");
-        assert_eq!(args["start_line"], 39);
+        assert_eq!(args["start_line"], 55);
         assert_eq!(args["token_budget"], 400);
     }
 
@@ -407,3 +439,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "source_followup_contract_tests.rs"]
+mod contract_tests;

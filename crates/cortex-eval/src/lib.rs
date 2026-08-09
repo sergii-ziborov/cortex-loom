@@ -1,4 +1,4 @@
-﻿//! Offline benchmark and calibration for local model profiles.
+//! Offline benchmark and calibration for local model profiles.
 //!
 //! The harness measures candidate Ollama profiles on typed fixtures for the
 //! three roadmap suites: routing classification, structured extraction, and
@@ -16,6 +16,7 @@ pub mod comparators;
 pub mod fixtures;
 pub mod metrics;
 pub mod openai_backend;
+mod profile_suites;
 pub mod prompts;
 pub mod report;
 pub mod runner;

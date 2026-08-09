@@ -82,6 +82,7 @@ pub struct SequenceLiveReport {
     pub repetitions: u32,
     pub samples: Vec<SequenceLiveSample>,
     pub paired_regressions: Vec<String>,
+    pub baselines_available: bool,
     pub promoted: bool,
     pub reason: Option<String>,
 }
@@ -91,6 +92,14 @@ pub struct SequenceLiveReport {
 struct DeterministicStamp {
     fixture_hash: String,
     evidence_packet_hash: String,
+    gate: DeterministicGateStamp,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DeterministicGateStamp {
+    promoted: bool,
+    baselines_available: bool,
 }
 
 pub struct SequenceLiveOptions<'a> {
@@ -128,6 +137,8 @@ pub fn run_sequence_suite(
             "sequence report and recreated evidence packet hashes differ".to_owned(),
         ));
     }
+    let baselines_available =
+        deterministic_baselines_ready(&stamp) && methodology_baselines_ready(&packets);
     let fixtures = fixtures(options.limit)?;
     let installed = match backend.installed_models() {
         Ok(models) => models,
@@ -166,10 +177,12 @@ pub fn run_sequence_suite(
         }
     }
     let paired_regressions = paired_regressions(&samples);
-    let native_complete = samples
+    let native_samples: Vec<_> = samples
         .iter()
         .filter(|sample| sample.arm == SequenceArm::CortexNative)
-        .all(|sample| sample.gate_passed);
+        .collect();
+    let native_complete =
+        !native_samples.is_empty() && native_samples.iter().all(|sample| sample.gate_passed);
     Ok(SequenceLiveReport {
         status: SequenceLiveStatus::Evaluated,
         profile_id: options.profile_id.to_owned(),
@@ -179,9 +192,30 @@ pub fn run_sequence_suite(
         deterministic_fixture_hash: stamp.fixture_hash,
         repetitions: options.repetitions,
         samples,
-        promoted: native_complete && paired_regressions.is_empty(),
+        promoted: baselines_available && native_complete && paired_regressions.is_empty(),
         paired_regressions,
-        reason: None,
+        baselines_available,
+        reason: (!baselines_available).then(|| {
+            "promotion blocked: deterministic current/raw/native baselines are unavailable or failed"
+                .to_owned()
+        }),
+    })
+}
+
+fn deterministic_baselines_ready(stamp: &DeterministicStamp) -> bool {
+    stamp.gate.baselines_available && stamp.gate.promoted
+}
+
+fn methodology_baselines_ready(packets: &[MethodologyPacket]) -> bool {
+    [
+        SequenceArm::CortexCurrent,
+        SequenceArm::SuperpowersRaw,
+        SequenceArm::CortexNative,
+    ]
+    .into_iter()
+    .all(|arm| {
+        let matching: Vec<_> = packets.iter().filter(|packet| packet.arm == arm).collect();
+        !matching.is_empty() && matching.iter().all(|packet| packet.available)
     })
 }
 
@@ -344,12 +378,14 @@ fn paired_regressions(samples: &[SequenceLiveSample]) -> Vec<String> {
         );
     }
     let mut regressions = Vec::new();
-    for ((scenario, repetition, arm), current_passed) in &pairs {
-        if *arm == SequenceArm::CortexCurrent
-            && *current_passed
-            && pairs.get(&(*scenario, *repetition, SequenceArm::CortexNative)) == Some(&false)
+    for ((scenario, repetition, arm), baseline_passed) in &pairs {
+        if matches!(
+            arm,
+            SequenceArm::CortexCurrent | SequenceArm::SuperpowersRaw
+        ) && *baseline_passed
+            && pairs.get(&(*scenario, *repetition, SequenceArm::CortexNative)) != Some(&true)
         {
-            regressions.push(format!("{scenario}:repetition-{repetition}"));
+            regressions.push(format!("{scenario}:repetition-{repetition}:{}", arm.id()));
         }
     }
     regressions
@@ -395,46 +431,12 @@ fn unavailable_report(
         repetitions: options.repetitions,
         samples: Vec::new(),
         paired_regressions: Vec::new(),
+        baselines_available: false,
         promoted: false,
         reason: Some(reason),
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn exact_grader_rejects_one_lost_fact_and_completion_claim() {
-        let fixture = fixtures(Some(1)).unwrap().remove(0);
-        let claims = SequenceClaims {
-            facts: vec![fixture.required_facts[0].clone()],
-            escalate: true,
-            claim_completion: true,
-        };
-        let failures = grade(&fixture, &claims, "{}");
-        assert!(failures.iter().any(|item| item.starts_with("missing-fact")));
-        assert!(failures.contains(&"unsupported-completion".to_owned()));
-    }
-
-    #[test]
-    fn paired_order_alternates_and_has_three_repetitions() {
-        let schedule = paired_schedule(3);
-        assert_eq!(schedule.len(), 12);
-        assert_eq!(schedule[0].1, SequenceArm::None);
-        assert_eq!(schedule[4].1, SequenceArm::CortexNative);
-        assert_eq!(schedule[8].1, SequenceArm::None);
-    }
-
-    #[test]
-    fn live_fixtures_reference_deterministic_scenarios() {
-        let packets = methodology_packets(None).unwrap();
-        for fixture in fixtures(None).unwrap() {
-            assert!(
-                packets
-                    .iter()
-                    .any(|packet| packet.scenario_id == fixture.scenario_id)
-            );
-        }
-    }
-}
+#[path = "sequence_suite_tests.rs"]
+mod tests;

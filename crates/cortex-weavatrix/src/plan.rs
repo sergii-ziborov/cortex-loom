@@ -11,10 +11,18 @@
 //! about dependents or contracts, and the plan is a pure function of the task,
 //! the optional symbol, and the budget.
 
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::plan_intent::TaskIntent;
 use crate::{EvidenceKind, PlanHints};
+
+#[path = "plan_operations.rs"]
+mod operations;
+
+use operations::{
+    asks_for_change_plan, blast_search_pattern, dependents_op, endpoints_op, modules_op, search_op,
+    search_pattern_op, share, symbol_op, verify_op,
+};
 
 /// Most identifiers to carry into a search. Beyond this the alternation stops
 /// discriminating and the result is a repository-wide dump.
@@ -346,6 +354,16 @@ fn plan_all(
                 policy,
                 "config/**",
             ));
+        } else if intent == TaskIntent::BlastRadius
+            && let Some(symbol) = symbol
+        {
+            operations.push(search_pattern_op(
+                "WX-SEARCH",
+                &blast_search_pattern(symbol),
+                search_budget,
+                policy,
+                "{apps,crates}/**/*.rs",
+            ));
         } else {
             operations.push(search_op(
                 "WX-SEARCH",
@@ -375,123 +393,6 @@ fn plan_all(
         operations.push(verify_op(task, policy));
     }
     operations
-}
-
-fn search_op(
-    id: &'static str,
-    identifiers: &[String],
-    search_budget: u32,
-    policy: PlanPolicy,
-    glob: &'static str,
-) -> PlannedOperation {
-    PlannedOperation {
-        id,
-        tool: "search_code",
-        kind: EvidenceKind::SearchHits,
-        arguments: json!({
-            "query": search_pattern(identifiers),
-            "is_regex": true,
-            "before": 1,
-            "after": 1,
-            "max_results": 40,
-            // Prefer Rust product trees; docs/bench noise burns the budget first.
-            "glob": glob,
-            "token_budget": search_budget,
-        }),
-        expected_tokens: policy.search_tokens.max(search_budget),
-        bounded: true,
-    }
-}
-
-fn asks_for_change_plan(task: &str) -> bool {
-    const CUES: &[&str] = &[
-        "change plan",
-        "implementation plan",
-        "pre-commit plan",
-        "prepare change",
-        "plan the change",
-        "plan this change",
-    ];
-    let lower = task.to_ascii_lowercase();
-    CUES.iter().any(|cue| lower.contains(cue))
-}
-
-fn symbol_op(symbol: &str, structural: u32, policy: PlanPolicy) -> PlannedOperation {
-    PlannedOperation {
-        id: "WX-SYMBOL",
-        // `context_bundle` bounds its answer; `inspect_symbol` does not
-        // and returned 4 834 tokens against an 800 request before 2.2.0
-        // started rejecting the parameter outright. Preferring the
-        // bounded operation is now both correct and cheaper.
-        tool: "context_bundle",
-        kind: EvidenceKind::SymbolContext,
-        arguments: json!({
-            "label": symbol,
-            "max_related": 30,
-            "max_references": 30,
-            "max_source_files": 12,
-            "token_budget": structural,
-        }),
-        expected_tokens: policy.symbol_tokens,
-        bounded: true,
-    }
-}
-
-fn modules_op(policy: PlanPolicy) -> PlannedOperation {
-    PlannedOperation {
-        id: "WX-MODULES",
-        tool: "module_map",
-        kind: EvidenceKind::ModuleMap,
-        arguments: json!({"top_n": 16, "include_non_product": false}),
-        expected_tokens: policy.modules_tokens,
-        bounded: false,
-    }
-}
-
-fn dependents_op(symbol: &str, policy: PlanPolicy) -> PlannedOperation {
-    PlannedOperation {
-        id: "WX-DEPENDENTS",
-        tool: "get_dependents",
-        kind: EvidenceKind::Dependents,
-        arguments: json!({ "label": symbol }),
-        expected_tokens: policy.dependents_tokens,
-        bounded: false,
-    }
-}
-
-fn endpoints_op(policy: PlanPolicy) -> PlannedOperation {
-    PlannedOperation {
-        id: "WX-ENDPOINTS",
-        tool: "list_endpoints",
-        kind: EvidenceKind::Endpoints,
-        arguments: json!({}),
-        expected_tokens: policy.endpoints_tokens,
-        bounded: false,
-    }
-}
-
-fn verify_op(task: &str, policy: PlanPolicy) -> PlannedOperation {
-    PlannedOperation {
-        id: "WX-VERIFY",
-        tool: "verified_change",
-        kind: EvidenceKind::ChangePlan,
-        arguments: json!({
-            "task": task,
-            "phase": "plan",
-            "duplicate_ratchet": true,
-            "run_tests": false,
-        }),
-        expected_tokens: policy.change_plan_tokens,
-        bounded: false,
-    }
-}
-
-fn share(budget: u32, numerator: u32, denominator: u32) -> u32 {
-    budget
-        .saturating_mul(numerator)
-        .checked_div(denominator)
-        .unwrap_or(MIN_OPERATION_BUDGET)
-        .max(MIN_OPERATION_BUDGET)
 }
 
 #[cfg(test)]

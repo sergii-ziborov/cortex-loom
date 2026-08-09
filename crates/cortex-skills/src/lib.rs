@@ -2,6 +2,7 @@
 
 mod export;
 mod import;
+mod import_helpers;
 pub mod library;
 
 use std::fmt::{Display, Formatter};
@@ -261,3 +262,5 @@ pub fn export_skill(graph: &GraphDocument) -> Result<String, SkillError> {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_roundtrip;

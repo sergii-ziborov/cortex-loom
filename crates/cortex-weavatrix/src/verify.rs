@@ -201,14 +201,12 @@ pub(crate) fn retry_search_pattern(
     let semantic_retry = missing.iter().any(|item| item.starts_with("source_term:"));
     for requirement in requirements {
         let name = format!("source_term:{}", requirement.label);
-        if semantic_retry || missing.iter().any(|item| item == &name) {
+        let semantic_contract = semantic_retry && !requirement.label.starts_with("identifier:");
+        if semantic_contract || missing.iter().any(|item| item == &name) {
             patterns.extend(requirement.search_patterns);
         }
     }
-    if missing
-        .iter()
-        .any(|item| item == "search_hits" || item.starts_with("source_term:"))
-    {
+    if missing.iter().any(|item| item == "search_hits") {
         patterns.extend(
             extract_identifiers(task)
                 .into_iter()
@@ -224,6 +222,48 @@ pub(crate) fn retry_search_pattern(
     patterns.join("|")
 }
 
+pub(crate) fn retry_search_queries(
+    task: &str,
+    symbol: Option<&str>,
+    hints: PlanHints,
+    missing: &[String],
+) -> Vec<String> {
+    let intent = hints.intent_or_detect(task);
+    let semantic_retry = missing.iter().any(|item| item.starts_with("source_term:"));
+    if !semantic_retry {
+        let query = retry_search_pattern(task, symbol, hints, missing);
+        return (!query.is_empty()).then_some(query).into_iter().collect();
+    }
+    let queries: Vec<String> = coverage_requirements(task, symbol, intent)
+        .into_iter()
+        .filter(|requirement| !requirement.label.starts_with("identifier:"))
+        .map(|requirement| requirement.search_patterns.join("|"))
+        .filter(|query| !query.is_empty())
+        .collect();
+    if queries.is_empty() {
+        let query = retry_search_pattern(task, symbol, hints, missing);
+        return (!query.is_empty()).then_some(query).into_iter().collect();
+    }
+    queries
+}
+
+pub(crate) fn source_priority_patterns(
+    task: &str,
+    symbol: Option<&str>,
+    hints: PlanHints,
+) -> Vec<String> {
+    let intent = hints.intent_or_detect(task);
+    let mut patterns = Vec::new();
+    for requirement in coverage_requirements(task, symbol, intent) {
+        if !requirement.label.starts_with("identifier:") {
+            patterns.extend(requirement.content_patterns);
+        }
+    }
+    patterns.sort();
+    patterns.dedup();
+    patterns
+}
+
 fn coverage_requirements(
     task: &str,
     symbol: Option<&str>,
@@ -237,12 +277,45 @@ fn coverage_requirements(
     {
         identifiers.insert(0, symbol.to_owned());
     }
+    let runtime_flag =
+        runtime_flag_requirement(symbol.or_else(|| identifiers.first().map(String::as_str)));
     for identifier in identifiers.into_iter().take(4) {
         requirements.push(requirement(
             format!("identifier:{identifier}"),
             &[&identifier.to_ascii_lowercase()],
             &[&crate::plan::search_pattern(&[identifier])],
         ));
+    }
+    requirements.extend(lifecycle_requirements(&lower, symbol, intent, runtime_flag));
+    requirements.extend(route_store_requirements(&lower, intent));
+    requirements
+}
+
+fn lifecycle_requirements(
+    lower: &str,
+    symbol: Option<&str>,
+    intent: TaskIntent,
+    runtime_flag: Option<CoverageRequirement>,
+) -> Vec<CoverageRequirement> {
+    let mut requirements = Vec::new();
+    if intent == TaskIntent::BlastRadius
+        && lower.contains("depend")
+        && let Some(symbol) = symbol
+    {
+        let symbol = symbol.to_ascii_lowercase();
+        requirements.push(CoverageRequirement {
+            label: "caller_usage".to_owned(),
+            content_patterns: vec![
+                format!(", {symbol})"),
+                format!(": {symbol}("),
+                format!("= {symbol}("),
+                format!("return {symbol}("),
+                format!("match {symbol}("),
+            ],
+            search_patterns: vec![format!(
+                r",\s*{symbol}\s*\)|[:=]\s*{symbol}\s*\(|(return|match)\s+{symbol}\s*\("
+            )],
+        });
     }
     if lower.contains("uncalibrat") || lower.contains("profile gate") {
         requirements.push(requirement(
@@ -258,36 +331,45 @@ fn coverage_requirements(
         requirements.push(requirement(
             "profile_selection",
             &["fn select", "pub fn select"],
-            &["select"],
+            &["fn select", "pub fn select"],
         ));
     }
     if lower.contains("env flag") || lower.contains("environment variable") {
-        requirements.push(requirement(
-            "runtime_flag",
-            &["cortex_"],
-            &["CORTEX_[A-Z0-9_]+"],
-        ));
+        requirements.push(
+            runtime_flag.unwrap_or_else(|| {
+                requirement("runtime_flag", &["cortex_"], &["CORTEX_[A-Z0-9_]+"])
+            }),
+        );
     }
     if lower.contains("spawn") {
         requirements.push(requirement(
             "spawn_lifecycle",
             &["fn spawn", "pub fn spawn"],
-            &["spawn"],
+            &["fn spawn", "pub fn spawn"],
         ));
     }
     if lower.contains("shadowhandle") && lower.contains("spawn") {
         requirements.push(requirement(
             "shadow_observe",
             &["fn observe", "pub fn observe"],
-            &["observe"],
+            &["fn observe", "pub fn observe"],
         ));
     }
+    requirements
+}
+
+fn route_store_requirements(lower: &str, intent: TaskIntent) -> Vec<CoverageRequirement> {
+    let mut requirements = Vec::new();
     if lower.contains("wire") || lower.contains("wiring") {
-        requirements.push(requirement(
-            "router_wiring",
-            &["router"],
-            &["[A-Za-z0-9_]*Router"],
-        ));
+        if lower.contains("cortex_llm") {
+            requirements.push(requirement("router_wiring", &["llmrouter"], &["LlmRouter"]));
+        } else {
+            requirements.push(requirement(
+                "router_wiring",
+                &["router"],
+                &["[A-Za-z0-9_]*Router"],
+            ));
+        }
         requirements.push(requirement(
             "tier_merge",
             &["merge_", "merge tiers"],
@@ -298,7 +380,7 @@ fn coverage_requirements(
         requirements.push(requirement(
             "policy_predicate",
             &["fn permits", "pub fn permits"],
-            &["permits"],
+            &["fn permits", "pub fn permits"],
         ));
     }
     if intent == TaskIntent::ModuleTopology
@@ -313,10 +395,37 @@ fn coverage_requirements(
         requirements.push(requirement(
             "store_entrypoint",
             &["fn open", "pub fn open"],
-            &["open"],
+            &["fn open", "pub fn open"],
         ));
     }
     requirements
+}
+
+fn runtime_flag_requirement(identifier: Option<&str>) -> Option<CoverageRequirement> {
+    let identifier = identifier?;
+    if identifier.starts_with("CORTEX_") {
+        return Some(requirement(
+            "runtime_flag",
+            &[&identifier.to_ascii_lowercase()],
+            &[&crate::plan::search_pattern(&[identifier.to_owned()])],
+        ));
+    }
+    let mut stem: String = identifier
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .flat_map(char::to_uppercase)
+        .collect();
+    for suffix in ["HANDLE", "CONFIG", "PROFILE", "REGISTRY", "ROUTER"] {
+        if stem.len() > suffix.len() && stem.ends_with(suffix) {
+            stem.truncate(stem.len() - suffix.len());
+            break;
+        }
+    }
+    (!stem.is_empty()).then(|| CoverageRequirement {
+        label: "runtime_flag".to_owned(),
+        content_patterns: vec![format!("cortex_{}", stem.to_ascii_lowercase())],
+        search_patterns: vec![format!("CORTEX_[A-Z0-9_]*{stem}[A-Z0-9_]*")],
+    })
 }
 
 fn requirement(
@@ -359,132 +468,5 @@ fn kind_name_owned(kind: EvidenceKind) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::EvidenceFragment;
-
-    fn fragment(id: &str, kind: EvidenceKind, content: &str) -> EvidenceFragment {
-        EvidenceFragment {
-            id: id.to_owned(),
-            kind,
-            source: "test".to_owned(),
-            content: content.to_owned(),
-            head: true,
-        }
-    }
-
-    #[test]
-    fn config_context_is_thin_until_search_and_source_both_survive() {
-        let bundle = EvidenceBundle {
-            repository: "repo".to_owned(),
-            evidence: vec![
-                fragment(
-                    "WX-SEARCH",
-                    EvidenceKind::SearchHits,
-                    r#"{"matches":[{"path":"config/a.json","line":2}]}"#,
-                ),
-                fragment("WX-SOURCE", EvidenceKind::SourceReads, "CORTEX_LLM"),
-            ],
-            warnings: Vec::new(),
-        };
-        let hints = PlanHints {
-            intent: Some(crate::IntentHint::RuntimeConfig),
-            source_followup: Some(true),
-            skip_change_plan: true,
-        };
-        let thin = assess_compiled(
-            &bundle,
-            &["WX-SEARCH".to_owned()],
-            "Inspect `CORTEX_LLM`",
-            None,
-            hints,
-            true,
-            false,
-        );
-        assert_eq!(
-            thin.missing_evidence,
-            ["source_reads", "source_term:identifier:CORTEX_LLM"]
-        );
-        let enough = assess_compiled(
-            &bundle,
-            &["WX-SEARCH".to_owned(), "WX-SOURCE".to_owned()],
-            "Inspect `CORTEX_LLM`",
-            None,
-            hints,
-            true,
-            true,
-        );
-        assert!(enough.sufficient);
-        assert!(enough.retry_performed);
-    }
-
-    #[test]
-    fn profile_gate_requires_semantic_source_coverage_not_just_source_presence() {
-        let bundle = EvidenceBundle {
-            repository: "repo".to_owned(),
-            evidence: vec![
-                fragment(
-                    "WX-SEARCH",
-                    EvidenceKind::SearchHits,
-                    r#"{"matches":[{"path":"crates/cortex-llm/src/profile.rs","line":1}]}"#,
-                ),
-                fragment(
-                    "WX-SOURCE",
-                    EvidenceKind::SourceReads,
-                    "pub struct ProfileRegistry;",
-                ),
-            ],
-            warnings: Vec::new(),
-        };
-        let hints = PlanHints {
-            intent: Some(crate::IntentHint::RuntimeConfig),
-            source_followup: Some(true),
-            skip_change_plan: true,
-        };
-        let report = assess_compiled(
-            &bundle,
-            &["WX-SEARCH".to_owned(), "WX-SOURCE".to_owned()],
-            "How does `ProfileRegistry` refuse an uncalibrated classification profile?",
-            Some("ProfileRegistry"),
-            hints,
-            true,
-            false,
-        );
-        assert!(!report.sufficient);
-        assert!(
-            report
-                .missing_evidence
-                .iter()
-                .any(|item| item == "source_term:profile_gate_state")
-        );
-        assert!(
-            report
-                .missing_evidence
-                .iter()
-                .any(|item| item == "source_term:profile_rejection")
-        );
-    }
-
-    #[test]
-    fn semantic_retry_replays_the_whole_contract_not_only_the_last_gap() {
-        let profile = retry_search_pattern(
-            "How does `ProfileRegistry` refuse an uncalibrated classification profile?",
-            Some("ProfileRegistry"),
-            PlanHints::default(),
-            &["source_term:profile_selection".to_owned()],
-        );
-        assert!(profile.contains("select"));
-        assert!(profile.contains("gate_passed"));
-        assert!(profile.contains("NotCalibrated"));
-
-        let shadow = retry_search_pattern(
-            "How is `ShadowHandle` spawned, and which env flag turns shadow mode on?",
-            Some("ShadowHandle"),
-            PlanHints::default(),
-            &["source_term:spawn_lifecycle".to_owned()],
-        );
-        assert!(shadow.contains("spawn"));
-        assert!(shadow.contains("observe"));
-        assert!(shadow.contains("CORTEX_"));
-    }
-}
+#[path = "verify_tests.rs"]
+mod tests;

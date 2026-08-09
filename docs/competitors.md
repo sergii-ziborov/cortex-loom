@@ -4,6 +4,47 @@ Surveyed 2026-08-05. This document exists to stop us from claiming novelty we
 do not have. Where a competitor already does something better, that is written
 down as such.
 
+## Refresh — 2026-08-09: the nearest products now
+
+There is still no useful single-winner comparison. The closest systems are
+different specialists:
+
+| closest on | product | what it has that matters | Cortex boundary |
+| --- | --- | --- | --- |
+| cross-repo context | Augment Context Engine MCP | live semantic indexing, relationship awareness across repos/services, commit history plus docs/tickets, and curated/compressed retrieval; local and hosted MCP modes | stronger external knowledge and scale; it does not expose Cortex's attempt-scoped evidence gates or editable run semantics |
+| local symbol work | Serena | LSP-backed symbol retrieval, references, editing, refactoring and debugger integration through MCP; configurable modes/contexts and a lazy instruction bootstrap | stronger IDE operations; Cortex uses Weavatrix for broader typed transport/architecture evidence and adds budget/authority gates |
+| workflow product UX | LangSmith Studio | graph visualization, step/state inspection, threads, time travel, prompt iteration, datasets and experiments | much more mature studio; Cortex graphs are local typed editable documents and do not require a hosted tracing account |
+| engineering methodology | Superpowers | 14 mandatory prose skills covering TDD, debugging, planning, worktrees, review and parallel execution | Cortex adapted 13 useful mechanics into seven editable typed sequences and deliberately skipped the global `using-superpowers` bootstrap |
+| model-per-task delegation | GitHub Copilot custom agents | per-agent prompt/tools/MCP/skills plus a `model` and `reasoningEffort` override; runtime intent-based delegation | the best idea to borrow, but Cortex must keep deterministic candidate sets, calibrated profile gates and upstream fallback |
+
+Primary evidence: [Augment Context Engine MCP](https://docs.augmentcode.com/context-services/mcp/overview),
+[Serena](https://github.com/oraios/serena),
+[Serena 2026 changelog](https://github.com/oraios/serena/blob/main/CHANGELOG.md),
+[LangSmith Studio](https://docs.langchain.com/langsmith/studio),
+[Superpowers](https://github.com/obra/superpowers), and
+[GitHub Copilot custom-agent orchestration](https://docs.github.com/en/copilot/how-tos/copilot-sdk/features/custom-agents).
+
+### What to take next, without copying a dependency
+
+1. Extend the existing editable per-node `ExecutionPolicy` (target, risk,
+   token budgets, evidence/upstream gates, mutation boundary and
+   `modelProfile`) with capability-level `role`, `maxTier`, `requiresGate`,
+   `maxLatencyMs`, and `fallback=upstream`. The node should name a capability,
+   while the calibrated deployment maps it to an exact vendor model tuple.
+2. Let the deterministic router produce at most three eligible profiles. An
+   embedding may reorder them, but cannot introduce a profile or lower the
+   lexical risk floor.
+3. Keep `micro_extract` as the only sub-1B candidate: verified input, closed
+   schema, literal-output validation, no routing/sufficiency/completion or
+   mutation authority. It stays disabled until one exact
+   model/quantization/device/runtime tuple passes its gate.
+4. Copy Studio's useful debugging affordances — inspect active packet,
+   evidence, transition and retry history — while keeping storage and runs
+   local. Do not copy hosted tracing as a runtime requirement.
+5. Copy Serena's lazy guidance principle: active-step instructions are loaded
+   on demand. The measured sequence benchmark shows why full eager skill
+   injection is too expensive.
+
 Cortex Loom sits at the intersection of four markets that are otherwise
 separate. Nothing here occupies the same intersection, which is the honest
 version of "no direct competitor": every individual capability has a stronger

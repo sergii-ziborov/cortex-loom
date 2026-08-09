@@ -133,9 +133,11 @@ pub struct SequenceScenarioResult {
 #[serde(rename_all = "camelCase")]
 pub struct SequenceGate {
     pub promoted: bool,
+    pub baselines_available: bool,
     pub scenarios: usize,
     pub native_passed: usize,
     pub regressions_vs_current: Vec<String>,
+    pub regressions_vs_raw: Vec<String>,
     pub current_tokens: u64,
     pub native_tokens: u64,
     pub token_reduction_bps: i64,
@@ -216,19 +218,28 @@ pub fn score(probe: &SequenceProbe, observation: SequenceObservation) -> Sequenc
 
 #[must_use]
 pub fn gate(results: &[SequenceScenarioResult], p95_sla_passed: bool) -> SequenceGate {
-    let mut regressions = Vec::new();
+    let mut regressions_vs_current = Vec::new();
+    let mut regressions_vs_raw = Vec::new();
+    let mut baselines_available = !results.is_empty();
     let mut current_tokens = 0_u64;
     let mut native_tokens = 0_u64;
     let mut native_passed = 0;
     for result in results {
         let current = arm(result, SequenceArm::CortexCurrent);
+        let raw = arm(result, SequenceArm::SuperpowersRaw);
         let native = arm(result, SequenceArm::CortexNative);
+        baselines_available &= current.available && raw.available && native.available;
         current_tokens += u64::from(current.context_tokens);
         native_tokens += u64::from(native.context_tokens);
         native_passed += usize::from(native.passed);
         for (name, old, new) in check_pairs(&current.checks, &native.checks) {
             if old && !new {
-                regressions.push(format!("{}:{name}", result.id));
+                regressions_vs_current.push(format!("{}:{name}", result.id));
+            }
+        }
+        for (name, old, new) in check_pairs(&raw.checks, &native.checks) {
+            if old && !new {
+                regressions_vs_raw.push(format!("{}:{name}", result.id));
             }
         }
     }
@@ -237,15 +248,19 @@ pub fn gate(results: &[SequenceScenarioResult], p95_sla_passed: bool) -> Sequenc
         .checked_div(current_tokens)
         .unwrap_or(10_000);
     let token_reduction_bps = 10_000 - i64::try_from(token_ratio).unwrap_or(i64::MAX);
-    let promoted = native_passed == results.len()
-        && regressions.is_empty()
+    let promoted = baselines_available
+        && native_passed == results.len()
+        && regressions_vs_current.is_empty()
+        && regressions_vs_raw.is_empty()
         && native_tokens <= current_tokens
         && p95_sla_passed;
     SequenceGate {
         promoted,
+        baselines_available,
         scenarios: results.len(),
         native_passed,
-        regressions_vs_current: regressions,
+        regressions_vs_current,
+        regressions_vs_raw,
         current_tokens,
         native_tokens,
         token_reduction_bps,
@@ -297,6 +312,28 @@ fn check_pairs(old: &BehaviorChecks, new: &BehaviorChecks) -> [(&'static str, bo
 mod tests {
     use super::*;
 
+    fn arm_result(arm: SequenceArm, available: bool) -> SequenceArmResult {
+        SequenceArmResult {
+            arm,
+            available,
+            unavailable_reason: (!available).then(|| "fixture unavailable".to_owned()),
+            source_id: arm.id().to_owned(),
+            source_hash: String::new(),
+            context_tokens: 10,
+            context_chars: 40,
+            checks: BehaviorChecks {
+                selected_sequence: true,
+                required_node_kinds: true,
+                forbidden_node_kinds: true,
+                required_evidence: true,
+                escalation: true,
+                completion_guard: true,
+            },
+            passed: available,
+            failures: Vec::new(),
+        }
+    }
+
     #[test]
     fn fixture_has_at_least_28_scenarios() {
         let probes: Vec<SequenceProbe> =
@@ -304,5 +341,24 @@ mod tests {
         assert!(probes.len() >= 28);
         let ids: BTreeSet<_> = probes.iter().map(|probe| probe.id.as_str()).collect();
         assert_eq!(ids.len(), probes.len());
+    }
+
+    #[test]
+    fn gate_fails_closed_when_raw_baseline_is_unavailable() {
+        let result = SequenceScenarioResult {
+            id: "missing-raw".to_owned(),
+            task: "debug a failure".to_owned(),
+            expected_sequence: "root-cause-debugging".to_owned(),
+            arms: vec![
+                arm_result(SequenceArm::None, true),
+                arm_result(SequenceArm::CortexCurrent, true),
+                arm_result(SequenceArm::SuperpowersRaw, false),
+                arm_result(SequenceArm::CortexNative, true),
+            ],
+        };
+
+        let gate = gate(&[result], true);
+        assert!(!gate.promoted);
+        assert!(!gate.baselines_available);
     }
 }

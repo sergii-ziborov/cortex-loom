@@ -27,6 +27,7 @@ Generated Markdown is a view; the typed, versioned graph is canonical.
 - `cortex-run`: transport-independent run snapshots, evidence and decision audit, bounded attempts, deterministic edge transitions, and replay.
 - `cortex-store`: SQLite persistence, optimistic revisions, and history.
 - `cortex-skills`: Markdown skill import and canonical readable export.
+- `cortex-sequences`: protocol-independent template activation, detached editable copies, linting, and one-step active packets; it has no Superpowers runtime dependency.
 - `cortex-router`: deterministic risk and execution policy.
 - `cortex-ollama`: bounded Ollama discovery and structured drafting.
 - `cortex-eval`: offline benchmark and calibration harness for local model profiles; pure comparators and pinned prompts shared with shadow mode; never pulls a model.

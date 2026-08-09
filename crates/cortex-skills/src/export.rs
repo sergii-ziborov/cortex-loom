@@ -203,7 +203,7 @@ fn marker(node: &GraphNode) -> String {
 /// The order is fixed (`[kind: …]` before `[depends: …]`) so exporting twice
 /// is byte-identical.
 fn step_label(node: &GraphNode, dependencies: Option<&[usize]>) -> String {
-    let mut result = crate::import::strip_annotations(&node.label);
+    let mut result = crate::import_helpers::strip_annotations(&node.label);
     if node.kind != NodeKind::Deterministic {
         if !result.is_empty() {
             result.push(' ');
@@ -213,7 +213,7 @@ fn step_label(node: &GraphNode, dependencies: Option<&[usize]>) -> String {
     if let Some(dependencies) = dependencies
         && !dependencies.is_empty()
     {
-        let natural_dependencies = crate::import::dependency_numbers(&result);
+        let natural_dependencies = crate::import_helpers::dependency_numbers(&result);
         let missing = dependencies
             .iter()
             .filter(|number| !natural_dependencies.contains(number))

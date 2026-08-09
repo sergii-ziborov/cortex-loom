@@ -470,3 +470,94 @@ compression remains the wrong lever.
 The first run refreshed repository evidence, so cold-to-warm JSON was not byte
 identical. Two subsequent warm runs with the same stamp were byte identical
 (SHA-256 `1E2A44C29001354C4830C4E3B333F71BD039C6A501BDA16CA93936F35EEFB70C`).
+
+## Editable sequences and current self-benchmark — 2026-08-09
+
+The sequence harness compares four methodology-context arms on 28 declared
+quality and safety scenarios. It is separate from repository retrieval: the
+same synthetic evidence identity is held constant, and only methodology
+changes.
+
+| arm | methodology tokens | hard scenarios passed |
+| --- | ---: | ---: |
+| `none` | 28 | 0/28 |
+| `cortex-current` | 10 401 | 3/28 |
+| `superpowers-raw` 6.2.0 | 72 839 | 15/28 |
+| `cortex-native` | **3 812** | **28/28** |
+
+`cortex-native` transmits only one `ActiveStepPacket`; the typed graph keeps
+the remaining gates, recovery paths, evidence requirements, and upstream
+handoffs outside the prompt. It therefore uses **63.35% fewer methodology
+tokens than current Cortex skills** and **94.77% fewer than raw Superpowers**
+without losing a declared scenario. The default-promotion gate passes.
+
+This is a structural methodology benchmark, not proof that an LLM completed a
+coding task. Raw prose is normalized into declared capabilities for scoring;
+native sequences are scored from their typed graph. Every report records the
+external root label, version, LICENSE SHA-256, and SHA-256 of all 14 upstream
+`SKILL.md` inputs. Promotion now fails closed unless the current, raw, and
+native arms are all available, and native has zero check regression against
+both baselines. The two final reports are byte-identical with SHA-256
+`0F3D4C703D16202F8C566EF37D7C8AAB32274C5709018B5474E0A22CC2996D9B`.
+
+The optional live-model gate inherits that verdict: it also requires the
+deterministic report to be promoted, recreates an available raw methodology
+packet from the explicitly supplied Superpowers root, and checks paired losses
+against both current and raw. Missing external input is an evaluated
+fail-closed result, never a promotion.
+
+### Paired live smoke: no promotion for the 4B model
+
+The optional live suite ran one representative scenario for three alternating
+repetitions across all four arms: 12 calls to the already-installed
+`qwen3.5:4b` Ollama profile. No model was downloaded.
+
+- exact gate: **0/12**;
+- paired regressions from current to native: **0** (both failed exact recall);
+- p95 latency: **86 794 ms**;
+- escalation and `claimCompletion=false` were preserved, but required facts
+  were paraphrased instead of copied exactly and decoy facts sometimes leaked.
+
+Verdict: the 4B profile is not promoted for sequence work and is far outside a
+hot-path budget. Live output remains evaluation data with no routing or run
+authority.
+
+### Final repeated repository-context benchmark after review
+
+Stamp `probe-final-reviewed-2026-08-09`, budget 4 000, ten probe tasks. The
+review fixed four measurement/product defects: promotion could pass without
+the raw baseline, the live model gate compared native only with current, the
+MCP caller anchor accepted a module declaration instead of a real call, and
+source packing could let search metadata evict a verified runtime/config fact.
+Runtime-flag retry now derives a task-specific search
+stem (`ShadowHandle` → `CORTEX_*SHADOW`), and the compiler admits the already
+bounded direct source pool before high-volume search metadata.
+
+The probe's anchor literals are assembled at compile time from split pieces;
+none of the materialized strings exists in `probe_tasks.rs`. A regression test
+checks every candidate against the fixture source. Weavatrix therefore cannot
+earn a fact by retrieving the benchmark's own answer list.
+
+The current repository is larger than the earlier P2 snapshot, so the naive
+baseline changed. Two runs with the same stamp are byte-identical; volatile
+native `graph_stats.build_ms` telemetry remains excluded from evidence packets
+(SHA-256 `0519EEF64B519CBD754155B6C8AE53329D2F1F75A0F41D6502DCE4300329653C`).
+
+| arm | tokens | facts | recall |
+| --- | ---: | ---: | ---: |
+| `naive` | 310 625 | 40/40 | 100% |
+| `weavatrix-raw` | 87 462 | 26/40 | 65% |
+| `cortex-loom` | 36 039 | 24/40 | 60% |
+| `weavatrix-planned` | 20 120 | 28/40 | 70% |
+| `cortex-targeted` | **20 349** | **28/40** | **70%** |
+| `cortex-full` | 21 124 | 28/40 | 70% |
+| `cortex-source` | **34 564** | **40/40** | **100%** |
+
+Targeted is 93.45% below naive. Source verification adds twelve facts for
+14 215 tokens and is 88.87% below naive. All ten source tasks are 4/4, including
+both env/config probes. Against the earlier P2 best on the same declared
+40-fact set, targeted keeps 28/40 while using 2 258 fewer tokens; source keeps
+40/40 while using 1 541 fewer. This meets the no-recall-regression condition and
+improves both current product arms on estimated tokens. The aspirational
+`~30k` source cost is still missed by 4 564 tokens, so the next lever remains
+more selective direct-source packing—not hot-path model compression.

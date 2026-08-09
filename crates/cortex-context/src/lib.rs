@@ -202,32 +202,30 @@ pub fn compile_context(request: &ContextRequest) -> Result<ContextPacket, Contex
             .then(left_index.cmp(right_index))
     });
 
-    // Deduplicate in priority order so the first, most trusted occurrence of
-    // a line is the one that survives.
-    let (bodies, deduplicated_lines, deduplicated_estimated_tokens) = if request.deduplicate {
-        deduplicate(&ordered)
-    } else {
-        (
-            ordered
-                .iter()
-                .map(|(_, item)| item.content.clone())
-                .collect(),
-            0,
-            0,
-        )
-    };
-
     let mut content = String::new();
     let mut included_ids = Vec::new();
     let mut omitted_ids = Vec::new();
     let mut selected_estimated_tokens = 0_u32;
-    for ((_, item), body) in ordered.iter().zip(bodies) {
+    let mut seen = HashSet::new();
+    let mut deduplicated_lines = 0_u32;
+    let mut deduplicated_chars = 0_usize;
+    for (_, item) in &ordered {
+        let (body, removed_lines, removed_chars) = if request.deduplicate {
+            deduplicate_body(&item.content, &seen)
+        } else {
+            (item.content.clone(), 0, 0)
+        };
         let rendered = render_item(item, &body);
         let tokens = estimate_tokens(&rendered);
         if selected_estimated_tokens.saturating_add(tokens) <= request.max_tokens {
             content.push_str(&rendered);
             included_ids.push(item.id.clone());
             selected_estimated_tokens = selected_estimated_tokens.saturating_add(tokens);
+            if request.deduplicate {
+                record_substantial_lines(&item.content, &mut seen);
+                deduplicated_lines = deduplicated_lines.saturating_add(removed_lines);
+                deduplicated_chars = deduplicated_chars.saturating_add(removed_chars);
+            }
         } else if item.priority == EvidencePriority::Critical {
             return Err(ContextError::CriticalItemExceedsBudget {
                 id: item.id.clone(),
@@ -252,7 +250,8 @@ pub fn compile_context(request: &ContextRequest) -> Result<ContextPacket, Contex
         omitted_estimated_tokens: raw_estimated_tokens.saturating_sub(selected_estimated_tokens),
         requires_upstream,
         deduplicated_lines,
-        deduplicated_estimated_tokens,
+        deduplicated_estimated_tokens: u32::try_from(deduplicated_chars.div_ceil(4))
+            .unwrap_or(u32::MAX),
     })
 }
 
@@ -308,263 +307,39 @@ fn render_item(item: &EvidenceItem, body: &str) -> String {
 /// those lines would have cost. An item whose every substantial line is a
 /// repeat keeps its original body: a citation that renders as nothing is
 /// worse than a citation that repeats something.
-fn deduplicate(ordered: &[(usize, &EvidenceItem)]) -> (Vec<String>, u32, u32) {
-    let mut seen: HashSet<String> = HashSet::new();
-    let mut bodies = Vec::with_capacity(ordered.len());
-    let mut removed_lines = 0_u32;
-    let mut removed_chars = 0_usize;
-    for (_, item) in ordered {
-        let mut kept = Vec::new();
-        let mut dropped = Vec::new();
-        for line in item.content.lines() {
-            let trimmed = line.trim();
-            if trimmed.chars().count() < MIN_DEDUPLICATED_LINE_CHARS {
-                kept.push(line);
-                continue;
-            }
-            if seen.insert(trimmed.to_owned()) {
-                kept.push(line);
-            } else {
-                dropped.push(line);
-            }
+fn deduplicate_body(content: &str, seen: &HashSet<String>) -> (String, u32, usize) {
+    let mut kept = Vec::new();
+    let mut dropped = Vec::new();
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.chars().count() < MIN_DEDUPLICATED_LINE_CHARS {
+            kept.push(line);
+        } else if seen.contains(trimmed) {
+            dropped.push(line);
+        } else {
+            kept.push(line);
         }
-        if kept.iter().all(|line| line.trim().is_empty()) {
-            bodies.push(item.content.clone());
-            continue;
-        }
-        removed_lines =
-            removed_lines.saturating_add(u32::try_from(dropped.len()).unwrap_or(u32::MAX));
-        removed_chars += dropped
-            .iter()
-            .map(|line| line.chars().count() + 1)
-            .sum::<usize>();
-        bodies.push(kept.join("\n"));
     }
-    let removed_tokens = u32::try_from(removed_chars.div_ceil(4)).unwrap_or(u32::MAX);
-    (bodies, removed_lines, removed_tokens)
+    if kept.iter().all(|line| line.trim().is_empty()) {
+        return (content.to_owned(), 0, 0);
+    }
+    let removed_lines = u32::try_from(dropped.len()).unwrap_or(u32::MAX);
+    let mut removed_chars = 0_usize;
+    for line in dropped {
+        removed_chars = removed_chars.saturating_add(line.chars().count().saturating_add(1));
+    }
+    (kept.join("\n"), removed_lines, removed_chars)
+}
+
+fn record_substantial_lines(content: &str, seen: &mut HashSet<String>) {
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.chars().count() >= MIN_DEDUPLICATED_LINE_CHARS {
+            seen.insert(trimmed.to_owned());
+        }
+    }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn item(id: &str, content: &str, priority: EvidencePriority) -> EvidenceItem {
-        EvidenceItem {
-            id: id.to_owned(),
-            source: format!("src/{id}.rs:1"),
-            content: content.to_owned(),
-            priority,
-            state: EvidenceState::Verified,
-            relevance: None,
-        }
-    }
-
-    #[test]
-    fn selects_priority_order_and_reports_token_savings() {
-        let request = ContextRequest {
-            items: vec![
-                item("low", &"x".repeat(80), EvidencePriority::Low),
-                item("high", "important", EvidencePriority::High),
-            ],
-            max_tokens: 10,
-            deduplicate: true,
-        };
-        let packet = compile_context(&request).unwrap();
-        assert_eq!(packet.included_ids, ["high"]);
-        assert_eq!(packet.omitted_ids, ["low"]);
-        assert!(packet.omitted_estimated_tokens > 0);
-        assert!(!packet.requires_upstream);
-    }
-
-    #[test]
-    fn contradictory_evidence_is_first_and_forces_upstream_review() {
-        let mut contradiction = item("conflict", "A conflicts with B", EvidencePriority::Low);
-        contradiction.state = EvidenceState::Contradictory;
-        let request = ContextRequest {
-            items: vec![
-                item("normal", "normal evidence", EvidencePriority::Normal),
-                contradiction,
-            ],
-            max_tokens: 100,
-            deduplicate: true,
-        };
-        let packet = compile_context(&request).unwrap();
-        assert_eq!(packet.included_ids[0], "conflict");
-        assert!(packet.requires_upstream);
-    }
-
-    #[test]
-    fn critical_evidence_never_disappears_silently() {
-        let request = ContextRequest {
-            items: vec![item(
-                "critical",
-                &"x".repeat(200),
-                EvidencePriority::Critical,
-            )],
-            max_tokens: 1,
-            deduplicate: true,
-        };
-        assert!(matches!(
-            compile_context(&request),
-            Err(ContextError::CriticalItemExceedsBudget { .. })
-        ));
-    }
-
-    #[test]
-    fn relevance_reorders_only_within_a_priority_band() {
-        // Two Normal items under a budget that fits one: the scored,
-        // more relevant later item survives instead of the earlier one.
-        let mut early = item("early", &"x".repeat(80), EvidencePriority::Normal);
-        early.relevance = Some(0.2);
-        let mut late = item("late", &"y".repeat(80), EvidencePriority::Normal);
-        late.relevance = Some(0.9);
-        let request = ContextRequest {
-            items: vec![early.clone(), late.clone()],
-            max_tokens: 30,
-            deduplicate: true,
-        };
-        let packet = compile_context(&request).unwrap();
-        assert_eq!(packet.included_ids, ["late"]);
-        assert_eq!(packet.omitted_ids, ["early"]);
-
-        // A High-priority item with low relevance still beats a highly
-        // relevant Normal item: policy dominates semantics.
-        let mut high = item("high", &"h".repeat(80), EvidencePriority::High);
-        high.relevance = Some(0.01);
-        let request = ContextRequest {
-            items: vec![late, high],
-            max_tokens: 30,
-            deduplicate: true,
-        };
-        let packet = compile_context(&request).unwrap();
-        assert_eq!(packet.included_ids, ["high"]);
-
-        // Unscored items keep submission order after scored ones.
-        let scored = {
-            let mut scored = item("scored", "short", EvidencePriority::Normal);
-            scored.relevance = Some(0.1);
-            scored
-        };
-        let request = ContextRequest {
-            items: vec![
-                item("first", "short", EvidencePriority::Normal),
-                item("second", "short", EvidencePriority::Normal),
-                scored,
-            ],
-            max_tokens: 100,
-            deduplicate: true,
-        };
-        let packet = compile_context(&request).unwrap();
-        assert_eq!(packet.included_ids, ["scored", "first", "second"]);
-    }
-
-    #[test]
-    fn overlapping_evidence_is_sent_once() {
-        // The saving no single tool can find: `search_code` and
-        // `inspect_symbol` quote the same source lines, and neither knows the
-        // other ran. The higher-priority item keeps the line.
-        let shared = "pub const MAX_RETRY_ATTEMPTS: u32 = 20; // the shared line";
-        let mut symbol = item(
-            "WX-SYMBOL",
-            &format!("fn apply_command() {{\n{shared}\n}}"),
-            EvidencePriority::Critical,
-        );
-        symbol.source = "weavatrix:inspect_symbol".to_owned();
-        let hits = item(
-            "WX-SEARCH",
-            &format!("crates/cortex-run/src/lib.rs:32\n{shared}\nanother distinct line of context"),
-            EvidencePriority::High,
-        );
-        let request = ContextRequest {
-            items: vec![hits, symbol],
-            max_tokens: 1_000,
-            deduplicate: true,
-        };
-        let packet = compile_context(&request).unwrap();
-        assert_eq!(packet.included_ids, ["WX-SYMBOL", "WX-SEARCH"]);
-        assert_eq!(packet.deduplicated_lines, 1);
-        assert!(packet.deduplicated_estimated_tokens > 0);
-        assert_eq!(
-            packet.content.matches(shared).count(),
-            1,
-            "the shared line survives exactly once"
-        );
-        assert!(
-            packet.content.contains("another distinct line of context"),
-            "the rest of the lower-priority item is untouched"
-        );
-    }
-
-    #[test]
-    fn deduplication_never_empties_a_citation_and_can_be_turned_off() {
-        let repeated = "an identical substantial line of evidence";
-        let items = vec![
-            item("first", repeated, EvidencePriority::High),
-            item("second", repeated, EvidencePriority::Normal),
-        ];
-        let packet = compile_context(&ContextRequest {
-            items: items.clone(),
-            max_tokens: 1_000,
-            deduplicate: true,
-        })
-        .unwrap();
-        assert_eq!(packet.included_ids, ["first", "second"]);
-        assert_eq!(
-            packet.content.matches(repeated).count(),
-            2,
-            "an item that would render empty keeps its content instead"
-        );
-        assert_eq!(packet.deduplicated_lines, 0);
-
-        let off = compile_context(&ContextRequest {
-            items,
-            max_tokens: 1_000,
-            deduplicate: false,
-        })
-        .unwrap();
-        assert_eq!(off.deduplicated_lines, 0);
-        assert_eq!(off.content, packet.content);
-    }
-
-    #[test]
-    fn short_lines_are_never_deduplicated() {
-        // Removing every repeated `}` would corrupt an excerpt and save
-        // nothing worth having.
-        let brace = "}\n}\n}";
-        let request = ContextRequest {
-            items: vec![
-                item(
-                    "a",
-                    &format!("fn one() {{\n{brace}"),
-                    EvidencePriority::High,
-                ),
-                item(
-                    "b",
-                    &format!("fn two() {{\n{brace}"),
-                    EvidencePriority::Normal,
-                ),
-            ],
-            max_tokens: 1_000,
-            deduplicate: true,
-        };
-        let packet = compile_context(&request).unwrap();
-        assert_eq!(packet.deduplicated_lines, 0);
-        assert_eq!(packet.content.matches("fn two()").count(), 1);
-    }
-
-    #[test]
-    fn rejects_duplicate_evidence_ids() {
-        let request = ContextRequest {
-            items: vec![
-                item("same", "one", EvidencePriority::Normal),
-                item("same", "two", EvidencePriority::Normal),
-            ],
-            max_tokens: 100,
-            deduplicate: true,
-        };
-        assert!(matches!(
-            compile_context(&request),
-            Err(ContextError::DuplicateId(id)) if id == "same"
-        ));
-    }
-}
+#[path = "tests.rs"]
+mod tests;

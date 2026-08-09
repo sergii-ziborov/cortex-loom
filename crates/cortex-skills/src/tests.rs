@@ -282,6 +282,10 @@ const FIXTURES: &[(&str, &str)] = &[
         include_str!("../fixtures/evidence-first-change.md"),
     ),
     (
+        "fixtures/verification-before-completion.md",
+        include_str!("../fixtures/verification-before-completion.md"),
+    ),
+    (
         "fixtures/blast-radius-analysis.md",
         include_str!("../fixtures/blast-radius-analysis.md"),
     ),

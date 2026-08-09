@@ -24,7 +24,36 @@ Runs on every request. Latency is a user's patience.
 | role | model | why this one |
 | --- | --- | --- |
 | `embedding` | `Qwen3-Embedding-0.6B` | Named as NPU-supported by OpenVINO GenAI, and the model already passed this project's retrieval gate at Recall@k 1.00 / nDCG 0.96. Gated semantic ordering is already wired behind `CORTEX_SEMANTIC=1`, reorders only within a priority band, and falls back deterministically — so moving it to the NPU changes cost, not trust. |
-| `classification` | `Qwen2.5-1.5B-Instruct` | Named as NPU-supported. Bounded input, closed label set, fail-closed on anything outside it. |
+| `classification` | `Qwen3-8B-int4-cw-ov` | The 1.5B candidate missed two required escalations. This 8B NPU profile is the smallest measured routing profile with zero misses, so it remains the routing floor. |
+
+### A sub-1B lane, but not a smaller router
+
+The useful place for a 0.3-0.6B model is a future `micro_extract` role, not
+`classification`. Routing decides whether work may stay local; a smaller model
+must not make that trust decision after the measured 1.5B profile already
+missed two escalations.
+
+The deterministic router may offer work to `micro_extract` only when all of
+these are true:
+
+1. the task is read-only and the input is already verified evidence;
+2. the output is a closed JSON schema or vocabulary with a small output cap;
+3. every field is mechanically checked against the supplied evidence;
+4. invalid, unknown, unsupported, or timed-out output falls back without
+   changing the lexical routing floor.
+
+Good jobs are identifier extraction, evidence tagging, metadata normalization,
+and drafting `PlanHints` that deterministic code validates. Bad jobs are
+`route_work`, sufficiency judgment, source compression, change planning, code
+review, or any mutation.
+
+The first shadow candidate should be `Qwen3-0.6B`: it is multilingual, has a
+32K context, and uses the same family already deployed here. `Gemma-3-270m-it`
+and `SmolLM2-360M-Instruct` are useful controls, not trusted defaults. No
+profile belongs in `config/llm-profiles.json` until the exact
+*(model, quantization, device, runtime)* tuple passes a new micro-extraction
+gate: schema-valid >= 0.99, exact field accuracy >= 0.95, zero invented labels,
+and zero cases where validation accepts a value absent from the evidence.
 
 ### GPU — quality, off the hot path, waiting is free
 
@@ -284,3 +313,6 @@ decision. Remaining work, in order:
 - [OpenVINO GenAI on NPU](https://docs.openvino.ai/2026/openvino-workflow-generative/inference-with-genai/inference-with-genai-on-npu.html)
 - [Text generation serving with NPU acceleration — OpenVINO Model Server](https://docs.openvino.ai/2025/model-server/ovms_demos_llm_npu.html)
 - [Running your GenAI App locally on Intel GPU and NPU with OpenVINO Model Server](https://medium.com/openvino-toolkit/running-your-genai-app-locally-on-intel-gpu-and-npu-with-openvino-model-server-eb590af29dbc)
+- [Qwen3-0.6B official model card](https://huggingface.co/Qwen/Qwen3-0.6B)
+- [Gemma 3 270M IT official model card](https://huggingface.co/google/gemma-3-270m-it)
+- [SmolLM2-360M-Instruct official model card](https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct)

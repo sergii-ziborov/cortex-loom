@@ -220,7 +220,7 @@ pub fn index_entry(graph: &GraphDocument) -> Option<SkillIndexEntry> {
 /// Render the catalogue an agent keeps loaded.
 ///
 /// This is the whole point of the two-tier surface: an agent that carries
-/// thirty workflows in its prompt pays for thirty workflows on every turn,
+/// every workflow in its prompt pays for every workflow on every turn,
 /// whether or not the task is about any of them. It carries this instead —
 /// one line each — and calls `skill_read` for the one that matches.
 #[must_use]

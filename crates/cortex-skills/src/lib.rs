@@ -77,7 +77,7 @@ pub struct BundledSkill {
 /// # Ok::<(), cortex_skills::SkillError>(())
 /// ```
 #[must_use]
-#[allow(clippy::too_many_lines)] // static table of thirty methodology fixtures
+#[allow(clippy::too_many_lines)] // static table of methodology fixtures
 pub const fn bundled_skills() -> &'static [BundledSkill] {
     &[
         BundledSkill {
@@ -99,6 +99,11 @@ pub const fn bundled_skills() -> &'static [BundledSkill] {
             id: "evidence-first-change",
             source: "cortex-skills/fixtures/evidence-first-change.md",
             markdown: include_str!("../fixtures/evidence-first-change.md"),
+        },
+        BundledSkill {
+            id: "verification-before-completion",
+            source: "cortex-skills/fixtures/verification-before-completion.md",
+            markdown: include_str!("../fixtures/verification-before-completion.md"),
         },
         BundledSkill {
             id: "blast-radius-analysis",

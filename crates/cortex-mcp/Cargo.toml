@@ -16,6 +16,7 @@ cortex-llm = { path = "../cortex-llm" }
 cortex-ollama = { path = "../cortex-ollama" }
 cortex-run = { path = "../cortex-run" }
 cortex-router = { path = "../cortex-router" }
+cortex-sequences = { path = "../cortex-sequences" }
 cortex-shadow = { path = "../cortex-shadow" }
 cortex-skills = { path = "../cortex-skills" }
 cortex-store = { path = "../cortex-store" }

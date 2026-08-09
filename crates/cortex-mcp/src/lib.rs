@@ -24,6 +24,7 @@ mod llm_route;
 mod plan_hints;
 mod run_tools;
 mod semantic;
+mod sequence_tools;
 
 use llm_route::{LlmRouteConfig, LlmRouter};
 use semantic::{SemanticConfig, SemanticScorer};
@@ -972,7 +973,8 @@ pub fn build_server(state: CortexMcpState) -> ConcurrentMcpServer {
                 }
             },
         );
-    run_tools::register(server, Arc::clone(&state))
+    let server = run_tools::register(server, Arc::clone(&state));
+    sequence_tools::register(server, &state)
 }
 
 /// Telemetry writes never fail the tool: the deterministic reply is the
@@ -1031,6 +1033,8 @@ pub fn graph_summary(graph: &GraphDocument) -> Value {
 mod tests {
     use std::path::Path;
 
+    use mcport::ConcurrentToolServer;
+
     use super::*;
 
     #[test]
@@ -1038,6 +1042,33 @@ mod tests {
         let summary = graph_summary(&default_control_plane());
         assert_eq!(summary.get("nodes").and_then(Value::as_u64), Some(8));
         assert!(summary.get("nodes").is_some());
+    }
+
+    #[test]
+    fn registry_exposes_only_the_cortex_sequence_contract() {
+        let state = CortexMcpState {
+            store: GraphStore::open_in_memory().unwrap(),
+            weavatrix: WeavatrixAdapter::new(WeavatrixConfig::discover().unwrap()),
+            shadow: None,
+            semantic: None,
+            llm_router: None,
+        };
+        let catalog = build_server(state).catalog();
+        let names: Vec<_> = catalog
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|tool| tool["name"].as_str())
+            .collect();
+        for expected in [
+            "sequence_list",
+            "sequence_copy",
+            "sequence_lint",
+            "sequence_step_read",
+        ] {
+            assert!(names.contains(&expected), "missing {expected}");
+        }
+        assert!(!names.iter().any(|name| name.contains("superpowers")));
     }
 
     #[test]

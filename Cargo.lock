@@ -311,6 +311,7 @@ dependencies = [
  "blazingly-json",
  "cortex-context",
  "serde",
+ "sha2 0.10.9",
  "weavatrix-edit",
  "weavatrix-refactor-plan",
  "weavatrix-rust",

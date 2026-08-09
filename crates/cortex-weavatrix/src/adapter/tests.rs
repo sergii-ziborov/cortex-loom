@@ -1,0 +1,55 @@
+use serde_json::json;
+
+use super::evidence::{EvidenceKind, MAX_FRAGMENT_CHARS, extract_text, fragments, split_content};
+
+#[test]
+fn extracts_structured_text_before_fallback_content() {
+    let value = json!({
+        "content": [{"type": "text", "text": "fallback"}],
+        "structuredContent": {"result": {"text": "structured"}}
+    });
+    assert_eq!(extract_text(&value), "structured");
+}
+
+#[test]
+fn small_results_keep_the_bare_citation_id() {
+    let value = json!({"content": [{"type": "text", "text": "short plan"}]});
+    let parts = fragments("WX-VERIFY", EvidenceKind::ChangePlan, "weavatrix:v", &value);
+    assert_eq!(parts.len(), 1);
+    assert_eq!(parts[0].id, "WX-VERIFY");
+}
+
+#[test]
+fn oversized_results_split_into_stable_ordered_sub_citations() {
+    let paragraphs: Vec<String> = (0..8)
+        .map(|index| format!("paragraph {index} {}", "x".repeat(900)))
+        .collect();
+    let text = paragraphs.join("\n\n");
+    let value = json!({"content": [{"type": "text", "text": text}]});
+    let parts = fragments("WX-VERIFY", EvidenceKind::ChangePlan, "weavatrix:v", &value);
+    assert!(parts.len() > 1, "must split: {}", parts.len());
+    for (index, part) in parts.iter().enumerate() {
+        assert_eq!(part.id, format!("WX-VERIFY-{}", index + 1));
+        assert!(part.content.chars().count() <= MAX_FRAGMENT_CHARS);
+        assert_eq!(part.kind, EvidenceKind::ChangePlan);
+    }
+    let rejoined = parts
+        .iter()
+        .map(|part| part.content.clone())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    assert_eq!(rejoined, text, "splitting loses no content");
+    assert_eq!(
+        parts,
+        fragments("WX-VERIFY", EvidenceKind::ChangePlan, "weavatrix:v", &value),
+        "splitting is deterministic"
+    );
+}
+
+#[test]
+fn a_single_oversized_paragraph_is_hard_split_without_loss() {
+    let text = "y".repeat(MAX_FRAGMENT_CHARS * 2 + 100);
+    let parts = split_content(&text, MAX_FRAGMENT_CHARS);
+    assert_eq!(parts.len(), 3);
+    assert_eq!(parts.concat(), text);
+}

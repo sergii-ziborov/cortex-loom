@@ -133,6 +133,7 @@ export function useGraphDocument(): GraphDocumentState {
             origin: previous?.origin ?? 'local',
             originKind: previous?.originKind ?? 'local',
             kinds: [...new Set(stored.nodes.map(node => node.kind))].sort(),
+            templateId: stored.metadata['sequence.templateId'] ?? previous?.templateId ?? null,
           }
           const remaining = current.filter(item => item.id !== stored.id)
           return [summary, ...remaining]

@@ -16,6 +16,7 @@ interface RunControlsProps {
   replay: ReplayVerification | null
   busy: boolean
   dirty: boolean
+  runBlockedReason: string
   error: string
   onCreate: () => void
   onSelect: (id: string) => void
@@ -154,12 +155,13 @@ export function RunControls(props: RunControlsProps) {
         <button
           type="button"
           className="primary-button"
-          disabled={props.busy || props.dirty}
-          title={props.dirty ? 'Save the graph before starting a run.' : ''}
+          disabled={props.busy || props.dirty || Boolean(props.runBlockedReason)}
+          title={props.dirty ? 'Save the graph before starting a run.' : props.runBlockedReason}
           onClick={props.onCreate}
         >
           New run
         </button>
+        {props.runBlockedReason && <span className="run-warning">{props.runBlockedReason}</span>}
         {run && <span className={`run-chip ${run.status}`}>{run.status} · r{run.revision}</span>}
         {run && run.graphRevision !== graph.revision && (
           <span className="run-warning">snapshot graph r{run.graphRevision}</span>

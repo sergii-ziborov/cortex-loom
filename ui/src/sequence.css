@@ -1,0 +1,119 @@
+.sequence-button {
+  color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: linear-gradient(135deg, var(--accent-soft), var(--surface));
+}
+
+.sequence-studio {
+  width: min(1180px, 96vw); max-width: 1180px; height: min(88vh, 860px);
+  display: flex; flex-direction: column; overflow: hidden;
+  background:
+    radial-gradient(circle at 78% 0%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 34%),
+    var(--surface);
+}
+.sequence-header { align-items: center; }
+.sequence-header h2 { margin-top: 4px; font-size: 1.25rem; }
+.sequence-header p { margin: 5px 0 0; color: var(--muted); font-size: 0.78rem; }
+.sequence-tabs { display: flex; gap: 5px; padding: 10px 18px 0; border-bottom: 1px solid var(--border); }
+.sequence-tabs button {
+  display: flex; align-items: center; gap: 7px; padding: 9px 12px; margin-bottom: -1px;
+  border: 0; border-bottom: 2px solid transparent; color: var(--muted); background: transparent;
+  font-size: 0.78rem; font-weight: 700;
+}
+.sequence-tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+.sequence-tabs span { min-width: 20px; padding: 1px 6px; border-radius: 999px; background: var(--surface-hover); font-size: 0.65rem; }
+.sequence-message { margin: 10px 18px 0; padding: 9px 11px; border-radius: 8px; font-size: 0.76rem; }
+.sequence-message.error { color: var(--danger); border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border)); background: color-mix(in srgb, var(--danger) 7%, transparent); }
+
+.sequence-layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 330px minmax(0, 1fr); }
+.sequence-template-list { min-height: 0; overflow-y: auto; padding: 13px; border-right: 1px solid var(--border); }
+.sequence-template-list button {
+  width: 100%; display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px;
+  margin-bottom: 6px; padding: 11px; border: 1px solid transparent; border-radius: 10px;
+  color: var(--text); background: transparent; text-align: left;
+}
+.sequence-template-list button:hover { background: var(--surface-hover); }
+.sequence-template-list button.selected { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); background: var(--accent-soft); }
+.sequence-template-list strong, .sequence-template-list small { display: block; }
+.sequence-template-list strong { margin-bottom: 3px; font-size: 0.79rem; }
+.sequence-template-list small { color: var(--muted); font-size: 0.69rem; line-height: 1.35; }
+.sequence-template-icon {
+  width: 32px; height: 32px; display: grid; place-items: center; border-radius: 9px;
+  color: var(--accent); border: 1px solid var(--border); background: var(--surface-raised); font-weight: 800;
+}
+
+.sequence-preview { min-height: 0; overflow-y: auto; padding: 20px 22px 28px; }
+.sequence-loading { height: 100%; display: grid; place-items: center; color: var(--muted); }
+.sequence-preview-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.sequence-preview-heading h3 { margin: 8px 0 5px; font-size: 1.15rem; }
+.sequence-preview-heading p { max-width: 620px; margin: 0; color: var(--muted); font-size: 0.82rem; }
+.version-chip, .risk-chip {
+  display: inline-flex; padding: 3px 8px; border: 1px solid var(--border); border-radius: 999px;
+  color: var(--muted); background: var(--surface-raised); font: 650 0.63rem ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.risk-chip { color: var(--success); white-space: nowrap; }
+.risk-chip.mutation { color: var(--warning); }
+.sequence-cues { display: flex; flex-wrap: wrap; gap: 5px; margin: 15px 0; }
+.sequence-cues span { padding: 4px 8px; border-radius: 7px; color: var(--accent); background: var(--accent-soft); font-size: 0.66rem; }
+
+.sequence-steps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin: 0; padding: 0; list-style: none; counter-reset: step; }
+.sequence-steps li {
+  min-width: 0; display: grid; grid-template-columns: 12px minmax(0, 1fr); gap: 8px; align-items: center;
+  padding: 9px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-raised);
+  counter-increment: step;
+}
+.sequence-steps strong, .sequence-steps small { display: block; }
+.sequence-steps strong { overflow: hidden; font-size: 0.73rem; text-overflow: ellipsis; white-space: nowrap; }
+.sequence-steps small { margin-top: 2px; color: var(--subtle); font-size: 0.61rem; }
+.kind-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+.sequence-copy-card {
+  display: grid; grid-template-columns: minmax(170px, 1fr) minmax(140px, 0.7fr) minmax(140px, 0.7fr) auto;
+  gap: 10px; align-items: end; margin-top: 18px; padding: 13px;
+  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--border)); border-radius: 11px; background: var(--accent-soft);
+}
+.sequence-copy-card strong, .sequence-copy-card small { display: block; }
+.sequence-copy-card small { margin-top: 4px; color: var(--muted); font-size: 0.67rem; }
+.sequence-copy-card label { display: grid; gap: 4px; color: var(--muted); font-size: 0.62rem; font-weight: 700; }
+.sequence-copy-card input {
+  width: 100%; min-height: 32px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 7px;
+  color: var(--text); background: var(--surface);
+}
+.sequence-compare { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; }
+.sequence-compare > button, .my-sequences button, .sequence-empty button {
+  min-height: 31px; padding: 5px 9px; border: 1px solid var(--border); border-radius: 7px;
+  color: var(--text); background: var(--surface-raised); font-size: 0.72rem;
+}
+.sequence-diff { display: flex; flex-wrap: wrap; gap: 7px 14px; margin-top: 9px; color: var(--muted); font-size: 0.7rem; }
+.sequence-diff strong { width: 100%; color: var(--warning); }
+.sequence-advanced { margin-top: 12px; color: var(--muted); font-size: 0.71rem; }
+.sequence-advanced summary { cursor: pointer; }
+.sequence-advanced pre { max-height: 300px; overflow: auto; padding: 12px; border-radius: 8px; background: var(--bg); color: var(--muted); font-size: 0.65rem; }
+
+.my-sequences { flex: 1; min-height: 0; overflow-y: auto; padding: 18px; }
+.my-sequences-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 15px; }
+.my-sequences h3 { margin: 0; font-size: 0.95rem; }
+.my-sequences-toolbar p { margin: 4px 0 0; color: var(--muted); font-size: 0.73rem; }
+.my-sequence-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(245px, 1fr)); gap: 10px; margin-top: 14px; }
+.my-sequence-grid article, .sequence-empty {
+  display: grid; align-content: start; gap: 8px; padding: 14px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface-raised);
+}
+.my-sequence-grid article.current { border-color: var(--accent); background: var(--accent-soft); }
+.my-sequence-grid h4 { margin: 0; font-size: 0.86rem; }
+.my-sequence-grid p { min-height: 34px; margin: 0; color: var(--muted); font-size: 0.7rem; }
+.sequence-test { display: grid; gap: 4px; margin-top: 13px; padding: 11px 13px; border: 1px solid var(--border); border-radius: 9px; font-size: 0.72rem; }
+.sequence-test.passed { border-color: color-mix(in srgb, var(--success) 45%, var(--border)); }
+.sequence-test.blocked { border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
+.sequence-test span, .sequence-test small, .sequence-empty span { color: var(--muted); }
+.sequence-empty { justify-items: start; }
+
+@media (max-width: 760px) {
+  .sequence-studio { width: 100%; height: calc(100vh - 20px); }
+  .sequence-layout { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+  .sequence-template-list { display: flex; overflow-x: auto; padding: 8px; border-right: 0; border-bottom: 1px solid var(--border); }
+  .sequence-template-list button { min-width: 220px; margin: 0 5px 0 0; }
+  .sequence-preview { padding: 15px; }
+  .sequence-steps { grid-template-columns: 1fr; }
+  .sequence-copy-card { grid-template-columns: 1fr; }
+  .sequence-preview-heading { display: grid; }
+  .my-sequences-toolbar { align-items: flex-start; flex-direction: column; }
+}

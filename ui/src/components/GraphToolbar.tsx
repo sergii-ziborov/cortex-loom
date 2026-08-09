@@ -15,6 +15,7 @@ interface GraphToolbarProps {
   onImport: () => void
   onImportLibrary: () => void
   onBrowseLibrary: () => void
+  onBrowseSequences: () => void
   onReload: () => void
   onSelectGraph: (id: string) => void
   onSave: () => void
@@ -46,7 +47,8 @@ export function GraphToolbar(props: GraphToolbarProps) {
         <details className="toolbar-actions-menu">
           <summary>Actions</summary>
           <div className="compact-menu-panel">
-            <button type="button" onClick={event => mobileAction(event.currentTarget, props.onBrowseLibrary)}>Library</button>
+            <button type="button" onClick={event => mobileAction(event.currentTarget, props.onBrowseSequences)}>Sequences</button>
+            <button type="button" onClick={event => mobileAction(event.currentTarget, props.onBrowseLibrary)}>All workflows</button>
             <button type="button" onClick={event => mobileAction(event.currentTarget, props.onConnect)}>
               {connectActive ? 'Cancel link' : 'Connect nodes'}
             </button>
@@ -61,11 +63,19 @@ export function GraphToolbar(props: GraphToolbarProps) {
       <div className="toolbar-actions-desktop">
         <button
           type="button"
+          className="tool-button sequence-button"
+          onClick={props.onBrowseSequences}
+          title="Start from one of seven safe, editable Cortex sequences"
+        >
+          Sequences
+        </button>
+        <button
+          type="button"
           className="tool-button"
           onClick={props.onBrowseLibrary}
           title="Browse every workflow with its purpose, shape, and provenance"
         >
-          Library
+          All workflows
         </button>
         <button
           type="button"

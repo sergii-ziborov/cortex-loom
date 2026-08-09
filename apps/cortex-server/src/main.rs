@@ -20,6 +20,7 @@ use serde_json::json;
 use tower_http::services::ServeDir;
 
 mod docs;
+mod graphs;
 mod library;
 mod runs;
 mod sequences;
@@ -56,72 +57,6 @@ struct StatusResponse {
     ok: bool,
     version: &'static str,
     graph_count: usize,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GraphSummary {
-    id: String,
-    name: String,
-    revision: u64,
-    node_count: usize,
-    edge_count: usize,
-    /// From `metadata["description"]`, which the skill compiler writes.
-    description: String,
-    /// Where the document came from: the library root for an imported skill,
-    /// otherwise the compiler or generator that produced it.
-    origin: String,
-    /// Provenance the server can state rather than a client guess: an
-    /// imported library writes `metadata["library"]`, a bundled skill's
-    /// source sits under this crate's fixtures, and anything else was
-    /// authored here.
-    origin_kind: &'static str,
-    /// Node kinds present, sorted, so a picker can show what a workflow is
-    /// made of without fetching every document.
-    kinds: Vec<&'static str>,
-}
-
-fn summarize(graph: &GraphDocument) -> GraphSummary {
-    let mut kinds: Vec<&'static str> = graph
-        .nodes
-        .iter()
-        .map(|node| node.kind.as_str())
-        .collect::<std::collections::BTreeSet<_>>()
-        .into_iter()
-        .collect();
-    kinds.truncate(8);
-    GraphSummary {
-        id: graph.id.clone(),
-        name: graph.name.clone(),
-        revision: graph.revision,
-        node_count: graph.nodes.len(),
-        edge_count: graph.edges.len(),
-        description: graph
-            .metadata
-            .get("description")
-            .cloned()
-            .unwrap_or_default(),
-        origin: graph
-            .metadata
-            .get("library")
-            .or_else(|| graph.metadata.get("source"))
-            .cloned()
-            .unwrap_or_else(|| "local".to_owned()),
-        origin_kind: origin_kind(graph),
-        kinds,
-    }
-}
-
-const BUNDLED_SOURCE_PREFIX: &str = "cortex-skills/fixtures/";
-
-fn origin_kind(graph: &GraphDocument) -> &'static str {
-    if graph.metadata.contains_key("library") {
-        return "imported";
-    }
-    match graph.metadata.get("source") {
-        Some(source) if source.starts_with(BUNDLED_SOURCE_PREFIX) => "bundled",
-        _ => "local",
-    }
 }
 
 #[derive(Debug)]
@@ -203,8 +138,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let api = Router::new()
         .route("/api/status", get(status))
-        .route("/api/graphs", get(list_graphs))
-        .route("/api/graphs/{id}", get(get_graph).put(save_graph))
         .route("/api/skills/compile", post(compile_skill))
         .route("/api/skills/export", post(export_skill))
         .route("/api/shadow/metrics", get(shadow_metrics))
@@ -215,6 +148,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/usage/reports", get(usage_reports).post(usage_report))
         .route("/api/adapters/{agent}", get(adapter_bundle))
         .merge(docs::routes())
+        .merge(graphs::routes())
         .merge(library::routes())
         .merge(runs::routes())
         .merge(sequences::routes())
@@ -251,34 +185,6 @@ async fn status(State(state): State<AppState>) -> Result<Json<StatusResponse>, A
         version: env!("CARGO_PKG_VERSION"),
         graph_count,
     }))
-}
-
-async fn list_graphs(State(state): State<AppState>) -> Result<Json<Vec<GraphSummary>>, ApiError> {
-    Ok(Json(state.store.list()?.iter().map(summarize).collect()))
-}
-
-async fn get_graph(
-    State(state): State<AppState>,
-    AxumPath(id): AxumPath<String>,
-) -> Result<Json<GraphDocument>, ApiError> {
-    state
-        .store
-        .get(&id)?
-        .map(Json)
-        .ok_or_else(|| ApiError::NotFound(format!("graph not found: {id}")))
-}
-
-async fn save_graph(
-    State(state): State<AppState>,
-    AxumPath(id): AxumPath<String>,
-    Json(graph): Json<GraphDocument>,
-) -> Result<Json<GraphDocument>, ApiError> {
-    if id != graph.id {
-        return Err(ApiError::BadRequest(
-            "path graph id must match document id".to_owned(),
-        ));
-    }
-    Ok(Json(state.store.save(&graph)?))
 }
 
 async fn compile_skill(

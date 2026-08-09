@@ -109,6 +109,57 @@ export interface GraphSummary {
   originKind: 'bundled' | 'imported' | 'local'
   /** Distinct node kinds, so a picker can show what a workflow is made of. */
   kinds: NodeKind[]
+  /** Present only for an editable copy made from a Cortex sequence template. */
+  templateId?: string | null
+}
+
+export interface TemplateVersion {
+  major: number
+  minor: number
+  patch: number
+}
+
+export interface SequenceActivationHints {
+  taskClasses: string[]
+  intents: string[]
+  risks: string[]
+  mutation: boolean
+  evidenceClasses: string[]
+  lexicalCues: string[]
+}
+
+export interface SequenceTemplateSummary {
+  id: string
+  version: TemplateVersion
+  title: string
+  description: string
+  changelog: string
+  activation: SequenceActivationHints
+}
+
+export interface SequenceTemplateDetail extends SequenceTemplateSummary {
+  markdown: string
+  graph: GraphDocument
+}
+
+export interface SequenceDiagnostic {
+  code: string
+  nodeId: string | null
+  message: string
+  severity: 'warning' | 'error'
+}
+
+export interface SequenceCopyResponse {
+  created: boolean
+  graph: GraphDocument
+}
+
+export interface SequenceComparison {
+  addedNodes: string[]
+  removedNodes: string[]
+  changedNodes: string[]
+  addedEdges: number
+  removedEdges: number
 }
 
 export type GraphSelection =

@@ -11,13 +11,16 @@ import { LibraryDialog } from './components/LibraryDialog'
 import { LibraryPanel } from './components/LibraryPanel'
 import { Inspector } from './components/Inspector'
 import { TelemetryPanel } from './components/TelemetryPanel'
+import { SequenceStudio } from './components/SequenceStudio'
 import { InspectorResizeHandle } from './components/InspectorResizeHandle'
 import { useGraphDocument } from './hooks/useGraphDocument'
 import { useRunDocument } from './hooks/useRunDocument'
 import { useResizableInspector } from './hooks/useResizableInspector'
+import { lintSequence } from './api/client'
+import { hasBlockingDiagnostics } from './model/sequence'
 import { addEdge, addNode, deleteEdge, deleteNode, setNodePosition, updateEdge, updateNode } from './model/graph'
 import { CANVAS_HEIGHT, CANVAS_WIDTH, NODE_HEIGHT, NODE_WIDTH, clampPosition, layoutDocument } from './model/layout'
-import type { GraphDocument, GraphEdge, GraphNode, GraphSelection, Position } from './types'
+import type { GraphDocument, GraphEdge, GraphNode, GraphSelection, Position, SequenceDiagnostic } from './types'
 
 type ConnectState = undefined | null | string
 
@@ -39,11 +42,33 @@ export default function App() {
   const [helpOpen, setHelpOpen] = useState(false)
   const [libraryOpen, setLibraryOpen] = useState(false)
   const [browserOpen, setBrowserOpen] = useState(false)
+  const [sequencesOpen, setSequencesOpen] = useState(false)
+  const [sequenceDiagnostics, setSequenceDiagnostics] = useState<SequenceDiagnostic[]>([])
+  const [sequenceLintState, setSequenceLintState] = useState<'idle' | 'checking' | 'failed'>('idle')
   const graph = graphState.graph
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
   }, [theme])
+
+  useEffect(() => {
+    if (!graph?.metadata['sequence.templateId']) {
+      setSequenceDiagnostics([])
+      setSequenceLintState('idle')
+      return
+    }
+    const controller = new AbortController()
+    setSequenceLintState('checking')
+    lintSequence(graph, controller.signal)
+      .then(items => {
+        setSequenceDiagnostics(items)
+        setSequenceLintState('idle')
+      })
+      .catch(error => {
+        if ((error as { name?: string }).name !== 'AbortError') setSequenceLintState('failed')
+      })
+    return () => controller.abort()
+  }, [graph])
 
   const moveNode = useCallback((nodeId: string, position: Position) => {
     graphState.editGraph(current => setNodePosition(current, nodeId, position))
@@ -126,6 +151,13 @@ export default function App() {
     : connectState === undefined
       ? ''
       : `From “${graph.nodes.find(node => node.id === connectState)?.label ?? connectState}” — choose a target`
+  const runBlockedReason = sequenceLintState === 'checking'
+    ? 'Checking sequence safety…'
+    : sequenceLintState === 'failed'
+      ? 'Sequence safety check unavailable.'
+      : hasBlockingDiagnostics(sequenceDiagnostics)
+        ? `${sequenceDiagnostics.filter(item => item.severity === 'error').length} sequence safety issue(s).`
+        : ''
 
   return (
     <div className="app-shell">
@@ -155,6 +187,7 @@ export default function App() {
         onImport={() => setImportOpen(true)}
         onImportLibrary={() => setLibraryOpen(true)}
         onBrowseLibrary={() => setBrowserOpen(true)}
+        onBrowseSequences={() => setSequencesOpen(true)}
         onReload={reload}
         onSelectGraph={id => {
           if (graphState.dirty && !window.confirm('Discard unsaved changes and switch graphs?')) return
@@ -173,6 +206,7 @@ export default function App() {
         replay={runState.replay}
         busy={runState.busy}
         dirty={graphState.dirty}
+        runBlockedReason={runBlockedReason}
         error={runState.error}
         onCreate={() => void runState.create()}
         onSelect={id => void runState.select(id)}
@@ -252,6 +286,27 @@ export default function App() {
             void graphState.selectGraph(id)
           }}
           onImportLibrary={() => { setBrowserOpen(false); setLibraryOpen(true) }}
+        />
+      )}
+      {sequencesOpen && (
+        <SequenceStudio
+          graphs={graphState.graphs}
+          current={graph}
+          onClose={() => setSequencesOpen(false)}
+          onOpen={id => {
+            if (graphState.dirty && !window.confirm('Discard unsaved changes and open this sequence?')) return
+            setSequencesOpen(false)
+            setSelection(null)
+            setConnectState(undefined)
+            void graphState.selectGraph(id)
+          }}
+          onUse={id => {
+            if (graphState.dirty && !window.confirm('Discard unsaved changes and open the new sequence?')) return
+            setSequencesOpen(false)
+            setSelection(null)
+            setConnectState(undefined)
+            void graphState.refreshList().then(() => graphState.selectGraph(id))
+          }}
         />
       )}
       {libraryOpen && (

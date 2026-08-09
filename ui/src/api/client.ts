@@ -10,6 +10,10 @@ import type {
   RunDocument,
   RunStatus,
   RunSummary,
+  SequenceCopyResponse,
+  SequenceDiagnostic,
+  SequenceTemplateDetail,
+  SequenceTemplateSummary,
   QualitySummary,
   ShadowAggregate,
   ShadowSampleRow,
@@ -22,6 +26,7 @@ const GRAPHS_URL = '/api/graphs'
 const COMPILE_URL = '/api/skills/compile'
 const EXPORT_URL = '/api/skills/export'
 const RUNS_URL = '/api/runs'
+const SEQUENCES_URL = '/api/sequences'
 const RUN_STATUSES = new Set<RunStatus>(['running', 'succeeded', 'failed', 'cancelled'])
 
 export class ApiError extends Error {
@@ -117,6 +122,7 @@ export async function listGraphs(signal?: AbortSignal): Promise<GraphSummary[]> 
       || typeof summary.origin !== 'string'
       || !['bundled', 'imported', 'local'].includes(summary.originKind as string)
       || !Array.isArray(summary.kinds)
+      || (summary.templateId !== undefined && summary.templateId !== null && typeof summary.templateId !== 'string')
   })) {
     throw new Error('The server returned an invalid graph list.')
   }
@@ -129,6 +135,94 @@ export async function saveGraph(document: GraphDocument): Promise<GraphDocument>
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
     body: JSON.stringify(document),
   }))
+}
+
+export async function listSequenceTemplates(signal?: AbortSignal): Promise<SequenceTemplateSummary[]> {
+  const response = await fetch(`${SEQUENCES_URL}/templates`, {
+    signal,
+    headers: { Accept: 'application/json' },
+  })
+  if (!response.ok) throw new ApiError(await responseMessage(response), response.status)
+  const body: unknown = await response.json()
+  if (!Array.isArray(body) || body.some(item => !isSequenceTemplate(item))) {
+    throw new Error('The server returned an invalid sequence template list.')
+  }
+  return body as SequenceTemplateSummary[]
+}
+
+export async function loadSequenceTemplate(
+  id: string,
+  signal?: AbortSignal,
+): Promise<SequenceTemplateDetail> {
+  const response = await fetch(`${SEQUENCES_URL}/templates/${encodeURIComponent(id)}`, {
+    signal,
+    headers: { Accept: 'application/json' },
+  })
+  if (!response.ok) throw new ApiError(await responseMessage(response), response.status)
+  const body: unknown = await response.json()
+  if (!isSequenceTemplate(body) || typeof (body as { markdown?: unknown }).markdown !== 'string'
+    || typeof (body as { graph?: unknown }).graph !== 'object') {
+    throw new Error('The server returned an invalid sequence template.')
+  }
+  return { ...(body as SequenceTemplateDetail), graph: parseGraphDocument((body as SequenceTemplateDetail).graph) }
+}
+
+export async function copySequenceTemplate(
+  templateId: string,
+  graphId: string,
+  name: string,
+): Promise<SequenceCopyResponse> {
+  const response = await fetch(`${SEQUENCES_URL}/templates/${encodeURIComponent(templateId)}/copy`, {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ graphId, name }),
+  })
+  if (!response.ok) throw new ApiError(await responseMessage(response), response.status)
+  const body: unknown = await response.json()
+  if (typeof body !== 'object' || body === null || typeof (body as { created?: unknown }).created !== 'boolean') {
+    throw new Error('The server returned an invalid sequence copy.')
+  }
+  return {
+    created: (body as { created: boolean }).created,
+    graph: parseGraphDocument((body as { graph: unknown }).graph),
+  }
+}
+
+export async function lintSequence(
+  graph: GraphDocument,
+  signal?: AbortSignal,
+): Promise<SequenceDiagnostic[]> {
+  const response = await fetch(`${SEQUENCES_URL}/lint`, {
+    method: 'POST',
+    signal,
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify(graph),
+  })
+  if (!response.ok) throw new ApiError(await responseMessage(response), response.status)
+  const body: unknown = await response.json()
+  if (!Array.isArray(body) || body.some(item => {
+    if (typeof item !== 'object' || item === null) return true
+    const diagnostic = item as Partial<SequenceDiagnostic>
+    return typeof diagnostic.code !== 'string'
+      || typeof diagnostic.message !== 'string'
+      || !['warning', 'error'].includes(diagnostic.severity ?? '')
+  })) {
+    throw new Error('The server returned invalid sequence diagnostics.')
+  }
+  return body as SequenceDiagnostic[]
+}
+
+function isSequenceTemplate(value: unknown): value is SequenceTemplateSummary {
+  if (typeof value !== 'object' || value === null) return false
+  const template = value as Partial<SequenceTemplateSummary>
+  return typeof template.id === 'string'
+    && typeof template.title === 'string'
+    && typeof template.description === 'string'
+    && typeof template.changelog === 'string'
+    && typeof template.version === 'object'
+    && template.version !== null
+    && typeof template.activation === 'object'
+    && template.activation !== null
 }
 
 export async function compileMarkdown(name: string, markdown: string): Promise<GraphDocument> {

@@ -989,6 +989,33 @@ fn to_snake<T: serde::Serialize>(value: &T) -> Option<String> {
         .and_then(|value| value.as_str().map(str::to_owned))
 }
 
+fn refactor_preview_schema() -> Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "repository": {"type": "string"},
+            "plan": {
+                "type": "object",
+                "description": "A complete weavatrix.refactor-plan.v1 object; native Rust parsing rejects unknown operation fields, unsafe paths, stale hashes, and oversized values.",
+                "additionalProperties": true
+            }
+        },
+        "required": ["repository", "plan"],
+        "additionalProperties": false
+    })
+}
+
+fn preview_refactor_response(
+    adapter: &WeavatrixAdapter,
+    repository: &std::path::Path,
+    plan: &Value,
+) -> Result<Value, String> {
+    adapter
+        .preview_refactor(repository, plan)
+        .map(|preview| serde_json::json!({"mode": "preview", "preview": preview}))
+        .map_err(|error| error.to_string())
+}
+
 #[must_use]
 pub fn graph_summary(graph: &GraphDocument) -> Value {
     serde_json::json!({
@@ -1057,31 +1084,4 @@ mod tests {
         assert!(!root.join("src/new.rs").exists());
         std::fs::remove_dir_all(&root).unwrap();
     }
-}
-
-fn refactor_preview_schema() -> Value {
-    serde_json::json!({
-        "type": "object",
-        "properties": {
-            "repository": {"type": "string"},
-            "plan": {
-                "type": "object",
-                "description": "A complete weavatrix.refactor-plan.v1 object; native Rust parsing rejects unknown operation fields, unsafe paths, stale hashes, and oversized values.",
-                "additionalProperties": true
-            }
-        },
-        "required": ["repository", "plan"],
-        "additionalProperties": false
-    })
-}
-
-fn preview_refactor_response(
-    adapter: &WeavatrixAdapter,
-    repository: &std::path::Path,
-    plan: &Value,
-) -> Result<Value, String> {
-    adapter
-        .preview_refactor(repository, plan)
-        .map(|preview| serde_json::json!({"mode": "preview", "preview": preview}))
-        .map_err(|error| error.to_string())
 }

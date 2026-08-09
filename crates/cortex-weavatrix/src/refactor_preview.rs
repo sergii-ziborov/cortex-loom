@@ -47,9 +47,9 @@ pub fn preview_refactor_plan(
     raw_plan: &[u8],
 ) -> Result<RefactorPreview, WeavatrixError> {
     let limits = RefactorPlanLimits::default();
-    let plan = parse_refactor_plan(raw_plan, limits).map_err(plan_error)?;
-    let validated = validate_consumer_plan(&plan, limits).map_err(plan_error)?;
-    let fingerprint = fingerprint_plan(validated.plan()).map_err(plan_error)?;
+    let plan = parse_refactor_plan(raw_plan, limits).map_err(|error| plan_error(&error))?;
+    let validated = validate_consumer_plan(&plan, limits).map_err(|error| plan_error(&error))?;
+    let fingerprint = fingerprint_plan(validated.plan()).map_err(|error| plan_error(&error))?;
     let root = repository.canonicalize().map_err(|error| {
         WeavatrixError::Engine(format!(
             "cannot open repository {}: {error}",
@@ -70,7 +70,7 @@ pub fn preview_refactor_plan(
                     &file.edits,
                     weavatrix_edit::ApplyLimits::default(),
                 )
-                .map_err(edit_error)?;
+                .map_err(|error| edit_error(&error))?;
                 let after = prepared.apply().text;
                 push_unique(&mut affected_paths, &file.path);
                 changes.push(change_with_bodies(
@@ -116,7 +116,7 @@ pub fn preview_refactor_plan(
                     &file.edits,
                     weavatrix_edit::ApplyLimits::default(),
                 )
-                .map_err(edit_error)?;
+                .map_err(|error| edit_error(&error))?;
                 let after = prepared.apply().text;
                 push_unique(&mut affected_paths, &file.from);
                 push_unique(&mut affected_paths, &file.to);
@@ -256,11 +256,11 @@ fn push_unique(paths: &mut Vec<String>, path: &str) {
     }
 }
 
-fn plan_error(error: weavatrix_refactor_plan::PlanError) -> WeavatrixError {
+fn plan_error(error: &weavatrix_refactor_plan::PlanError) -> WeavatrixError {
     WeavatrixError::InvalidArguments(format!("invalid refactor plan: {error}"))
 }
 
-fn edit_error(error: weavatrix_edit::EditError) -> WeavatrixError {
+fn edit_error(error: &weavatrix_edit::EditError) -> WeavatrixError {
     WeavatrixError::InvalidArguments(format!("invalid refactor edit: {error}"))
 }
 
@@ -309,7 +309,7 @@ mod tests {
     impl Drop for TestRepo {
         fn drop(&mut self) {
             let expected_prefix = std::env::temp_dir().join("cortex-weavatrix-preview-");
-            assert!(self.0.parent() == expected_prefix.parent());
+            assert_eq!(self.0.parent(), expected_prefix.parent());
             assert!(self.0.file_name().is_some_and(|name| {
                 name.to_string_lossy()
                     .starts_with("cortex-weavatrix-preview-")

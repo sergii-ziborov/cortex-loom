@@ -41,7 +41,9 @@ sha2 = "0.10"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 tower-http = { version = "0.7.0", features = ["fs", "trace"] }
 ureq = { version = "3.3.0", default-features = false }
-weavatrix-rust = "2.2.1"
+weavatrix-edit = "0.1.7"
+weavatrix-refactor-plan = "0.1.0"
+weavatrix-rust = "2.3.0"
 
 [profile.release]
 lto = "thin"

@@ -15,3 +15,13 @@ pub use context::{CompiledEvidenceBundle, compile_evidence_bundle};
 pub use hints::{IntentHint, PlanHints};
 pub use transport::{McpChild, McpCommand, McpError};
 pub use verify::{EvidenceSufficiency, assess_compiled};
+
+#[cfg(test)]
+mod contract_tests {
+    #[test]
+    fn first_party_plan_contract_is_available() {
+        let limits = weavatrix_refactor_plan::RefactorPlanLimits::default();
+        assert!(limits.max_operations > 0);
+        assert_eq!(weavatrix_rust::VERSION, "2.3.0");
+    }
+}

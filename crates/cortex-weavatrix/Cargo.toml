@@ -11,6 +11,8 @@ publish = false
 cortex-context = { path = "../cortex-context" }
 serde.workspace = true
 serde_json.workspace = true
+weavatrix-edit.workspace = true
+weavatrix-refactor-plan.workspace = true
 weavatrix-rust.workspace = true
 
 [lints]

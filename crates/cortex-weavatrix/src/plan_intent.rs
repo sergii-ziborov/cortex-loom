@@ -16,6 +16,8 @@ pub enum TaskIntent {
     ApiContract,
     /// Module / crate ownership and repository topology.
     ModuleTopology,
+    /// Runtime configuration, environment flags, profiles, and policy gates.
+    RuntimeConfig,
 }
 
 /// Classify `task` from stable structural cues in the prose.
@@ -31,6 +33,9 @@ pub fn detect(task: &str) -> TaskIntent {
     }
     if module_topology_cue(&lower) {
         return TaskIntent::ModuleTopology;
+    }
+    if runtime_config_cue(&lower) {
+        return TaskIntent::RuntimeConfig;
     }
     TaskIntent::IdentifierChange
 }
@@ -89,6 +94,31 @@ fn module_topology_cue(lower: &str) -> bool {
     CUES.iter().any(|cue| lower.contains(cue))
 }
 
+fn runtime_config_cue(lower: &str) -> bool {
+    const CUES: &[&str] = &[
+        "environment variable",
+        "env variable",
+        "env var",
+        "env flag",
+        "feature flag",
+        "runtime config",
+        "configuration",
+        "config/",
+        ".json",
+        ".yaml",
+        ".yml",
+        ".toml",
+        "profile gate",
+        "policy gate",
+        "gatepassed",
+        "gate_passed",
+    ];
+    CUES.iter().any(|cue| lower.contains(cue))
+        || lower
+            .split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
+            .any(|word| word.starts_with("cortex_") || word.ends_with("_enabled"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{TaskIntent, detect};
@@ -114,6 +144,14 @@ mod tests {
         assert_eq!(
             detect("Rename RetryLimitTooLarge in retry.rs"),
             TaskIntent::IdentifierChange
+        );
+        assert_eq!(
+            detect("How does CORTEX_LLM read config/llm-profiles.json?"),
+            TaskIntent::RuntimeConfig
+        );
+        assert_eq!(
+            detect("Which env flag enables ShadowHandle?"),
+            TaskIntent::RuntimeConfig
         );
     }
 }

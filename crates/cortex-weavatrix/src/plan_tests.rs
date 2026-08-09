@@ -1,4 +1,7 @@
-use super::{BUDGET_HONOURING, EvidenceKind, extract_identifiers, plan, search_pattern};
+use super::{
+    BUDGET_HONOURING, EvidenceKind, PlanPolicy, extract_identifiers, plan, plan_with_hints,
+    search_pattern,
+};
 
 #[test]
 fn identifiers_are_recognised_by_shape_not_by_vocabulary() {
@@ -52,8 +55,7 @@ fn a_task_naming_code_asks_for_the_facts_a_summary_cannot_carry() {
             "search_code",
             "context_bundle",
             "module_map",
-            "get_dependents",
-            "verified_change"
+            "get_dependents"
         ]
     );
     let recommended = plan("rename `RetryLimitTooLarge`", Some("apply_command"), 4_000);
@@ -142,7 +144,68 @@ fn module_topology_intent_asks_for_module_map_first() {
 fn a_task_naming_no_code_falls_back_to_structure() {
     let operations = plan("make the thing faster please", None, 4_000);
     let tools: Vec<&str> = operations.iter().map(|operation| operation.tool).collect();
-    assert_eq!(tools, ["module_map", "verified_change"]);
+    assert_eq!(tools, ["module_map"]);
+}
+
+#[test]
+fn runtime_config_intent_searches_code_and_config_without_a_change_plan() {
+    let operations = plan(
+        "How does `CORTEX_LLM` read config/llm-profiles.json and enforce its profile gate?",
+        None,
+        4_000,
+    );
+    let searches: Vec<_> = operations
+        .iter()
+        .filter(|operation| operation.tool == "search_code")
+        .collect();
+    assert_eq!(searches.len(), 2);
+    assert_eq!(searches[0].id, "WX-SEARCH");
+    assert_eq!(searches[1].id, "WX-CONFIG");
+    assert_eq!(searches[1].arguments["glob"], "config/**");
+    assert!(
+        operations
+            .iter()
+            .all(|operation| operation.tool != "verified_change")
+    );
+}
+
+#[test]
+fn an_explicit_change_plan_can_still_request_verified_change() {
+    let operations = plan(
+        "Prepare an implementation plan for changing `compile_context`",
+        Some("compile_context"),
+        16_000,
+    );
+    assert!(
+        operations
+            .iter()
+            .any(|operation| operation.tool == "verified_change")
+    );
+}
+
+#[test]
+fn active_skill_hints_override_intent_and_can_forbid_change_plans() {
+    let operations = plan_with_hints(
+        "Prepare an implementation plan for `CORTEX_SHADOW`.",
+        None,
+        4_000,
+        PlanPolicy::default(),
+        crate::PlanHints {
+            intent: Some(crate::IntentHint::RuntimeConfig),
+            source_followup: Some(true),
+            skip_change_plan: true,
+        },
+    );
+    assert!(
+        operations
+            .iter()
+            .any(|operation| operation.id == "WX-CONFIG")
+    );
+    assert!(
+        operations
+            .iter()
+            .all(|operation| operation.kind != EvidenceKind::ChangePlan)
+    );
 }
 
 #[test]
@@ -159,7 +222,7 @@ fn regex_metacharacters_in_identifiers_are_escaped() {
 #[test]
 fn a_small_budget_stops_asking_for_evidence_it_cannot_carry() {
     let generous = plan("rename `RetryLimitTooLarge`", Some("apply_command"), 16_000);
-    assert_eq!(generous.len(), 5);
+    assert_eq!(generous.len(), 4);
     let tight = plan("rename `RetryLimitTooLarge`", Some("apply_command"), 600);
     assert!(tight.len() < generous.len());
     assert_eq!(

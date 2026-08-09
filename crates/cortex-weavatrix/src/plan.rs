@@ -13,8 +13,8 @@
 
 use serde_json::{Value, json};
 
-use crate::EvidenceKind;
-use crate::plan_intent::{TaskIntent, detect};
+use crate::plan_intent::TaskIntent;
+use crate::{EvidenceKind, PlanHints};
 
 /// Most identifiers to carry into a search. Beyond this the alternation stops
 /// discriminating and the result is a repository-wide dump.
@@ -71,7 +71,7 @@ impl Default for PlanPolicy {
             dependents_tokens: 2_500,
             endpoints_tokens: 400,
             change_plan_tokens: 6_000,
-            source_tokens: 1_600,
+            source_tokens: 1_300,
             overcommit: 2,
         }
     }
@@ -158,7 +158,9 @@ fn candidates(task: &str) -> Vec<&str> {
 }
 
 /// Suffixes that make a token a file path worth searching for by name.
-const SOURCE_SUFFIXES: &[&str] = &[".rs", ".ts", ".tsx", ".toml", ".md", ".sql", ".proto"];
+const SOURCE_SUFFIXES: &[&str] = &[
+    ".rs", ".ts", ".tsx", ".toml", ".json", ".yaml", ".yml", ".md", ".sql", ".proto",
+];
 
 fn is_identifier(value: &str) -> bool {
     if value.len() < 3 || value.len() > 96 {
@@ -249,7 +251,19 @@ pub fn plan_with(
     budget: u32,
     policy: PlanPolicy,
 ) -> Vec<PlannedOperation> {
-    let mut operations = plan_all(task, symbol, budget, policy);
+    plan_with_hints(task, symbol, budget, policy, PlanHints::default())
+}
+
+/// As [`plan_with`], with deterministic controls supplied by an active skill.
+#[must_use]
+pub fn plan_with_hints(
+    task: &str,
+    symbol: Option<&str>,
+    budget: u32,
+    policy: PlanPolicy,
+    hints: PlanHints,
+) -> Vec<PlannedOperation> {
+    let mut operations = plan_all(task, symbol, budget, policy, hints);
     let ceiling = budget.saturating_mul(policy.overcommit.max(1));
     let mut committed = 0_u32;
     operations.retain(|operation| {
@@ -276,8 +290,9 @@ fn plan_all(
     symbol: Option<&str>,
     budget: u32,
     policy: PlanPolicy,
+    hints: PlanHints,
 ) -> Vec<PlannedOperation> {
-    let intent = detect(task);
+    let intent = hints.intent_or_detect(task);
     let identifiers = extract_identifiers(task);
     let search_budget = share(budget, SEARCH_BUDGET_NUMERATOR, SEARCH_BUDGET_DENOMINATOR);
     let remainder = budget
@@ -300,10 +315,34 @@ fn plan_all(
         TaskIntent::ModuleTopology => {
             operations.push(modules_op(policy));
         }
-        TaskIntent::IdentifierChange => {}
+        TaskIntent::IdentifierChange | TaskIntent::RuntimeConfig => {}
     }
     if !identifiers.is_empty() {
-        operations.push(search_op(&identifiers, search_budget, policy));
+        if intent == TaskIntent::RuntimeConfig {
+            let slice = share(search_budget, 1, 2);
+            operations.push(search_op(
+                "WX-SEARCH",
+                &identifiers,
+                slice,
+                policy,
+                "{apps,crates}/**/*.rs",
+            ));
+            operations.push(search_op(
+                "WX-CONFIG",
+                &identifiers,
+                slice,
+                policy,
+                "config/**",
+            ));
+        } else {
+            operations.push(search_op(
+                "WX-SEARCH",
+                &identifiers,
+                search_budget,
+                policy,
+                "{apps,crates}/**/*.rs",
+            ));
+        }
     }
     // Blast-radius questions already have dependents; symbol source is
     // secondary and often too large to keep under a 4k budget.
@@ -320,13 +359,21 @@ fn plan_all(
     {
         operations.push(dependents_op(symbol, policy));
     }
-    operations.push(verify_op(task, policy));
+    if !hints.skip_change_plan && asks_for_change_plan(task) {
+        operations.push(verify_op(task, policy));
+    }
     operations
 }
 
-fn search_op(identifiers: &[String], search_budget: u32, policy: PlanPolicy) -> PlannedOperation {
+fn search_op(
+    id: &'static str,
+    identifiers: &[String],
+    search_budget: u32,
+    policy: PlanPolicy,
+    glob: &'static str,
+) -> PlannedOperation {
     PlannedOperation {
-        id: "WX-SEARCH",
+        id,
         tool: "search_code",
         kind: EvidenceKind::SearchHits,
         arguments: json!({
@@ -336,12 +383,25 @@ fn search_op(identifiers: &[String], search_budget: u32, policy: PlanPolicy) -> 
             "after": 1,
             "max_results": 40,
             // Prefer Rust product trees; docs/bench noise burns the budget first.
-            "glob": "{apps,crates}/**/*.rs",
+            "glob": glob,
             "token_budget": search_budget,
         }),
         expected_tokens: policy.search_tokens.max(search_budget),
         bounded: true,
     }
+}
+
+fn asks_for_change_plan(task: &str) -> bool {
+    const CUES: &[&str] = &[
+        "change plan",
+        "implementation plan",
+        "pre-commit plan",
+        "prepare change",
+        "plan the change",
+        "plan this change",
+    ];
+    let lower = task.to_ascii_lowercase();
+    CUES.iter().any(|cue| lower.contains(cue))
 }
 
 fn symbol_op(symbol: &str, structural: u32, policy: PlanPolicy) -> PlannedOperation {

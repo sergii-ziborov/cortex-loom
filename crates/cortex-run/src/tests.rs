@@ -1,8 +1,8 @@
 ﻿use std::collections::HashMap;
 
 use cortex_domain::{
-    EdgeKind, ExecutionPolicy, ExecutionTarget, GRAPH_SCHEMA_VERSION, GraphDocument, GraphEdge,
-    GraphNode, NodeKind, Position, RiskLevel, default_control_plane,
+    EdgeKind, GRAPH_SCHEMA_VERSION, GraphDocument, GraphEdge, GraphNode, NodeKind, Position,
+    default_control_plane,
 };
 
 use super::*;
@@ -125,23 +125,13 @@ fn recovered_failure_finishes_after_the_active_sink_succeeds() {
 
 #[test]
 fn successful_evidence_gates_require_a_citation() {
-    let mut graph = simple_graph(
+    let graph = simple_graph(
         NodeKind::EvidenceGate,
         vec![
             edge("success", "root", "ok", EdgeKind::Success),
             edge("fallback", "root", "recovery", EdgeKind::Fallback),
         ],
     );
-    graph.nodes[0].execution = Some(ExecutionPolicy {
-        target: ExecutionTarget::Deterministic,
-        risk: RiskLevel::Low,
-        max_input_tokens: 1_024,
-        max_output_tokens: 128,
-        require_evidence: true,
-        require_upstream_review: false,
-        allow_mutation: false,
-        model_profile: None,
-    });
     let (mut run, _) = create_run(&graph, "run", 0).expect("create run");
     let start = command_start(&run, "root");
     apply(&mut run, &graph, &start);

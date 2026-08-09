@@ -4,8 +4,8 @@
 //! radius, HTTP contracts, local-LLM wiring, leases, and module ownership.
 //! Anchors are Rust literals that exist in this repository today.
 
-use crate::tasks::BenchTask;
 use crate::Anchor;
+use crate::tasks::BenchTask;
 
 /// Probe set used by `cortex-bench --set probe`.
 #[must_use]
@@ -71,7 +71,10 @@ pub const fn probe_tasks() -> &'static [BenchTask] {
             id: "probe-usage-quality-contract",
             prompt: "What breaks if the `GET /api/usage/quality` HTTP contract changes?",
             symbol: None,
-            naive_globs: &["apps/cortex-server/src/*.rs", "crates/cortex-store/src/*.rs"],
+            naive_globs: &[
+                "apps/cortex-server/src/*.rs",
+                "crates/cortex-store/src/*.rs",
+            ],
             anchors: &[
                 Anchor {
                     id: "http-route",
@@ -218,7 +221,10 @@ pub const fn probe_tasks() -> &'static [BenchTask] {
             id: "probe-shadow-handle",
             prompt: "How is `ShadowHandle` spawned, and which env flag turns shadow mode on?",
             symbol: Some("ShadowHandle"),
-            naive_globs: &["crates/cortex-shadow/src/*.rs", "crates/cortex-mcp/src/*.rs"],
+            naive_globs: &[
+                "crates/cortex-shadow/src/*.rs",
+                "crates/cortex-mcp/src/*.rs",
+            ],
             anchors: &[
                 Anchor {
                     id: "handle",

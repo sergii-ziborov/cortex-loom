@@ -24,9 +24,13 @@ interface GraphToolbarProps {
 export function GraphToolbar(props: GraphToolbarProps) {
   const { connectActive, connectMessage, dirty, saveState, zoom } = props
   const saveDisabled = !dirty || saveState.phase === 'saving'
+  const mobileAction = (target: HTMLElement, action: () => void) => {
+    action()
+    target.closest('details')?.removeAttribute('open')
+  }
   return (
     <div className="graph-toolbar" aria-label="Graph controls">
-      <div className="toolbar-group">
+      <div className="toolbar-main">
         <label className="graph-picker">
           <span className="sr-only">Workflow graph</span>
           <select value={props.graphId} onChange={event => props.onSelectGraph(event.target.value)}>
@@ -38,6 +42,23 @@ export function GraphToolbar(props: GraphToolbarProps) {
             )}
           </select>
         </label>
+        <button type="button" className="primary-button" onClick={props.onAddNode}>+ Node</button>
+        <details className="toolbar-actions-menu">
+          <summary>Actions</summary>
+          <div className="compact-menu-panel">
+            <button type="button" onClick={event => mobileAction(event.currentTarget, props.onBrowseLibrary)}>Library</button>
+            <button type="button" onClick={event => mobileAction(event.currentTarget, props.onConnect)}>
+              {connectActive ? 'Cancel link' : 'Connect nodes'}
+            </button>
+            <button type="button" onClick={event => mobileAction(event.currentTarget, props.onAutoLayout)}>Auto-layout</button>
+            <button type="button" onClick={event => mobileAction(event.currentTarget, props.onImport)}>Import Markdown</button>
+            <button type="button" onClick={event => mobileAction(event.currentTarget, props.onExport)}>Export Markdown</button>
+            <button type="button" onClick={event => mobileAction(event.currentTarget, props.onImportLibrary)}>Import skill library</button>
+            <button type="button" onClick={event => mobileAction(event.currentTarget, props.onReload)}>Reload graph</button>
+          </div>
+        </details>
+      </div>
+      <div className="toolbar-actions-desktop">
         <button
           type="button"
           className="tool-button"
@@ -46,7 +67,6 @@ export function GraphToolbar(props: GraphToolbarProps) {
         >
           Library
         </button>
-        <button type="button" className="primary-button" onClick={props.onAddNode}>+ Node</button>
         <button
           type="button"
           className={connectActive ? 'tool-button active' : 'tool-button'}
@@ -66,7 +86,7 @@ export function GraphToolbar(props: GraphToolbarProps) {
         <button type="button" onClick={() => props.onZoom(100)} aria-label="Reset zoom">{zoom}%</button>
         <button type="button" onClick={() => props.onZoom(Math.min(180, zoom + 10))} aria-label="Zoom in">+</button>
       </div>
-      <button type="button" className="tool-button" onClick={props.onReload}>Reload</button>
+      <button type="button" className="tool-button toolbar-reload" onClick={props.onReload}>Reload</button>
       <button type="button" className="save-button" onClick={props.onSave} disabled={saveDisabled}>
         {saveState.phase === 'saving' ? 'Saving…' : 'Save'}
       </button>

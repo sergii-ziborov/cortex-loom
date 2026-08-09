@@ -367,10 +367,11 @@ fn apply_completion(
     validate_evidence_references(run, node_id, evidence_ids)?;
     validate_detail_option(detail)?;
     if outcome == NodeOutcome::Succeeded
-        && node
-            .execution
-            .as_ref()
-            .is_some_and(|policy| policy.require_evidence)
+        && (node.kind == NodeKind::EvidenceGate
+            || node
+                .execution
+                .as_ref()
+                .is_some_and(|policy| policy.require_evidence))
         && evidence_ids.is_empty()
     {
         return Err(RunError::EvidenceRequired(node_id.to_owned()));

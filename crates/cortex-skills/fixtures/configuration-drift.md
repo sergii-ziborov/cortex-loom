@@ -5,6 +5,9 @@ when-to-use: Use when environments disagree or a live value cannot be explained 
 license: MIT
 version: "2.0"
 audience: engineers
+context-intent: runtime_config
+source-followup: true
+skip-change-plan: true
 ---
 # Configuration Drift
 

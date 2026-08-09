@@ -94,11 +94,16 @@ fn path_rank(path: &str) -> i32 {
     let mut score = 0_i32;
     if matches!(extension, "rs" | "ts" | "tsx") {
         score += 40;
-    } else if matches!(extension, "md" | "yaml" | "yml") {
+    } else if matches!(extension, "json" | "toml" | "yaml" | "yml") {
+        score += 25;
+    } else if extension == "md" {
         score -= 30;
     }
     if lower.starts_with("apps/") || lower.starts_with("crates/") {
         score += 20;
+    }
+    if lower.starts_with("config/") || lower.ends_with("/.env") || lower == ".env" {
+        score += 35;
     }
     if lower.contains("/bench/")
         || lower.ends_with("/tasks.rs")
@@ -210,6 +215,26 @@ mod tests {
     }
 
     #[test]
+    fn runtime_config_outranks_docs_and_ui() {
+        let hits = vec![
+            SearchHit {
+                path: "docs/local-models.md".to_owned(),
+                line: 20,
+            },
+            SearchHit {
+                path: "ui/src/types.ts".to_owned(),
+                line: 10,
+            },
+            SearchHit {
+                path: "config/llm-profiles.json".to_owned(),
+                line: 15,
+            },
+        ];
+        let unique = unique_paths(&hits, 1);
+        assert_eq!(unique[0].path, "config/llm-profiles.json");
+    }
+
+    #[test]
     fn read_arguments_open_a_window_around_the_hit() {
         let hit = SearchHit {
             path: "crates/cortex-mcp/src/http.rs".to_owned(),
@@ -257,6 +282,13 @@ mod tests {
                 PlanPolicy::default(),
             )
             .expect("source follow-up bundle");
+        assert!(
+            bundle
+                .evidence
+                .iter()
+                .all(|fragment| fragment.kind != crate::EvidenceKind::ChangePlan),
+            "gathering evidence must not add an unverified change plan"
+        );
         let haystack: String = bundle
             .evidence
             .iter()
@@ -272,6 +304,88 @@ mod tests {
                 .find(|fragment| fragment.id.starts_with("WX-SEARCH"))
                 .map(|fragment| fragment.content.chars().take(400).collect::<String>())
                 .unwrap_or_default(),
+        );
+        let compiled = crate::compile_evidence_bundle(bundle, task, 4_000, None)
+            .expect("source bundle compiles");
+        assert!(
+            compiled
+                .context
+                .included_ids
+                .iter()
+                .any(|id| id.starts_with("WX-SOURCE")),
+            "source evidence must survive the compiler: {:?}",
+            compiled.context.omitted_ids
+        );
+        assert!(!compiled.context.requires_upstream);
+    }
+
+    #[test]
+    fn thin_rust_only_search_gets_one_wide_retry_and_source_followup() {
+        use crate::plan::PlanPolicy;
+        use crate::{PlanHints, WeavatrixAdapter, WeavatrixConfig};
+        use std::path::Path;
+
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        if !root.join("ui/src/api/client.ts").exists() {
+            return;
+        }
+        let identifier = format!("compile{}", "Markdown");
+        let task = format!("Where does the `{identifier}` client call live?");
+        let adapter = WeavatrixAdapter::new(WeavatrixConfig::discover().expect("config"));
+        let (bundle, report) = adapter
+            .prepare_verified_targeted_context(
+                &root,
+                &task,
+                None,
+                4_000,
+                PlanPolicy::default(),
+                PlanHints::default(),
+            )
+            .expect("verified context");
+        assert!(
+            report.retry_performed,
+            "the Rust-only search should be thin"
+        );
+        assert!(report.sufficient, "retry remained thin: {report:?}");
+        assert!(
+            bundle
+                .evidence
+                .iter()
+                .any(|item| item.id.starts_with("WX-RETRY-SEARCH"))
+        );
+        assert!(
+            bundle
+                .evidence
+                .iter()
+                .any(|item| item.id.starts_with("WX-RETRY-SOURCE"))
+        );
+        let compiled = crate::compile_evidence_bundle(bundle.clone(), &task, 4_000, None)
+            .expect("retry bundle compiles");
+        let naive_tokens = u32::try_from(
+            std::fs::read_to_string(root.join("ui/src/api/client.ts"))
+                .expect("UI client")
+                .chars()
+                .count()
+                .div_ceil(4),
+        )
+        .unwrap_or(u32::MAX);
+        assert!(
+            compiled.context.selected_estimated_tokens < naive_tokens,
+            "retry context should stay below the one known whole file: {naive_tokens}"
+        );
+        let final_report = crate::assess_compiled(
+            &bundle,
+            &compiled.context.included_ids,
+            &task,
+            None,
+            PlanHints::default(),
+            true,
+            report.retry_performed,
+        );
+        assert!(
+            final_report.sufficient,
+            "compiled retry remained thin: {final_report:?}; included={:?}",
+            compiled.context.included_ids
         );
     }
 }

@@ -5,6 +5,9 @@ when-to-use: Use when altering an API, schema, or format a consumer already depe
 license: MIT
 version: "2.0"
 audience: engineers
+context-intent: api_contract
+source-followup: true
+skip-change-plan: true
 ---
 # Interface Contract Change
 

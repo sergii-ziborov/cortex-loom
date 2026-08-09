@@ -11,6 +11,11 @@ use weavatrix_rust::{Weavatrix, operations};
 
 use crate::{McpChild, McpCommand, McpError};
 
+struct TargetedEvidence {
+    bundle: EvidenceBundle,
+    search_hits: Vec<crate::source_followup::SearchHit>,
+}
+
 const MAX_EVIDENCE_CHARS: usize = 24_000;
 /// Fragments above this size are split into stable sub-citations so a token
 /// budget can keep part of a large fragment instead of dropping it whole
@@ -56,7 +61,7 @@ const fn default_head() -> bool {
     true
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum EvidenceKind {
     GraphStats,
@@ -306,7 +311,16 @@ impl WeavatrixAdapter {
         budget: u32,
         policy: crate::plan::PlanPolicy,
     ) -> Result<EvidenceBundle, WeavatrixError> {
-        self.collect_targeted(repository, task, symbol, budget, policy, false)
+        self.collect_targeted(
+            repository,
+            task,
+            symbol,
+            budget,
+            policy,
+            crate::PlanHints::default(),
+            false,
+        )
+        .map(|gathered| gathered.bundle)
     }
 
     /// As [`WeavatrixAdapter::prepare_targeted_context_with`], then open
@@ -328,9 +342,84 @@ impl WeavatrixAdapter {
         budget: u32,
         policy: crate::plan::PlanPolicy,
     ) -> Result<EvidenceBundle, WeavatrixError> {
-        self.collect_targeted(repository, task, symbol, budget, policy, true)
+        self.collect_targeted(
+            repository,
+            task,
+            symbol,
+            budget,
+            policy,
+            crate::PlanHints::default(),
+            true,
+        )
+        .map(|gathered| gathered.bundle)
     }
 
+    /// Gather with active-skill hints, verify structural sufficiency, and run
+    /// at most one deterministic recovery pass before returning.
+    ///
+    /// The recovery widens an empty identifier search, retries missing
+    /// structural operations, and opens source windows when requested. It
+    /// never drafts an answer and never applies a refactor.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WeavatrixError`] when the repository cannot be opened or the
+    /// native graph cannot be built or refreshed.
+    pub fn prepare_verified_targeted_context(
+        &self,
+        repository: &Path,
+        task: &str,
+        symbol: Option<&str>,
+        budget: u32,
+        policy: crate::plan::PlanPolicy,
+        hints: crate::PlanHints,
+    ) -> Result<(EvidenceBundle, crate::EvidenceSufficiency), WeavatrixError> {
+        let source_followup = hints.source_followup_or(true);
+        let mut gathered = self.collect_targeted(
+            repository,
+            task,
+            symbol,
+            budget,
+            policy,
+            hints,
+            source_followup,
+        )?;
+        let initial = crate::verify::assess_gathered(
+            &gathered.bundle,
+            task,
+            symbol,
+            hints,
+            source_followup,
+            gathered.search_hits.len(),
+            false,
+        );
+        if initial.sufficient {
+            return Ok((gathered.bundle, initial));
+        }
+        self.retry_targeted(
+            repository,
+            task,
+            symbol,
+            budget,
+            policy,
+            hints,
+            source_followup,
+            &initial,
+            &mut gathered,
+        )?;
+        let final_report = crate::verify::assess_gathered(
+            &gathered.bundle,
+            task,
+            symbol,
+            hints,
+            source_followup,
+            gathered.search_hits.len(),
+            true,
+        );
+        Ok((gathered.bundle, final_report))
+    }
+
+    #[allow(clippy::too_many_arguments)] // explicit gather controls; no transport request object
     fn collect_targeted(
         &self,
         repository: &Path,
@@ -338,8 +427,9 @@ impl WeavatrixAdapter {
         symbol: Option<&str>,
         budget: u32,
         policy: crate::plan::PlanPolicy,
+        hints: crate::PlanHints,
         source_followup: bool,
-    ) -> Result<EvidenceBundle, WeavatrixError> {
+    ) -> Result<TargetedEvidence, WeavatrixError> {
         let root = self.canonical_root(repository)?;
         let mut sessions = self
             .engines
@@ -355,7 +445,7 @@ impl WeavatrixAdapter {
             .into_iter()
             .collect();
         let mut search_hits = Vec::new();
-        for operation in crate::plan::plan_with(task, symbol, budget, policy) {
+        for operation in crate::plan::plan_with_hints(task, symbol, budget, policy, hints) {
             match native_call(engine, operation.tool, operation.arguments.clone()) {
                 Ok(value) => {
                     if let Some(overrun) = budget_overrun(operation.tool, &value) {
@@ -382,13 +472,98 @@ impl WeavatrixAdapter {
                 &search_hits,
                 budget,
                 policy,
+                "WX-SOURCE",
             );
         }
-        Ok(EvidenceBundle {
-            repository: repository.to_string_lossy().into_owned(),
-            evidence,
-            warnings,
+        Ok(TargetedEvidence {
+            bundle: EvidenceBundle {
+                repository: repository.to_string_lossy().into_owned(),
+                evidence,
+                warnings,
+            },
+            search_hits,
         })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn retry_targeted(
+        &self,
+        repository: &Path,
+        task: &str,
+        symbol: Option<&str>,
+        budget: u32,
+        policy: crate::plan::PlanPolicy,
+        hints: crate::PlanHints,
+        source_followup: bool,
+        initial: &crate::EvidenceSufficiency,
+        gathered: &mut TargetedEvidence,
+    ) -> Result<(), WeavatrixError> {
+        gathered.bundle.warnings.push(format!(
+            "evidence sufficiency retry: missing {}",
+            initial.missing_evidence.join(", ")
+        ));
+        let root = self.canonical_root(repository)?;
+        let mut sessions = self
+            .engines
+            .lock()
+            .map_err(|_| WeavatrixError::LockPoisoned)?;
+        let engine = Self::session(&mut sessions, &root)?;
+
+        if initial
+            .missing_evidence
+            .iter()
+            .any(|kind| kind == "search_hits")
+        {
+            retry_wide_search(
+                engine,
+                &mut gathered.bundle.evidence,
+                &mut gathered.bundle.warnings,
+                &mut gathered.search_hits,
+                task,
+                budget,
+                policy,
+            );
+        }
+        for operation in crate::plan::plan_with_hints(task, symbol, budget, policy, hints) {
+            let kind = crate::verify::kind_name(operation.kind);
+            if !initial
+                .missing_evidence
+                .iter()
+                .any(|missing| missing == kind)
+                || operation.kind == EvidenceKind::SearchHits
+            {
+                continue;
+            }
+            match native_call(engine, operation.tool, operation.arguments) {
+                Ok(value) => gathered.bundle.evidence.extend(fragments(
+                    &format!("WX-RETRY-{}", operation.id.trim_start_matches("WX-")),
+                    operation.kind,
+                    &format!("weavatrix:{}", operation.tool),
+                    &value,
+                )),
+                Err(error) => gathered
+                    .bundle
+                    .warnings
+                    .push(format!("{} retry unavailable: {error}", operation.tool)),
+            }
+        }
+        let has_source = gathered
+            .bundle
+            .evidence
+            .iter()
+            .any(|item| item.kind == EvidenceKind::SourceReads);
+        if source_followup && !has_source {
+            append_source_reads(
+                engine,
+                &mut gathered.bundle.evidence,
+                &mut gathered.bundle.warnings,
+                &gathered.search_hits,
+                budget,
+                policy,
+                "WX-RETRY-SOURCE",
+            );
+        }
+        Ok(())
     }
 
     fn canonical_root(&self, repository: &Path) -> Result<PathBuf, WeavatrixError> {
@@ -648,6 +823,7 @@ fn append_source_reads(
     search_hits: &[crate::source_followup::SearchHit],
     budget: u32,
     policy: crate::plan::PlanPolicy,
+    id_prefix: &str,
 ) {
     let paths =
         crate::source_followup::unique_paths(search_hits, crate::source_followup::MAX_SOURCE_FILES);
@@ -668,7 +844,7 @@ fn append_source_reads(
                     warnings.push(overrun);
                 }
                 evidence.extend(fragments(
-                    &format!("WX-SOURCE-{}", index + 1),
+                    &format!("{id_prefix}-{}", index + 1),
                     EvidenceKind::SourceReads,
                     "weavatrix:read_source",
                     &value,
@@ -678,6 +854,48 @@ fn append_source_reads(
                 warnings.push(format!("read_source unavailable for {}: {error}", hit.path));
             }
         }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn retry_wide_search(
+    engine: &mut Weavatrix,
+    evidence: &mut Vec<EvidenceFragment>,
+    warnings: &mut Vec<String>,
+    search_hits: &mut Vec<crate::source_followup::SearchHit>,
+    task: &str,
+    budget: u32,
+    policy: crate::plan::PlanPolicy,
+) {
+    let identifiers = crate::plan::extract_identifiers(task);
+    if identifiers.is_empty() {
+        warnings.push("wide search retry skipped: task names no identifiers".to_owned());
+        return;
+    }
+    let token_budget = policy
+        .search_tokens
+        .min(budget.saturating_mul(2) / 5)
+        .max(200);
+    let arguments = json!({
+        "query": crate::plan::search_pattern(&identifiers),
+        "is_regex": true,
+        "before": 2,
+        "after": 2,
+        "max_results": 80,
+        "glob": "{apps,crates,ui,config}/**/*",
+        "token_budget": token_budget,
+    });
+    match native_call(engine, "search_code", arguments) {
+        Ok(value) => {
+            search_hits.extend(crate::source_followup::hits_from_search(&value));
+            evidence.extend(fragments(
+                "WX-RETRY-SEARCH",
+                EvidenceKind::SearchHits,
+                "weavatrix:search_code",
+                &value,
+            ));
+        }
+        Err(error) => warnings.push(format!("wide search retry unavailable: {error}")),
     }
 }
 

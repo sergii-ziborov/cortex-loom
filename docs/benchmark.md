@@ -389,6 +389,45 @@ on `cortex-targeted` alone — no source follow-up required for those fixtures.
 still ~87 % below naive. Source follow-up is insurance for identifier-adjacent
 facts, not the primary structural fix.
 
+## P0: source follow-up on the MCP path
+
+Stamp `p0-source-skip-verify-final-2026-08-09`, budget 4 000, ten probe tasks.
+The MCP compile path now uses bounded source follow-up. Identifier, blast,
+API-contract, module-topology, and runtime-config tasks no longer spend budget
+on `verified_change` unless the task explicitly asks for a change plan.
+
+| arm | tokens | facts | recall |
+| --- | ---: | ---: | ---: |
+| `naive` | 264 567 | 40/40 | 100 % |
+| `cortex-targeted` | **20 881** | 27/40 | 68 % |
+| `cortex-source` | **30 973** | **33/40** | **83 %** |
+
+Compared with `probe-10-recheck-2026-08-09`, source follow-up recovers two
+additional facts while delivering 1 598 fewer tokens. The source arm remains
+88 % below naive. Both runtime-config failures improved to at least 50 % recall:
+`llm-profile-gate` reaches 3/4 and `shadow-handle` reaches 2/4.
+
+## P1: skill → gather → verify
+
+Stamp `p1-skill-gather-verify-final-2026-08-09`, budget 4 000, ten probe
+tasks. The source arm now exercises the same gather/sufficiency/retry path as
+the MCP tool (without an active-skill override).
+
+| arm | tokens | facts | recall |
+| --- | ---: | ---: | ---: |
+| `naive` | 276 452 | 40/40 | 100 % |
+| `cortex-targeted` | **21 091** | 27/40 | 68 % |
+| `cortex-source` | **30 759** | **32/40** | **80 %** |
+
+All ten gathered probe packets passed the structural sufficiency check without
+a retry. That is not the same as anchor parity: `store-module-map` remains
+2/4, so the report must not be presented as answer completeness. A separate
+live UI-only probe starts with a deliberately empty Rust-only search for
+`compileMarkdown`; the single wide retry finds `ui/src/api/client.ts`, opens a
+bounded source window, and compiles to 1 815 estimated tokens versus 3 247 for
+that one known whole file (44 % less). The point of the retry is recovery from
+an obviously thin gather, not repeated searching until recall looks good.
+
 ## Next measurements worth taking
 
 1. Recover the remaining identifier-set misses (`CriticalItemExceedsBudget`,

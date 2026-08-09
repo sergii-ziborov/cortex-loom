@@ -125,7 +125,7 @@ export default function App() {
     ? 'Choose a source node'
     : connectState === undefined
       ? ''
-      : `From â€œ${graph.nodes.find(node => node.id === connectState)?.label ?? connectState}â€ â€” choose a target`
+      : `From “${graph.nodes.find(node => node.id === connectState)?.label ?? connectState}” — choose a target`
 
   return (
     <div className="app-shell">

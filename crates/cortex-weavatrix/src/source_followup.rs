@@ -318,4 +318,74 @@ mod tests {
         );
         assert!(!compiled.context.requires_upstream);
     }
+
+    #[test]
+    fn thin_rust_only_search_gets_one_wide_retry_and_source_followup() {
+        use crate::plan::PlanPolicy;
+        use crate::{PlanHints, WeavatrixAdapter, WeavatrixConfig};
+        use std::path::Path;
+
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        if !root.join("ui/src/api/client.ts").exists() {
+            return;
+        }
+        let identifier = format!("compile{}", "Markdown");
+        let task = format!("Where does the `{identifier}` client call live?");
+        let adapter = WeavatrixAdapter::new(WeavatrixConfig::discover().expect("config"));
+        let (bundle, report) = adapter
+            .prepare_verified_targeted_context(
+                &root,
+                &task,
+                None,
+                4_000,
+                PlanPolicy::default(),
+                PlanHints::default(),
+            )
+            .expect("verified context");
+        assert!(
+            report.retry_performed,
+            "the Rust-only search should be thin"
+        );
+        assert!(report.sufficient, "retry remained thin: {report:?}");
+        assert!(
+            bundle
+                .evidence
+                .iter()
+                .any(|item| item.id.starts_with("WX-RETRY-SEARCH"))
+        );
+        assert!(
+            bundle
+                .evidence
+                .iter()
+                .any(|item| item.id.starts_with("WX-RETRY-SOURCE"))
+        );
+        let compiled = crate::compile_evidence_bundle(bundle.clone(), &task, 4_000, None)
+            .expect("retry bundle compiles");
+        let naive_tokens = u32::try_from(
+            std::fs::read_to_string(root.join("ui/src/api/client.ts"))
+                .expect("UI client")
+                .chars()
+                .count()
+                .div_ceil(4),
+        )
+        .unwrap_or(u32::MAX);
+        assert!(
+            compiled.context.selected_estimated_tokens < naive_tokens,
+            "retry context should stay below the one known whole file: {naive_tokens}"
+        );
+        let final_report = crate::assess_compiled(
+            &bundle,
+            &compiled.context.included_ids,
+            &task,
+            None,
+            PlanHints::default(),
+            true,
+            report.retry_performed,
+        );
+        assert!(
+            final_report.sufficient,
+            "compiled retry remained thin: {final_report:?}; included={:?}",
+            compiled.context.included_ids
+        );
+    }
 }

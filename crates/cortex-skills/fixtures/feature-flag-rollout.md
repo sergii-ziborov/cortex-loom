@@ -5,6 +5,9 @@ when-to-use: Use when a change must reach users in stages or be disabled remotel
 license: MIT
 version: "2.0"
 audience: engineers
+context-intent: runtime_config
+source-followup: true
+skip-change-plan: true
 ---
 # Feature Flag Rollout
 

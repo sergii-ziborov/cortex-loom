@@ -6,7 +6,7 @@ use cortex_context::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{EvidenceBundle, EvidenceKind};
+use crate::{EvidenceBundle, EvidenceKind, EvidenceSufficiency};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -19,6 +19,10 @@ pub struct CompiledEvidenceBundle {
     /// `embeddinggemma:latest/hybrid_graph/retrieval-ranking-v1`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub semantic_ranking: Option<String>,
+    /// Deterministic gather/verify result. Legacy callers that compile an
+    /// arbitrary bundle directly leave this absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sufficiency: Option<EvidenceSufficiency>,
     pub context: ContextPacket,
 }
 
@@ -74,6 +78,7 @@ pub fn compile_evidence_bundle(
         evidence_count,
         warnings,
         semantic_ranking: None,
+        sufficiency: None,
         context,
     })
 }

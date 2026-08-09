@@ -149,14 +149,19 @@ fn run_task(
             // Search hits name files; open bounded windows there and ask
             // whether the remaining contract/transport facts appear without
             // paying the naive whole-file cost.
-            match adapter.prepare_targeted_context_with_source_reads(
+            match adapter.prepare_verified_targeted_context(
                 &settings.repository,
                 task.prompt,
                 task.symbol,
                 settings.budget,
                 PlanPolicy::default(),
+                cortex_weavatrix::PlanHints::default(),
             ) {
-                Ok(bundle) => {
+                Ok((mut bundle, report)) => {
+                    bundle.warnings.push(format!(
+                        "sufficiency: {}; retry: {}",
+                        report.sufficient, report.retry_performed
+                    ));
                     arms.push(cortex_arm(
                         ArmKind::CortexLoomSource,
                         settings,
@@ -303,6 +308,7 @@ fn cortex_arm(
             if packet.requires_upstream {
                 arm.notes.push("packet requires upstream review".to_owned());
             }
+            arm.notes.extend(compiled.warnings.iter().cloned());
             arm
         }
         // Fail-closed is a result, not a crash: a budget too small for

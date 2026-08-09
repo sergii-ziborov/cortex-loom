@@ -13,8 +13,8 @@
 
 use serde_json::{Value, json};
 
-use crate::EvidenceKind;
-use crate::plan_intent::{TaskIntent, detect};
+use crate::plan_intent::TaskIntent;
+use crate::{EvidenceKind, PlanHints};
 
 /// Most identifiers to carry into a search. Beyond this the alternation stops
 /// discriminating and the result is a repository-wide dump.
@@ -251,7 +251,19 @@ pub fn plan_with(
     budget: u32,
     policy: PlanPolicy,
 ) -> Vec<PlannedOperation> {
-    let mut operations = plan_all(task, symbol, budget, policy);
+    plan_with_hints(task, symbol, budget, policy, PlanHints::default())
+}
+
+/// As [`plan_with`], with deterministic controls supplied by an active skill.
+#[must_use]
+pub fn plan_with_hints(
+    task: &str,
+    symbol: Option<&str>,
+    budget: u32,
+    policy: PlanPolicy,
+    hints: PlanHints,
+) -> Vec<PlannedOperation> {
+    let mut operations = plan_all(task, symbol, budget, policy, hints);
     let ceiling = budget.saturating_mul(policy.overcommit.max(1));
     let mut committed = 0_u32;
     operations.retain(|operation| {
@@ -278,8 +290,9 @@ fn plan_all(
     symbol: Option<&str>,
     budget: u32,
     policy: PlanPolicy,
+    hints: PlanHints,
 ) -> Vec<PlannedOperation> {
-    let intent = detect(task);
+    let intent = hints.intent_or_detect(task);
     let identifiers = extract_identifiers(task);
     let search_budget = share(budget, SEARCH_BUDGET_NUMERATOR, SEARCH_BUDGET_DENOMINATOR);
     let remainder = budget
@@ -346,7 +359,7 @@ fn plan_all(
     {
         operations.push(dependents_op(symbol, policy));
     }
-    if asks_for_change_plan(task) {
+    if !hints.skip_change_plan && asks_for_change_plan(task) {
         operations.push(verify_op(task, policy));
     }
     operations

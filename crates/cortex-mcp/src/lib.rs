@@ -12,9 +12,9 @@ use cortex_shadow::{
 };
 use cortex_skills::{export_skill_markdown, import_skill_markdown, index_entry, render_index};
 use cortex_store::{GraphStore, ShadowOperation, UsageOperation, UsageReport, UsageSample};
-use cortex_weavatrix::plan::PlanPolicy;
 use cortex_weavatrix::{
-    RefactorOperation, WeavatrixAdapter, WeavatrixConfig, compile_evidence_bundle,
+    PlanHints, RefactorOperation, WeavatrixAdapter, WeavatrixConfig, assess_compiled,
+    compile_evidence_bundle,
 };
 use mcport::{ConcurrentMcpServer, FlushPolicy, RuntimeConfig, ToolReply, TransportLimits, json};
 use serde::Deserialize;
@@ -22,6 +22,7 @@ use serde_json::Value;
 
 pub mod http;
 mod llm_route;
+mod plan_hints;
 mod run_tools;
 mod semantic;
 
@@ -95,6 +96,9 @@ struct WeavatrixContextArgs {
     max_tokens: u32,
     /// Optional run attribution for quality-equivalent token accounting.
     run_id: Option<String>,
+    /// Optional active skill graph. Its bounded frontmatter `PlanHints` guide
+    /// gathering without coupling the planner to the skill compiler.
+    skill_id: Option<String>,
     /// Plan the Weavatrix operations from the task instead of always asking
     /// the same four structural ones. Default. Set `false` for the previous
     /// fixed set; it is measurably worse on identifier-level tasks (see
@@ -194,6 +198,7 @@ impl CortexMcpState {
         store
             .seed_if_missing(&default_control_plane())
             .map_err(|error| error.to_string())?;
+        plan_hints::seed_bundled_skills(&store)?;
         let weavatrix =
             WeavatrixAdapter::new(WeavatrixConfig::discover().map_err(|error| error.to_string())?);
         let shadow = match cortex_shadow::spawn(ShadowConfig::from_env(), store.shadow()) {
@@ -320,6 +325,7 @@ pub fn build_server(state: CortexMcpState) -> ConcurrentMcpServer {
                     "symbol": {"type": "string", "maxLength": 4096},
                     "maxTokens": {"type": "integer", "minimum": 1, "maximum": 100_000},
                     "runId": {"type": "string", "maxLength": 256},
+                    "skillId": {"type": "string", "maxLength": 256, "description": "Optional active skill graph whose context-intent, source-followup, and skip-change-plan frontmatter guide evidence gathering."},
                     "targeted": {"type": "boolean", "default": true}
                 },
                 "required": ["repository", "task", "maxTokens"],
@@ -329,27 +335,47 @@ pub fn build_server(state: CortexMcpState) -> ConcurrentMcpServer {
                 if context.is_cancelled() {
                     return ToolReply::error("cancelled");
                 }
-                let prepared = if arguments.targeted {
-                    context_state
-                        .weavatrix
-                        .prepare_targeted_context_with_source_reads(
+                let hints = match arguments.skill_id.as_deref() {
+                    Some(skill_id) => match context_state.store.get(skill_id) {
+                        Ok(Some(graph)) => match plan_hints::from_graph(&graph) {
+                            Ok(hints) => hints,
+                            Err(error) => return ToolReply::error(error),
+                        },
+                        Ok(None) => {
+                            return ToolReply::error(format!("active skill not found: {skill_id}"));
+                        }
+                        Err(error) => return ToolReply::error(error.to_string()),
+                    },
+                    None => PlanHints::default(),
+                };
+                let source_followup = hints.source_followup_or(true);
+                let (prepared, gather_report) = if arguments.targeted {
+                    match context_state.weavatrix.prepare_verified_targeted_context(
                         &arguments.repository,
                         &arguments.task,
                         arguments.symbol.as_deref(),
                         arguments.max_tokens,
-                        PlanPolicy::default(),
-                    )
+                        cortex_weavatrix::plan::PlanPolicy::default(),
+                        hints,
+                    ) {
+                        Ok((bundle, report)) => (Ok(bundle), Some(report)),
+                        Err(error) => (Err(error), None),
+                    }
                 } else {
-                    context_state.weavatrix.prepare_context(
-                        &arguments.repository,
-                        &arguments.task,
-                        arguments.symbol.as_deref(),
+                    (
+                        context_state.weavatrix.prepare_context(
+                            &arguments.repository,
+                            &arguments.task,
+                            arguments.symbol.as_deref(),
+                        ),
+                        None,
                     )
                 };
                 let mut bundle = match prepared {
                     Ok(bundle) => bundle,
                     Err(error) => return ToolReply::error(error.to_string()),
                 };
+                let verification_bundle = bundle.clone();
                 if context.is_cancelled() {
                     return ToolReply::error("cancelled");
                 }
@@ -397,6 +423,25 @@ pub fn build_server(state: CortexMcpState) -> ConcurrentMcpServer {
                 ) {
                     Ok(mut packet) => {
                         packet.semantic_ranking = semantic_note;
+                        if let Some(gather_report) = gather_report {
+                            let final_report = assess_compiled(
+                                &verification_bundle,
+                                &packet.context.included_ids,
+                                &arguments.task,
+                                arguments.symbol.as_deref(),
+                                hints,
+                                source_followup,
+                                gather_report.retry_performed,
+                            );
+                            if !final_report.sufficient {
+                                packet.context.requires_upstream = true;
+                                packet.warnings.push(format!(
+                                    "evidence remains thin after verification: {}",
+                                    final_report.missing_evidence.join(", ")
+                                ));
+                            }
+                            packet.sufficiency = Some(final_report);
+                        }
                         record_usage(
                             &context_state.store,
                             &UsageSample {

@@ -5,6 +5,9 @@ when-to-use: Use before a change whose true scope is still unknown.
 license: MIT
 version: "2.0"
 audience: engineers
+context-intent: blast_radius
+source-followup: true
+skip-change-plan: true
 ---
 # Blast Radius Analysis
 

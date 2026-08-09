@@ -1,4 +1,7 @@
-use super::{BUDGET_HONOURING, EvidenceKind, extract_identifiers, plan, search_pattern};
+use super::{
+    BUDGET_HONOURING, EvidenceKind, PlanPolicy, extract_identifiers, plan, plan_with_hints,
+    search_pattern,
+};
 
 #[test]
 fn identifiers_are_recognised_by_shape_not_by_vocabulary() {
@@ -177,6 +180,31 @@ fn an_explicit_change_plan_can_still_request_verified_change() {
         operations
             .iter()
             .any(|operation| operation.tool == "verified_change")
+    );
+}
+
+#[test]
+fn active_skill_hints_override_intent_and_can_forbid_change_plans() {
+    let operations = plan_with_hints(
+        "Prepare an implementation plan for `CORTEX_SHADOW`.",
+        None,
+        4_000,
+        PlanPolicy::default(),
+        crate::PlanHints {
+            intent: Some(crate::IntentHint::RuntimeConfig),
+            source_followup: Some(true),
+            skip_change_plan: true,
+        },
+    );
+    assert!(
+        operations
+            .iter()
+            .any(|operation| operation.id == "WX-CONFIG")
+    );
+    assert!(
+        operations
+            .iter()
+            .all(|operation| operation.kind != EvidenceKind::ChangePlan)
     );
 }
 

@@ -9,8 +9,8 @@ use serde_json::{Value, json};
 
 use crate::plan::PlanPolicy;
 
-/// Most distinct files to open after a search. Beyond this the follow-up
-/// starts to resemble a directory sweep.
+/// Most distinct source windows to open after a search. Beyond this the
+/// follow-up starts to resemble a directory sweep.
 pub const MAX_SOURCE_FILES: usize = 6;
 
 /// Lines kept above and below each hit.
@@ -57,7 +57,7 @@ pub fn hits_from_search(value: &Value) -> Vec<SearchHit> {
     hits
 }
 
-/// Deduplicate by path, keeping the earliest line, capped at `max_files`.
+/// Deduplicate overlapping windows, capped at `max_files`.
 ///
 /// Product source (`.rs` under `apps/` / `crates/`) is preferred over docs,
 /// fixtures, and the benchmark's own task list — otherwise the first hits are
@@ -73,7 +73,10 @@ pub fn unique_paths(hits: &[SearchHit], max_files: usize) -> Vec<SearchHit> {
     ranked.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(&right.1)));
     let mut chosen = Vec::new();
     for (_, _, hit) in ranked {
-        if chosen.iter().any(|seen: &SearchHit| seen.path == hit.path) {
+        if chosen.iter().any(|seen: &SearchHit| {
+            seen.path == hit.path
+                && seen.line.abs_diff(hit.line) <= SOURCE_BEFORE.saturating_add(SOURCE_AFTER)
+        }) {
             continue;
         }
         chosen.push(hit.clone());
@@ -160,7 +163,7 @@ mod tests {
             "matches": [
                 {"path": "crates/a/src/a.rs", "line": 10},
                 {"path": "crates/b/src/b.rs", "line": 2},
-                {"path": "crates/a/src/a.rs", "line": 99},
+                {"path": "crates/a/src/a.rs", "line": 20},
                 {"path": "crates/c/src/c.rs", "line": 1},
             ]
         });
@@ -179,6 +182,21 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn distant_hits_in_one_file_keep_separate_source_windows() {
+        let hits = vec![
+            SearchHit {
+                path: "crates/a/src/lib.rs".to_owned(),
+                line: 10,
+            },
+            SearchHit {
+                path: "crates/a/src/lib.rs".to_owned(),
+                line: 200,
+            },
+        ];
+        assert_eq!(unique_paths(&hits, 6), hits);
     }
 
     #[test]

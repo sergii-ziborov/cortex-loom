@@ -509,20 +509,42 @@ impl WeavatrixAdapter {
             .map_err(|_| WeavatrixError::LockPoisoned)?;
         let engine = Self::session(&mut sessions, &root)?;
 
-        if initial
+        let needs_search_retry = initial
             .missing_evidence
             .iter()
-            .any(|kind| kind == "search_hits")
-        {
+            .any(|kind| kind == "search_hits" || kind.starts_with("source_term:"));
+        if needs_search_retry {
+            let first_retry_hit = gathered.search_hits.len();
             retry_wide_search(
                 engine,
                 &mut gathered.bundle.evidence,
                 &mut gathered.bundle.warnings,
                 &mut gathered.search_hits,
                 task,
+                symbol,
+                hints,
+                &initial.missing_evidence,
                 budget,
                 policy,
             );
+            if source_followup {
+                let retry_hits = gathered.search_hits[first_retry_hit..].to_vec();
+                if !retry_hits.is_empty() {
+                    gathered
+                        .bundle
+                        .evidence
+                        .retain(|item| item.kind != EvidenceKind::SourceReads);
+                    append_source_reads(
+                        engine,
+                        &mut gathered.bundle.evidence,
+                        &mut gathered.bundle.warnings,
+                        &retry_hits,
+                        budget,
+                        policy,
+                        "WX-RETRY-SOURCE",
+                    );
+                }
+            }
         }
         for operation in crate::plan::plan_with_hints(task, symbol, budget, policy, hints) {
             let kind = crate::verify::kind_name(operation.kind);
@@ -864,12 +886,15 @@ fn retry_wide_search(
     warnings: &mut Vec<String>,
     search_hits: &mut Vec<crate::source_followup::SearchHit>,
     task: &str,
+    symbol: Option<&str>,
+    hints: crate::PlanHints,
+    missing: &[String],
     budget: u32,
     policy: crate::plan::PlanPolicy,
 ) {
-    let identifiers = crate::plan::extract_identifiers(task);
-    if identifiers.is_empty() {
-        warnings.push("wide search retry skipped: task names no identifiers".to_owned());
+    let query = crate::verify::retry_search_pattern(task, symbol, hints, missing);
+    if query.is_empty() {
+        warnings.push("wide search retry skipped: no missing semantic terms".to_owned());
         return;
     }
     let token_budget = policy
@@ -877,7 +902,7 @@ fn retry_wide_search(
         .min(budget.saturating_mul(2) / 5)
         .max(200);
     let arguments = json!({
-        "query": crate::plan::search_pattern(&identifiers),
+        "query": query,
         "is_regex": true,
         "before": 2,
         "after": 2,

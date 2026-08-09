@@ -26,6 +26,14 @@ fn identifiers_are_recognised_by_shape_not_by_vocabulary() {
 }
 
 #[test]
+fn an_explicit_lowercase_backtick_is_a_searchable_identifier() {
+    assert_eq!(
+        extract_identifiers("Who depends on `route` if its signature changes?"),
+        vec!["route"]
+    );
+}
+
+#[test]
 fn url_paths_and_backticks_are_identifiers() {
     let found =
         extract_identifiers("What breaks if `POST` `/api/skills/compile` changes, see `/mcp`?");
@@ -37,6 +45,9 @@ fn url_paths_and_backticks_are_identifiers() {
             .any(|value| value == "HTTP" || value == "POST" || value == "API"),
         "prose acronyms must not enter the search alternation, got {found:?}"
     );
+    let templated = extract_identifiers("Inspect `GET /api/adapters/{agent}`");
+    assert!(templated.contains(&"/api/adapters/{agent}".to_owned()));
+    assert!(!templated.contains(&"GET".to_owned()));
     let task = "`alpha_one` `beta_two` `gamma_three` `delta_four` \
                 `epsilon_five` `zeta_six` `eta_seven` `theta_eight` `iota_nine`";
     let found = extract_identifiers(task);

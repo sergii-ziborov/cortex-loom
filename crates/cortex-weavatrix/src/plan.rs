@@ -25,19 +25,16 @@ pub const MAX_IDENTIFIERS: usize = 8;
 const SEARCH_BUDGET_NUMERATOR: u32 = 2;
 const SEARCH_BUDGET_DENOMINATOR: u32 = 5;
 
-/// Smallest budget worth passing to a Weavatrix operation.
 const MIN_OPERATION_BUDGET: u32 = 200;
 
-/// What an unbounded operation is assumed to cost.
-///
 /// Only an estimate is possible for these, and an estimate is a policy rather
 /// than a fact — so it is a value a deployment can change, not a constant
 /// compiled in. Defaults come from one measurement on one repository
 /// (2026-08-05) and will be wrong somewhere else; that is exactly why they
 /// are overridable.
 ///
-/// Bounded operations need entries too. `bounded` means "trims what it can
-/// and reports whether it fitted", not "will fit", and that is by design:
+/// `bounded` means "trims what it can and reports whether it fitted", not
+/// "will fit", and that is by design:
 /// Weavatrix's graph relationships are lossless, so it drops source excerpts,
 /// keeps the relationships, and says `fit: false` rather than returning a
 /// smaller answer that is also a wrong one. Measured on `weavatrix-rust`
@@ -91,7 +88,6 @@ pub const BUDGET_HONOURING: &[&str] = &[
     "search_code",
 ];
 
-/// One Weavatrix call the plan intends to make.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlannedOperation {
     /// Evidence id prefix, e.g. `WX-SEARCH`.
@@ -100,16 +96,12 @@ pub struct PlannedOperation {
     pub tool: &'static str,
     pub kind: EvidenceKind,
     pub arguments: Value,
-    /// What this operation is expected to cost.
-    ///
     /// For a bounded operation this is the `token_budget` it was given, and
     /// the runtime is contractually held to it. For an unbounded one it is a
     /// [`PlanPolicy`] estimate, which is a guess with a knob rather than a
     /// promise. The plan trims against this so that a budget is never spent
     /// on evidence the compiler would only discard.
     pub expected_tokens: u32,
-    /// True when the operation bounds its own answer by `token_budget`.
-    ///
     /// Not cosmetic: `weavatrix-rust` 2.2.0 rejects the parameter on
     /// operations that do not implement it, so this decides whether it is
     /// sent at all.
@@ -127,15 +119,20 @@ pub struct PlannedOperation {
 #[must_use]
 pub fn extract_identifiers(task: &str) -> Vec<String> {
     let mut found: Vec<String> = Vec::new();
-    for candidate in candidates(task) {
-        let candidate =
-            candidate.trim_matches(|c: char| !c.is_alphanumeric() && c != '_' && c != '/');
-        if !is_identifier(candidate) {
-            continue;
+    let mut rest = task;
+    while let Some(open) = rest.find('`') {
+        let after = &rest[open + 1..];
+        let Some(close) = after.find('`') else { break };
+        push_identifier(&mut found, &after[..close], true);
+        if found.len() == MAX_IDENTIFIERS {
+            return found;
         }
-        if !found.iter().any(|seen| seen == candidate) {
-            found.push(candidate.to_owned());
-        }
+        rest = &after[close + 1..];
+    }
+    for candidate in
+        task.split(|c: char| c.is_whitespace() || matches!(c, ',' | ';' | '(' | ')' | '"'))
+    {
+        push_identifier(&mut found, candidate, false);
         if found.len() == MAX_IDENTIFIERS {
             break;
         }
@@ -143,18 +140,33 @@ pub fn extract_identifiers(task: &str) -> Vec<String> {
     found
 }
 
-fn candidates(task: &str) -> Vec<&str> {
-    let mut out = Vec::new();
-    // Backticked spans first: an author who typed backticks was explicit.
-    let mut rest = task;
-    while let Some(open) = rest.find('`') {
-        let after = &rest[open + 1..];
-        let Some(close) = after.find('`') else { break };
-        out.push(&after[..close]);
-        rest = &after[close + 1..];
+fn push_identifier(found: &mut Vec<String>, candidate: &str, explicit: bool) {
+    let candidate = candidate.trim_matches(|c: char| {
+        !c.is_alphanumeric() && !matches!(c, '_' | '/' | '{' | '}' | ':' | '.' | '-')
+    });
+    if !(is_identifier(candidate) || (explicit && is_explicit_identifier(candidate))) {
+        return;
     }
-    out.extend(task.split(|c: char| c.is_whitespace() || matches!(c, ',' | ';' | '(' | ')' | '"')));
-    out
+    if !found.iter().any(|seen| seen == candidate) {
+        found.push(candidate.to_owned());
+    }
+}
+
+fn is_explicit_identifier(value: &str) -> bool {
+    let prose_acronym = !value.contains(['_', '/'])
+        && value
+            .chars()
+            .any(|character| character.is_ascii_alphabetic())
+        && value
+            .chars()
+            .filter(char::is_ascii_alphabetic)
+            .all(|character| character.is_ascii_uppercase());
+    !prose_acronym
+        && (3..=96).contains(&value.len())
+        && value.chars().all(|character| {
+            character.is_ascii_alphanumeric()
+                || matches!(character, '_' | '.' | '/' | ':' | '{' | '}' | '-')
+        })
 }
 
 /// Suffixes that make a token a file path worth searching for by name.

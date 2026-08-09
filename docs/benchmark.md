@@ -435,3 +435,36 @@ an obviously thin gather, not repeated searching until recall looks good.
    approaching naive cost — likely tighter symbol windows, not more ops.
 2. Score against real upstream consumption from the usage ledger
    (`usage_report`) instead of the character estimate.
+
+## P2: semantic sufficiency and one contract retry
+
+Stamp `p2-semantic-sufficiency-final2-2026-08-09`, budget 4 000, ten probe
+tasks. Source verification now checks task-specific evidence terms instead of
+equating "a source read exists" with sufficiency. A thin packet gets one retry
+that replays the whole semantic contract, then stops and reports any remaining
+gap. Distant hits in one file retain separate windows, and explicit lowercase
+backticks plus templated URL paths remain searchable identifiers.
+
+| arm | tokens | facts | recall | versus naive |
+| --- | ---: | ---: | ---: | ---: |
+| `naive` | 280 910 | 40/40 | 100 % | - |
+| `cortex-targeted` | **22 607** | 28/40 | 70 % | **-92.0 %** |
+| `cortex-source` | **36 105** | **40/40** | **100 %** | **-87.1 %** |
+
+Compared with P1, source costs 5 346 more delivered tokens and recovers eight
+more facts (32/40 -> 40/40). Compared with the first semantic-retry attempt it
+recovers the last three facts with 14 fewer tokens: retrying the complete
+contract fixed `ProfileRegistry` and `ShadowHandle` without another pass.
+Every source packet is structurally sufficient after at most one retry.
+
+The quality target (at least 32/40 and no env/config task below 50 %) passes;
+the approximately 30k aggregate token target does not. The remaining work is
+selective source-window packing: prioritize windows that close distinct
+requirements before compilation. Dropping raw search snippets or retaining
+both initial and retry windows was measured and rejected because each reduced
+recall while still approaching the 4k per-task ceiling. Hot-path LLM
+compression remains the wrong lever.
+
+The first run refreshed repository evidence, so cold-to-warm JSON was not byte
+identical. Two subsequent warm runs with the same stamp were byte identical
+(SHA-256 `1E2A44C29001354C4830C4E3B333F71BD039C6A501BDA16CA93936F35EEFB70C`).

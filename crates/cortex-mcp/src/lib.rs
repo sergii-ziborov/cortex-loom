@@ -1062,6 +1062,7 @@ mod tests {
             .collect();
         for expected in [
             "sequence_list",
+            "sequence_recommend",
             "sequence_copy",
             "sequence_lint",
             "sequence_step_read",

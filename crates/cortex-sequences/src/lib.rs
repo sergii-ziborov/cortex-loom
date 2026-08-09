@@ -1,3 +1,4 @@
+mod activation;
 mod catalog;
 mod error;
 mod lint;
@@ -14,3 +15,4 @@ pub use template::{
 
 #[cfg(test)]
 mod tests;
+pub use activation::{SequenceCandidate, candidate_templates};

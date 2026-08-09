@@ -11,6 +11,7 @@ members = [
   "crates/cortex-ollama",
   "crates/cortex-run",
   "crates/cortex-router",
+  "crates/cortex-sequences",
   "crates/cortex-shadow",
   "crates/cortex-skills",
   "crates/cortex-store",

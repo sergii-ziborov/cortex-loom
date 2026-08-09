@@ -7,6 +7,8 @@ use serde::Deserialize;
 
 use crate::EvalError;
 use crate::comparators::is_citation_id;
+use cortex_llm::MicroExtractRequest;
+use serde_json::Value;
 
 pub const ALLOWED_ACTIONS: &[&str] = &[
     "add", "fix", "remove", "rename", "move", "refactor", "document", "test", "update", "other",
@@ -52,6 +54,49 @@ pub struct EvidenceFixture {
     pub id: String,
     pub source: String,
     pub content: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MicroExtractionFixture {
+    pub id: String,
+    pub verified_input: String,
+    pub allowed_fields: Vec<String>,
+    pub gold: Value,
+    pub rejected_outputs: Vec<Value>,
+}
+
+/// Load adversarial literal-extraction cases independently from the legacy
+/// `local_small` suite. This role has its own stricter gate.
+pub fn micro_extraction_fixtures() -> Result<Vec<MicroExtractionFixture>, EvalError> {
+    let fixtures: Vec<MicroExtractionFixture> = parse(
+        include_str!("../fixtures/micro-extraction.json"),
+        "micro extraction",
+    )?;
+    require_unique_ids(
+        "micro extraction",
+        fixtures.iter().map(|fixture| &fixture.id),
+    )?;
+    for fixture in &fixtures {
+        let fields: Vec<&str> = fixture.allowed_fields.iter().map(String::as_str).collect();
+        let request = MicroExtractRequest::new(&fixture.verified_input, &fields)
+            .map_err(|error| EvalError::Fixture(format!("{}: {error}", fixture.id)))?;
+        request
+            .validate_output(&fixture.gold)
+            .map_err(|error| EvalError::Fixture(format!("{} gold: {error}", fixture.id)))?;
+        if fixture.rejected_outputs.is_empty()
+            || fixture
+                .rejected_outputs
+                .iter()
+                .any(|output| request.validate_output(output).is_ok())
+        {
+            return Err(EvalError::Fixture(format!(
+                "{} must contain only rejected adversarial outputs",
+                fixture.id
+            )));
+        }
+    }
+    Ok(fixtures)
 }
 
 #[derive(Debug, Clone, Deserialize)]

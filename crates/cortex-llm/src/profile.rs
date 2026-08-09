@@ -29,6 +29,9 @@ pub enum Role {
     /// Precompute a digest of stable, per-revision structure, off the hot
     /// path, to be cached and reused.
     Digest,
+    /// Extract literal values from verified evidence into caller-declared
+    /// fields. Output is advisory and mechanically checked against the input.
+    MicroExtract,
 }
 
 impl Role {
@@ -38,6 +41,7 @@ impl Role {
             Self::Embedding => "embedding",
             Self::Classification => "classification",
             Self::Digest => "digest",
+            Self::MicroExtract => "micro_extract",
         }
     }
 
@@ -45,7 +49,16 @@ impl Role {
     /// budget measured in a user's patience rather than a build's.
     #[must_use]
     pub const fn is_hot_path(self) -> bool {
-        matches!(self, Self::Embedding | Self::Classification)
+        matches!(
+            self,
+            Self::Embedding | Self::Classification | Self::MicroExtract
+        )
+    }
+
+    /// Local roles never grant completion, routing, or mutation authority.
+    #[must_use]
+    pub const fn is_authoritative(self) -> bool {
+        false
     }
 }
 
@@ -307,5 +320,11 @@ mod tests {
             !Role::Digest.is_hot_path(),
             "a digest is precomputed; waiting for it costs nobody"
         );
+    }
+
+    #[test]
+    fn micro_extraction_is_hot_path_but_never_authoritative() {
+        assert!(Role::MicroExtract.is_hot_path());
+        assert!(!Role::MicroExtract.is_authoritative());
     }
 }

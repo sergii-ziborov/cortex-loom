@@ -44,6 +44,17 @@
       "timeoutSeconds": 900,
       "gatePassed": false,
       "note": "Quality tier, off the hot path: precompute a per-revision structural digest and cache it. Not yet deployed or measured on the GPU."
+    },
+    {
+      "id": "npu-micro-extract-qwen3-0.6b",
+      "role": "micro_extract",
+      "model": "qwen3-0.6b-micro",
+      "device": "npu",
+      "runtime": "open_ai_compatible",
+      "baseUrl": "http://127.0.0.1:8002",
+      "timeoutSeconds": 2,
+      "gatePassed": false,
+      "note": "Shadow candidate only: Qwen3-0.6B under an exact operator-owned serving tag. No runtime artifact is installed or implied by this configuration. Keep disabled until its quantization/device/runtime tuple passes the micro_extract gate: schema 1.00, precision/recall >=0.95, exact >=0.90, zero unsupported or authority output, p95 <=1500 ms."
     }
   ]
 }

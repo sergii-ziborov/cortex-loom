@@ -35,6 +35,7 @@ pub enum SuiteKind {
     Extraction,
     Compression,
     Retrieval,
+    MicroExtraction,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

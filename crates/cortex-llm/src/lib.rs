@@ -25,11 +25,13 @@
 
 pub mod device;
 pub mod endpoint;
+mod micro_extract;
 pub mod openai;
 pub mod profile;
 
 pub use device::{Device, DevicePolicy, Placement};
 pub use endpoint::{EndpointError, LoopbackUrl};
+pub use micro_extract::{MicroExtractError, MicroExtractOutput, MicroExtractRequest};
 pub use openai::OpenAiProvider;
 pub use profile::{LlmProfile, ProfileRegistry, Role, Runtime, SelectionError};
 
@@ -126,6 +128,17 @@ pub trait LlmProvider {
         &self,
         request: &ClassifyRequest,
     ) -> Result<ProviderResponse<String>, ProviderError>;
+
+    /// Extract literal fields from verified input under a closed schema.
+    ///
+    /// # Errors
+    ///
+    /// Returns a schema error for unknown fields or any value absent from the
+    /// verified input.
+    fn micro_extract(
+        &self,
+        request: &MicroExtractRequest,
+    ) -> Result<ProviderResponse<MicroExtractOutput>, ProviderError>;
 }
 
 /// Validate a classification answer against the closed set.
@@ -154,7 +167,7 @@ pub fn resolve_label(answer: &str, labels: &[String]) -> Result<String, Provider
 
 #[cfg(test)]
 mod tests {
-    use super::{ProviderError, resolve_label};
+    use super::{MicroExtractRequest, ProviderError, resolve_label};
 
     fn labels() -> Vec<String> {
         vec![
@@ -186,5 +199,34 @@ mod tests {
             resolve_label("medium", &labels()),
             Err(ProviderError::UnknownLabel { .. })
         ));
+    }
+
+    #[test]
+    fn micro_extraction_accepts_only_verified_bounded_literal_fields() {
+        assert!(MicroExtractRequest::new("", &["identifier"]).is_err());
+        assert!(MicroExtractRequest::new("const PORT = 43817", &[]).is_err());
+        let request = MicroExtractRequest::new(
+            "const PORT = 43817; CORTEX_SEMANTIC=1",
+            &["identifier", "env"],
+        )
+        .unwrap();
+        assert!(
+            request
+                .validate_output(&serde_json::json!({
+                    "identifier": ["PORT"],
+                    "env": ["CORTEX_SEMANTIC"]
+                }))
+                .is_ok()
+        );
+        assert!(
+            request
+                .validate_output(&serde_json::json!({"identifier": ["invented"]}))
+                .is_err()
+        );
+        assert!(
+            request
+                .validate_output(&serde_json::json!({"route": ["upstream"]}))
+                .is_err()
+        );
     }
 }

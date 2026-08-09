@@ -28,7 +28,7 @@ Runs on every request. Latency is a user's patience.
 
 ### A sub-1B lane, but not a smaller router
 
-The useful place for a 0.3-0.6B model is a future `micro_extract` role, not
+The useful place for a 0.3-0.6B model is the gated `micro_extract` role, not
 `classification`. Routing decides whether work may stay local; a smaller model
 must not make that trust decision after the measured 1.5B profile already
 missed two escalations.
@@ -47,13 +47,22 @@ and drafting `PlanHints` that deterministic code validates. Bad jobs are
 `route_work`, sufficiency judgment, source compression, change planning, code
 review, or any mutation.
 
-The first shadow candidate should be `Qwen3-0.6B`: it is multilingual, has a
+The first shadow candidate is `Qwen3-0.6B`: it is multilingual, has a
 32K context, and uses the same family already deployed here. `Gemma-3-270m-it`
 and `SmolLM2-360M-Instruct` are useful controls, not trusted defaults. No
-profile belongs in `config/llm-profiles.json` until the exact
-*(model, quantization, device, runtime)* tuple passes a new micro-extraction
-gate: schema-valid >= 0.99, exact field accuracy >= 0.95, zero invented labels,
-and zero cases where validation accepts a value absent from the evidence.
+profile is present in `config/llm-profiles.json` as `gatePassed: false`; it is
+configuration for measurement, not permission to run trusted work. The exact
+*(model, quantization, device, runtime)* tuple must pass the micro-extraction
+gate: schema validity 1.00, field precision and recall >= 0.95, exact match >=
+0.90, zero unsupported fields, zero routing/mutation output, and p95 <= 1.5 s.
+
+The Rust contract makes this lane narrower than the older `local_small`
+extraction suite. `MicroExtractRequest` cannot be constructed without verified
+input and a non-empty closed field list. The provider submits a strict dynamic
+JSON schema, then rejects unknown fields, duplicate values, free-form shapes,
+and every returned string that does not occur literally in the verified input.
+It never enters `cortex-router`, so passing this gate still grants no routing,
+sufficiency, compression, planning, completion, or mutation authority.
 
 ### GPU — quality, off the hot path, waiting is free
 
@@ -304,7 +313,9 @@ decision. Remaining work, in order:
    server exposes it; until then `device: unknown` stays the honest value.
 2. Optional accuracy polish: repository-analysis fixtures still over-call to
    `upstream_strong` (fail-closed, does not block the gate).
-3. Add the `digest` role's cache, keyed by repository revision, and measure it
+3. Measure the disabled `micro_extract` candidate only when its exact local
+   artifact is already installed; never download one from the evaluation path.
+4. Add the `digest` role's cache, keyed by repository revision, and measure it
    as a sixth benchmark arm.
 
 ## Sources

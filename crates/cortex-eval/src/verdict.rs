@@ -12,7 +12,8 @@ use serde::Serialize;
 
 use crate::SuiteKind;
 use crate::metrics::{
-    ClassificationAggregate, CompressionAggregate, ExtractionAggregate, RetrievalAggregate,
+    ClassificationAggregate, CompressionAggregate, ExtractionAggregate, MicroExtractionAggregate,
+    RetrievalAggregate,
 };
 
 pub const MIN_SCHEMA_VALID_RATE: f64 = 0.95;
@@ -22,6 +23,10 @@ pub const MIN_EXTRACTION_EXACT_RATE: f64 = 0.6;
 pub const MIN_PRESERVED_RATIO: f64 = 0.9;
 pub const MIN_RETRIEVAL_RECALL_AT_5: f64 = 0.9;
 pub const MIN_RETRIEVAL_NDCG_AT_5: f64 = 0.75;
+pub const MIN_MICRO_FIELD_PRECISION: f64 = 0.95;
+pub const MIN_MICRO_FIELD_RECALL: f64 = 0.95;
+pub const MIN_MICRO_EXACT_MATCH: f64 = 0.90;
+pub const MAX_MICRO_P95_LATENCY_MS: u64 = 1_500;
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "snake_case", tag = "code", content = "detail")]
@@ -37,6 +42,65 @@ pub enum VerdictReason {
     DraftDoesNotCompress { mean_token_delta: i64 },
     RecallBelowThreshold { mean_recall_at_5: f64 },
     NdcgBelowThreshold { mean_ndcg_at_5: f64 },
+    FieldPrecisionBelowThreshold { precision: f64 },
+    FieldRecallBelowThreshold { recall: f64 },
+    UnsupportedFields { count: u32 },
+    AuthorityOutput { count: u32 },
+    LatencyAboveThreshold { p95_latency_ms: u64 },
+}
+
+/// Judge one exact `micro_extract` profile. Unlike the older extraction
+/// suite, schema validity must be perfect and unsupported output is fatal.
+#[must_use]
+pub fn judge_micro_extract(aggregate: Option<&MicroExtractionAggregate>) -> CalibrationVerdict {
+    let mut reasons = Vec::new();
+    let Some(aggregate) = aggregate else {
+        reasons.push(VerdictReason::SuiteNotRun(SuiteKind::MicroExtraction));
+        return CalibrationVerdict {
+            pass: false,
+            reasons,
+        };
+    };
+    if aggregate.schema_valid_rate < 1.0 {
+        reasons.push(VerdictReason::SchemaValidityBelowThreshold {
+            suite: SuiteKind::MicroExtraction,
+            rate: aggregate.schema_valid_rate,
+        });
+    }
+    if aggregate.field_precision < MIN_MICRO_FIELD_PRECISION {
+        reasons.push(VerdictReason::FieldPrecisionBelowThreshold {
+            precision: aggregate.field_precision,
+        });
+    }
+    if aggregate.field_recall < MIN_MICRO_FIELD_RECALL {
+        reasons.push(VerdictReason::FieldRecallBelowThreshold {
+            recall: aggregate.field_recall,
+        });
+    }
+    if aggregate.exact_match_rate < MIN_MICRO_EXACT_MATCH {
+        reasons.push(VerdictReason::ExactMatchBelowThreshold {
+            rate: aggregate.exact_match_rate,
+        });
+    }
+    if aggregate.unsupported_fields > 0 {
+        reasons.push(VerdictReason::UnsupportedFields {
+            count: aggregate.unsupported_fields,
+        });
+    }
+    if aggregate.authority_outputs > 0 {
+        reasons.push(VerdictReason::AuthorityOutput {
+            count: aggregate.authority_outputs,
+        });
+    }
+    if aggregate.p95_latency_ms > MAX_MICRO_P95_LATENCY_MS {
+        reasons.push(VerdictReason::LatencyAboveThreshold {
+            p95_latency_ms: aggregate.p95_latency_ms,
+        });
+    }
+    CalibrationVerdict {
+        pass: reasons.is_empty(),
+        reasons,
+    }
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]

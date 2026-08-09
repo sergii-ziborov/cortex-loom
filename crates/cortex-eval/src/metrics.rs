@@ -146,6 +146,19 @@ pub struct ExtractionAggregate {
     pub exact_match_rate: f64,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MicroExtractionAggregate {
+    pub samples: u32,
+    pub schema_valid_rate: f64,
+    pub field_precision: f64,
+    pub field_recall: f64,
+    pub exact_match_rate: f64,
+    pub unsupported_fields: u32,
+    pub authority_outputs: u32,
+    pub p95_latency_ms: u64,
+}
+
 #[must_use]
 pub fn aggregate_extraction(samples: &[ExtractionSample]) -> ExtractionAggregate {
     let schema_valid = samples.iter().filter(|s| s.schema_valid).count();

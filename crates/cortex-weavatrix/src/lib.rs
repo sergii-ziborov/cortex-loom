@@ -5,7 +5,6 @@ pub mod plan;
 mod plan_intent;
 mod refactor_preview;
 mod source_followup;
-mod transport;
 mod verify;
 
 pub use adapter::{
@@ -15,7 +14,6 @@ pub use adapter::{
 pub use context::{CompiledEvidenceBundle, compile_evidence_bundle};
 pub use hints::{IntentHint, PlanHints};
 pub use refactor_preview::{PreviewChange, RefactorPreview, preview_refactor_plan};
-pub use transport::{McpChild, McpCommand, McpError};
 pub use verify::{EvidenceSufficiency, assess_compiled};
 
 #[cfg(test)]

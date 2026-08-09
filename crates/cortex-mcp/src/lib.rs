@@ -13,8 +13,7 @@ use cortex_shadow::{
 use cortex_skills::{export_skill_markdown, import_skill_markdown, index_entry, render_index};
 use cortex_store::{GraphStore, ShadowOperation, UsageOperation, UsageReport, UsageSample};
 use cortex_weavatrix::{
-    PlanHints, RefactorOperation, WeavatrixAdapter, WeavatrixConfig, assess_compiled,
-    compile_evidence_bundle,
+    PlanHints, WeavatrixAdapter, WeavatrixConfig, assess_compiled, compile_evidence_bundle,
 };
 use mcport::{ConcurrentMcpServer, FlushPolicy, RuntimeConfig, ToolReply, TransportLimits, json};
 use serde::Deserialize;
@@ -149,8 +148,7 @@ struct RouteWorkArgs {
 #[serde(rename_all = "camelCase")]
 struct RefactorPreviewArgs {
     repository: PathBuf,
-    operation: RefactorOperation,
-    arguments: Value,
+    plan: Value,
 }
 
 #[derive(Debug, Deserialize)]
@@ -958,32 +956,19 @@ pub fn build_server(state: CortexMcpState) -> ConcurrentMcpServer {
         )
         .typed_tool(
             "weavatrix_refactor_preview",
-            "Request a bounded Weavatrix Refactor plan. Confirm tokens are stripped and apply_edit_plan is not exposed.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "repository": {"type": "string"},
-                    "operation": {"type": "string", "enum": ["rename_symbol", "rename_related_symbols", "move_file", "move_symbol", "change_signature", "edit_symbol"]},
-                    "arguments": {"type": "object", "description": "Operation-specific arguments passed through to Weavatrix Refactor; the accepted keys depend on the operation and are defined by Weavatrix, not by this server. Confirmation and apply tokens are stripped recursively.", "additionalProperties": true}
-                },
-                "required": ["repository", "operation", "arguments"],
-                "additionalProperties": false
-            }),
+            "Validate and render an upstream-authored weavatrix.refactor-plan.v1 in native Rust. Breaking migration: pass {repository, plan}; operation/arguments are no longer accepted. Preview-only: no apply, confirmation token, or rollback authority exists.",
+            refactor_preview_schema(),
             move |context, arguments: RefactorPreviewArgs| {
                 if context.is_cancelled() {
                     return ToolReply::error("cancelled");
                 }
-                match refactor_state.weavatrix.preview_refactor(
+                match preview_refactor_response(
+                    &refactor_state.weavatrix,
                     &arguments.repository,
-                    arguments.operation,
-                    &arguments.arguments,
+                    &arguments.plan,
                 ) {
-                    Ok(plan) => ToolReply::structured(serde_json::json!({
-                        "mode": "preview",
-                        "plan": plan,
-                        "applyAvailable": false
-                    })),
-                    Err(error) => ToolReply::error(error.to_string()),
+                    Ok(response) => ToolReply::structured(response),
+                    Err(error) => ToolReply::error(error),
                 }
             },
         );
@@ -1017,6 +1002,8 @@ pub fn graph_summary(graph: &GraphDocument) -> Value {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
 
     #[test]
@@ -1025,4 +1012,76 @@ mod tests {
         assert_eq!(summary.get("nodes").and_then(Value::as_u64), Some(8));
         assert!(summary.get("nodes").is_some());
     }
+
+    #[test]
+    fn weavatrix_refactor_preview_schema_accepts_only_a_native_plan() {
+        let schema = refactor_preview_schema();
+        assert_eq!(schema["properties"]["plan"]["type"], "object");
+        assert!(schema["properties"].get("operation").is_none());
+        assert!(schema["properties"].get("arguments").is_none());
+        assert_eq!(
+            schema["required"],
+            serde_json::json!(["repository", "plan"])
+        );
+    }
+
+    #[test]
+    fn weavatrix_refactor_preview_response_has_no_apply_authority() {
+        let root =
+            std::env::temp_dir().join(format!("cortex-mcp-native-preview-{}", std::process::id()));
+        if root.exists() {
+            std::fs::remove_dir_all(&root).unwrap();
+        }
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        let adapter = WeavatrixAdapter::new(WeavatrixConfig::discover().unwrap());
+        let plan = serde_json::json!({
+            "schemaVersion": "weavatrix.refactor-plan.v1",
+            "operation": "create",
+            "operations": [{
+                "kind": "create",
+                "value": {"path": "src/new.rs", "contents": "pub fn new() {}\n"}
+            }]
+        });
+
+        let response = preview_refactor_response(&adapter, Path::new(&root), &plan).unwrap();
+
+        assert_eq!(response["mode"], "preview");
+        assert!(response.get("preview").is_some());
+        let rendered = response.to_string().to_ascii_lowercase();
+        for forbidden in ["confirmationtoken", "applyavailable", "rollback"] {
+            assert!(
+                !rendered.contains(forbidden),
+                "forbidden field: {forbidden}"
+            );
+        }
+        assert!(!root.join("src/new.rs").exists());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+}
+
+fn refactor_preview_schema() -> Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "repository": {"type": "string"},
+            "plan": {
+                "type": "object",
+                "description": "A complete weavatrix.refactor-plan.v1 object; native Rust parsing rejects unknown operation fields, unsafe paths, stale hashes, and oversized values.",
+                "additionalProperties": true
+            }
+        },
+        "required": ["repository", "plan"],
+        "additionalProperties": false
+    })
+}
+
+fn preview_refactor_response(
+    adapter: &WeavatrixAdapter,
+    repository: &std::path::Path,
+    plan: &Value,
+) -> Result<Value, String> {
+    adapter
+        .preview_refactor(repository, plan)
+        .map(|preview| serde_json::json!({"mode": "preview", "preview": preview}))
+        .map_err(|error| error.to_string())
 }

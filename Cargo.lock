@@ -190,6 +190,7 @@ name = "cortex-eval"
 version = "0.1.0"
 dependencies = [
  "blazingly-json",
+ "cortex-bench",
  "cortex-context",
  "cortex-llm",
  "cortex-ollama",

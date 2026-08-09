@@ -19,6 +19,7 @@ pub mod openai_backend;
 pub mod prompts;
 pub mod report;
 pub mod runner;
+pub mod sequence_suite;
 pub mod verdict;
 
 pub use cortex_context::ranking;
@@ -36,6 +37,7 @@ pub enum SuiteKind {
     Compression,
     Retrieval,
     MicroExtraction,
+    Sequence,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

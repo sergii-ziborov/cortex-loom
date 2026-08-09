@@ -8,6 +8,7 @@ use serde::Serialize;
 
 use crate::EvalError;
 use crate::runner::{EmbeddingReport, ProfileReport, ProfileStatus};
+use crate::sequence_suite::{SequenceLiveReport, SequenceLiveStatus};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -19,6 +20,8 @@ pub struct EvalReport {
     pub profiles: Vec<ProfileReport>,
     #[serde(default)]
     pub embeddings: Vec<EmbeddingReport>,
+    #[serde(default)]
+    pub sequences: Vec<SequenceLiveReport>,
 }
 
 /// Write the JSON report into `directory` and return the file path.
@@ -119,7 +122,28 @@ pub fn render_markdown(report: &EvalReport) -> String {
     for embedding in &report.embeddings {
         render_embedding(&mut out, embedding);
     }
+    for sequence in &report.sequences {
+        render_sequence(&mut out, sequence);
+    }
     out
+}
+
+fn render_sequence(out: &mut String, sequence: &SequenceLiveReport) {
+    let _ = writeln!(out, "\n## sequence — `{}`", sequence.model);
+    let _ = writeln!(
+        out,
+        "status: {:?} | repetitions: {} | samples: {} | paired regressions: {} | verdict: {}",
+        sequence.status,
+        sequence.repetitions,
+        sequence.samples.len(),
+        sequence.paired_regressions.len(),
+        if sequence.promoted { "PASS" } else { "FAIL" }
+    );
+    if sequence.status != SequenceLiveStatus::Evaluated
+        && let Some(reason) = &sequence.reason
+    {
+        let _ = writeln!(out, "reason: {reason}");
+    }
 }
 
 fn render_embedding(out: &mut String, embedding: &EmbeddingReport) {

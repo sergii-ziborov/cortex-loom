@@ -42,6 +42,7 @@ fn classification_only() -> SuiteSelection {
         extraction: false,
         compression: false,
         retrieval: false,
+        sequence: false,
     }
 }
 
@@ -214,6 +215,7 @@ fn compression_flags_hallucinated_citations() {
         extraction: false,
         compression: true,
         retrieval: false,
+        sequence: false,
     };
     let medium_profile = EvalProfile {
         id: "candidate-medium".to_owned(),
@@ -396,6 +398,7 @@ fn markdown_report_states_the_verdict() {
         schema_version: SCHEMA_VERSION.to_owned(),
         profiles: vec![skipped],
         embeddings: Vec::new(),
+        sequences: Vec::new(),
     };
     let markdown = render_markdown(&report);
     assert!(markdown.contains("model_absent"));

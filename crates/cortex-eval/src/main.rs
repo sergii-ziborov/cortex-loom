@@ -14,6 +14,7 @@ use cortex_eval::report::{EvalReport, render_markdown, write_json};
 use cortex_eval::runner::{
     EmbeddingProfile, EvalProfile, SuiteSelection, run_embedding_profile, run_profile,
 };
+use cortex_eval::sequence_suite::{SequenceLiveOptions, run_sequence_suite};
 use cortex_eval::{EvalError, PROMPT_VERSION, SCHEMA_VERSION};
 use cortex_ollama::{ModelProfile, OllamaClient, OllamaConfig};
 use cortex_router::ModelTier;
@@ -66,6 +67,9 @@ struct CliOptions {
     base_url: Option<String>,
     /// Deployed servable name, when it differs from the profile's model tag.
     servable: Option<String>,
+    sequence_report: Option<PathBuf>,
+    superpowers_root: Option<PathBuf>,
+    sequence_repetitions: u32,
 }
 
 fn main() {
@@ -154,6 +158,7 @@ fn run() -> Result<(), EvalError> {
         Vec::new()
     };
     let embeddings = run_embeddings(backend, &config, &options, &fixtures);
+    let sequences = run_sequences(backend, &selected, &options)?;
     let report = EvalReport {
         generated_at_unix: unix_now(),
         ollama_version: backend.version().ok(),
@@ -161,6 +166,7 @@ fn run() -> Result<(), EvalError> {
         schema_version: SCHEMA_VERSION.to_owned(),
         profiles,
         embeddings,
+        sequences,
     };
     let path = write_json(&options.report_dir, &report)?;
     print!("{}", render_markdown(&report));
@@ -237,6 +243,36 @@ fn run_embeddings(
         .collect()
 }
 
+fn run_sequences(
+    backend: &dyn EvalBackend,
+    selected: &[EvalProfile],
+    options: &CliOptions,
+) -> Result<Vec<cortex_eval::sequence_suite::SequenceLiveReport>, EvalError> {
+    if !options.suites.sequence {
+        return Ok(Vec::new());
+    }
+    let deterministic_report = options.sequence_report.as_deref().ok_or_else(|| {
+        EvalError::Config("--suite sequence requires --sequence-report".to_owned())
+    })?;
+    selected
+        .iter()
+        .map(|profile| {
+            run_sequence_suite(
+                backend,
+                &SequenceLiveOptions {
+                    profile_id: &profile.id,
+                    model: &profile.model,
+                    runtime: options.runtime.as_deref().unwrap_or("ollama"),
+                    deterministic_report,
+                    superpowers_root: options.superpowers_root.as_deref(),
+                    repetitions: options.sequence_repetitions,
+                    limit: options.limit,
+                },
+            )
+        })
+        .collect()
+}
+
 fn discover(backend: &dyn EvalBackend, profiles: &[ProfileConfig]) {
     match backend.version() {
         Ok(version) => println!("ollama version: {version}"),
@@ -277,6 +313,9 @@ fn parse_args() -> Result<CliOptions, EvalError> {
         runtime: None,
         base_url: None,
         servable: None,
+        sequence_report: None,
+        superpowers_root: None,
+        sequence_repetitions: 3,
     };
     let mut args = env::args().skip(1);
     while let Some(argument) = args.next() {
@@ -302,6 +341,20 @@ fn parse_args() -> Result<CliOptions, EvalError> {
             "--runtime" => options.runtime = Some(required(&mut args, "--runtime")?),
             "--base-url" => options.base_url = Some(required(&mut args, "--base-url")?),
             "--servable" => options.servable = Some(required(&mut args, "--servable")?),
+            "--sequence-report" => {
+                options.sequence_report =
+                    Some(PathBuf::from(required(&mut args, "--sequence-report")?));
+            }
+            "--superpowers-root" => {
+                options.superpowers_root =
+                    Some(PathBuf::from(required(&mut args, "--superpowers-root")?));
+            }
+            "--sequence-repetitions" => {
+                let value = required(&mut args, "--sequence-repetitions")?;
+                options.sequence_repetitions = value.parse().map_err(|_| {
+                    EvalError::Config(format!("invalid --sequence-repetitions value {value}"))
+                })?;
+            }
             "--discover" => options.discover = true,
             other => return Err(EvalError::Config(format!("unknown argument {other}"))),
         }
@@ -320,6 +373,7 @@ fn parse_suites(value: &str) -> Result<SuiteSelection, EvalError> {
         extraction: false,
         compression: false,
         retrieval: false,
+        sequence: false,
     };
     for part in value.split(',') {
         match part.trim() {
@@ -328,13 +382,15 @@ fn parse_suites(value: &str) -> Result<SuiteSelection, EvalError> {
             "extraction" => selection.extraction = true,
             "compression" => selection.compression = true,
             "retrieval" => selection.retrieval = true,
+            "sequence" => selection.sequence = true,
             other => return Err(EvalError::Config(format!("unknown suite {other}"))),
         }
     }
     if !(selection.classification
         || selection.extraction
         || selection.compression
-        || selection.retrieval)
+        || selection.retrieval
+        || selection.sequence)
     {
         return Err(EvalError::Config("no suite selected".to_owned()));
     }

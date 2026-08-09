@@ -28,6 +28,7 @@
 //! every arm is scored against declared [`Anchor`]s and the headline figure is
 //! tokens per satisfied fact, not raw token count.
 
+mod external_skills;
 pub mod naive;
 pub mod probe_tasks;
 pub mod report;

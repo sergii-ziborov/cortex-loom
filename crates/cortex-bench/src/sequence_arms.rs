@@ -8,6 +8,7 @@ use cortex_domain::{EdgeKind, GraphDocument, NodeKind};
 use cortex_sequences::{active_step_packet, candidate_templates, instantiate_template};
 use sha2::{Digest, Sha256};
 
+use crate::external_skills::ExternalSkillLibrary;
 use crate::sequence::{
     ArmTotals, SequenceArm, SequenceBenchReport, SequenceObservation, SequenceProbe,
     SequenceScenarioResult, gate, score,
@@ -19,7 +20,46 @@ const EVIDENCE_IDS: [&str; 3] = [
     "evidence:declared-contract",
     "evidence:focused-test",
 ];
-const MAX_UPSTREAM_FILE_BYTES: u64 = 256 * 1024;
+
+#[derive(Debug, Clone)]
+pub struct MethodologyPacket {
+    pub scenario_id: String,
+    pub task: String,
+    pub arm: SequenceArm,
+    pub available: bool,
+    pub methodology_hash: String,
+    pub evidence_hash: String,
+    pub methodology: String,
+}
+
+/// Recreate the exact methodology inputs used by the deterministic report.
+/// Bodies stay out of the JSON report so raw third-party skill text is never
+/// accidentally vendored as a benchmark artifact.
+pub fn methodology_packets(
+    superpowers_root: Option<&Path>,
+) -> Result<Vec<MethodologyPacket>, String> {
+    let probes: Vec<SequenceProbe> = serde_json::from_str(FIXTURES)
+        .map_err(|error| format!("invalid sequence fixtures: {error}"))?;
+    let upstream = ExternalSkillLibrary::load(superpowers_root);
+    let evidence_ids: Vec<String> = EVIDENCE_IDS.iter().map(ToString::to_string).collect();
+    let evidence_hash = digest(&evidence_ids.join("\n"));
+    let mut latencies = Vec::new();
+    let mut packets = Vec::with_capacity(probes.len() * 4);
+    for probe in &probes {
+        for observation in observations(probe, &upstream, &evidence_ids, &mut latencies)? {
+            packets.push(MethodologyPacket {
+                scenario_id: probe.id.clone(),
+                task: probe.task.clone(),
+                arm: observation.arm,
+                available: observation.available,
+                methodology_hash: observation.source_hash,
+                evidence_hash: evidence_hash.clone(),
+                methodology: observation.context,
+            });
+        }
+    }
+    Ok(packets)
+}
 
 /// Run the static four-arm comparison.
 ///
@@ -34,7 +74,7 @@ pub fn run(superpowers_root: Option<&Path>) -> Result<SequenceBenchReport, Strin
     if probes.len() < 28 {
         return Err("sequence benchmark requires at least 28 scenarios".to_owned());
     }
-    let upstream = UpstreamSkills::load(superpowers_root);
+    let upstream = ExternalSkillLibrary::load(superpowers_root);
     let evidence_ids: Vec<String> = EVIDENCE_IDS.iter().map(ToString::to_string).collect();
     let mut native_latencies = Vec::with_capacity(probes.len());
     let mut scenarios = Vec::with_capacity(probes.len());
@@ -57,7 +97,11 @@ pub fn run(superpowers_root: Option<&Path>) -> Result<SequenceBenchReport, Strin
     Ok(SequenceBenchReport {
         schema_version: 1,
         fixture_hash: digest(FIXTURES),
-        upstream_version: upstream.version,
+        upstream_version: upstream
+            .stamp
+            .as_ref()
+            .and_then(|stamp| stamp.version.clone()),
+        external_library: upstream.stamp,
         evidence_packet_hash: digest(&evidence_ids.join("\n")),
         scenarios,
         totals,
@@ -104,7 +148,7 @@ pub fn run_cli(arguments: impl Iterator<Item = String>) -> Result<(), String> {
 
 fn observations(
     probe: &SequenceProbe,
-    upstream: &UpstreamSkills,
+    upstream: &ExternalSkillLibrary,
     evidence_ids: &[String],
     native_latencies: &mut Vec<u64>,
 ) -> Result<Vec<SequenceObservation>, String> {
@@ -128,7 +172,7 @@ fn observations(
             Some("bundled Cortex skill is absent".to_owned()),
         ),
     };
-    let raw = upstream.observation(&probe.raw_skill);
+    let raw = raw_observation(upstream, &probe.raw_skill);
     let started = Instant::now();
     let native = native_observation(probe, evidence_ids)?;
     native_latencies.push(u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX));
@@ -236,6 +280,13 @@ fn from_text(
                 "verification",
             ],
         ),
+    }
+}
+
+fn raw_observation(library: &ExternalSkillLibrary, skill: &str) -> SequenceObservation {
+    match library.body(skill) {
+        Ok(body) => from_text(SequenceArm::SuperpowersRaw, skill, body, true, None),
+        Err(reason) => from_text(SequenceArm::SuperpowersRaw, skill, "", false, Some(reason)),
     }
 }
 
@@ -358,74 +409,6 @@ fn next(arguments: &mut impl Iterator<Item = String>, flag: &str) -> Result<Stri
     arguments
         .next()
         .ok_or_else(|| format!("{flag} requires a value"))
-}
-
-struct UpstreamSkills {
-    root: Option<PathBuf>,
-    version: Option<String>,
-    unavailable_reason: Option<String>,
-}
-
-impl UpstreamSkills {
-    fn load(root: Option<&Path>) -> Self {
-        let Some(root) = root else {
-            return Self {
-                root: None,
-                version: None,
-                unavailable_reason: Some("--superpowers-root was not supplied".to_owned()),
-            };
-        };
-        let license = root.join("LICENSE");
-        let skills = root.join("skills");
-        let valid = license.is_file() && skills.is_dir();
-        Self {
-            root: valid.then(|| root.to_path_buf()),
-            version: valid.then(|| {
-                root.file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or("unknown")
-                    .to_owned()
-            }),
-            unavailable_reason: (!valid)
-                .then(|| "root must contain LICENSE and skills/".to_owned()),
-        }
-    }
-
-    fn observation(&self, skill: &str) -> SequenceObservation {
-        let Some(root) = &self.root else {
-            return from_text(
-                SequenceArm::SuperpowersRaw,
-                skill,
-                "",
-                false,
-                self.unavailable_reason.clone(),
-            );
-        };
-        let path = root.join("skills").join(skill).join("SKILL.md");
-        match read_bounded_regular_file(&path) {
-            Ok(body) => from_text(SequenceArm::SuperpowersRaw, skill, &body, true, None),
-            Err(reason) => from_text(SequenceArm::SuperpowersRaw, skill, "", false, Some(reason)),
-        }
-    }
-}
-
-fn read_bounded_regular_file(path: &Path) -> Result<String, String> {
-    let metadata = std::fs::symlink_metadata(path)
-        .map_err(|_| format!("missing bounded upstream skill: {}", path.display()))?;
-    if !metadata.is_file() || metadata.file_type().is_symlink() {
-        return Err(format!(
-            "upstream skill is not a regular file: {}",
-            path.display()
-        ));
-    }
-    if metadata.len() > MAX_UPSTREAM_FILE_BYTES {
-        return Err(format!(
-            "upstream skill exceeds 256 KiB: {}",
-            path.display()
-        ));
-    }
-    std::fs::read_to_string(path)
-        .map_err(|error| format!("could not read {}: {error}", path.display()))
 }
 
 #[cfg(test)]

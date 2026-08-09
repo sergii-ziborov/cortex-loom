@@ -149,10 +149,20 @@ pub struct SequenceBenchReport {
     pub schema_version: u32,
     pub fixture_hash: String,
     pub upstream_version: Option<String>,
+    pub external_library: Option<ExternalLibraryStamp>,
     pub evidence_packet_hash: String,
     pub scenarios: Vec<SequenceScenarioResult>,
     pub totals: BTreeMap<String, ArmTotals>,
     pub gate: SequenceGate,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalLibraryStamp {
+    pub root_label: String,
+    pub version: Option<String>,
+    pub license_sha256: String,
+    pub skill_sha256: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]

@@ -8,6 +8,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+cortex-bench = { path = "../cortex-bench" }
 cortex-context = { path = "../cortex-context" }
 cortex-llm = { path = "../cortex-llm" }
 cortex-ollama = { path = "../cortex-ollama" }

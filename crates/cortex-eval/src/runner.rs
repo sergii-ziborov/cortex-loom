@@ -37,6 +37,7 @@ pub struct SuiteSelection {
     pub extraction: bool,
     pub compression: bool,
     pub retrieval: bool,
+    pub sequence: bool,
 }
 
 impl SuiteSelection {
@@ -47,6 +48,9 @@ impl SuiteSelection {
             extraction: true,
             compression: true,
             retrieval: true,
+            // Paired sequence evaluation requires an explicit deterministic
+            // report and is never pulled into a broad default run.
+            sequence: false,
         }
     }
 }

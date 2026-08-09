@@ -26,4 +26,5 @@ Use this sequence only when two or more bounded questions have no shared mutable
 
 9. Merge findings by evidence ID, preserving disagreements rather than voting. [kind: deterministic] [depends: 6]
 10. Review the synthesis for missing facts, duplicate claims, and unsafe authority. [kind: review_gate] [depends: 9]
-11. Finish with one bounded evidence packet and explicit unresolved questions. [kind: terminal] [depends: 10]
+11. Hand unresolved contradictions to one upstream owner. [kind: handoff] [depends: 10]
+12. Finish with one bounded evidence packet and explicit unresolved questions. [kind: terminal] [depends: 10]

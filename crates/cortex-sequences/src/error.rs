@@ -4,6 +4,8 @@ use std::fmt::{Display, Formatter};
 pub enum SequenceError {
     UnknownTemplate(String),
     InvalidCopy(String),
+    InvalidSequence(String),
+    NodeNotFound(String),
     Skill(String),
 }
 
@@ -12,6 +14,8 @@ impl Display for SequenceError {
         match self {
             Self::UnknownTemplate(id) => write!(formatter, "unknown sequence template: {id}"),
             Self::InvalidCopy(message) => formatter.write_str(message),
+            Self::InvalidSequence(message) => write!(formatter, "invalid sequence: {message}"),
+            Self::NodeNotFound(id) => write!(formatter, "sequence node not found: {id}"),
             Self::Skill(message) => write!(formatter, "invalid sequence template: {message}"),
         }
     }

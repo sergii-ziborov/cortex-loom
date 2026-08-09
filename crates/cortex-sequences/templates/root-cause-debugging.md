@@ -26,4 +26,5 @@ Use this sequence for test failures, build errors, regressions, hangs, or unexpe
 8. Add a regression test that fails on the confirmed root cause. [kind: test_gate] [depends: 6]
 9. Hand the smallest root-cause correction to the upstream coding agent. [kind: upstream_agent] [depends: 8]
 10. Verify the symptom, regression test, and surrounding gates. [kind: evidence_gate] [depends: 9]
-11. Finish with the cause, evidence, correction, and residual risk. [kind: terminal] [depends: 10]
+11. Hand an unproven correction or residual high risk to the upstream owner. [kind: handoff] [depends: 10]
+12. Finish with the cause, evidence, correction, and residual risk. [kind: terminal] [depends: 10]

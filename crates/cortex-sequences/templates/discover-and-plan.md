@@ -25,4 +25,5 @@ Use this sequence when the desired outcome or implementation boundary still need
 
 8. Write ordered implementation slices with files, tests, risks, budgets, and acceptance criteria. [kind: agent_task] [depends: 6]
 9. Review the plan against the chosen direction and cited evidence. [kind: review_gate] [depends: 8]
-10. Finish with an executable plan or an explicit upstream handoff. [kind: terminal] [depends: 9]
+10. Hand an unresolved review decision to the upstream owner. [kind: handoff] [depends: 9]
+11. Finish with an executable plan or an explicit upstream handoff. [kind: terminal] [depends: 9]

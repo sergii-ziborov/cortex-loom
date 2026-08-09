@@ -26,4 +26,5 @@ Use this sequence only after scope and acceptance criteria are explicit.
 
 9. Verify the diff cites evidence and contains no unrelated mutation. [kind: review_gate] [depends: 6]
 10. Record test output and completion criteria for the slice. [kind: evidence_gate] [depends: 9]
-11. Finish the slice or advance to the next approved slice. [kind: terminal] [depends: 10]
+11. Hand any unsupported completion claim to the upstream owner. [kind: handoff] [depends: 10]
+12. Finish the slice or advance to the next approved slice. [kind: terminal] [depends: 10]

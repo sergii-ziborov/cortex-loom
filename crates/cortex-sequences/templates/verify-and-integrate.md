@@ -26,4 +26,5 @@ Use this sequence after implementation is complete and before commit, merge, pus
 
 9. Present only integration actions allowed by the current authority. [kind: upstream_agent] [depends: 6]
 10. Record commit identity, exact checks, and any action deliberately not taken. [kind: review_gate] [depends: 9]
-11. Finish only after fresh evidence supports every reported claim. [kind: terminal] [depends: 10]
+11. Hand unsupported claims or missing authority back to the upstream owner. [kind: handoff] [depends: 10]
+12. Finish only after fresh evidence supports every reported claim. [kind: terminal] [depends: 10]

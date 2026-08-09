@@ -25,4 +25,5 @@ Use this sequence when a bounded change or plan is ready for independent scrutin
 
 8. Hand only verified corrections to the upstream coding agent. [kind: upstream_agent] [depends: 6]
 9. Re-run the affected tests and review the resulting diff. [kind: evidence_gate] [depends: 8]
-10. Finish with resolved findings, rejected findings, evidence, and remaining risk. [kind: terminal] [depends: 9]
+10. Hand unresolved findings or remaining high risk to the upstream owner. [kind: handoff] [depends: 9]
+11. Finish with resolved findings, rejected findings, evidence, and remaining risk. [kind: terminal] [depends: 9]

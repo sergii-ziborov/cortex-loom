@@ -12,6 +12,7 @@ use cortex_shadow::{
 };
 use cortex_skills::{export_skill_markdown, import_skill_markdown, index_entry, render_index};
 use cortex_store::{GraphStore, ShadowOperation, UsageOperation, UsageReport, UsageSample};
+use cortex_weavatrix::plan::PlanPolicy;
 use cortex_weavatrix::{
     RefactorOperation, WeavatrixAdapter, WeavatrixConfig, compile_evidence_bundle,
 };
@@ -329,11 +330,14 @@ pub fn build_server(state: CortexMcpState) -> ConcurrentMcpServer {
                     return ToolReply::error("cancelled");
                 }
                 let prepared = if arguments.targeted {
-                    context_state.weavatrix.prepare_targeted_context(
+                    context_state
+                        .weavatrix
+                        .prepare_targeted_context_with_source_reads(
                         &arguments.repository,
                         &arguments.task,
                         arguments.symbol.as_deref(),
                         arguments.max_tokens,
+                        PlanPolicy::default(),
                     )
                 } else {
                     context_state.weavatrix.prepare_context(

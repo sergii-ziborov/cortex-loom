@@ -389,6 +389,24 @@ on `cortex-targeted` alone — no source follow-up required for those fixtures.
 still ~87 % below naive. Source follow-up is insurance for identifier-adjacent
 facts, not the primary structural fix.
 
+## P0: source follow-up on the MCP path
+
+Stamp `p0-source-skip-verify-final-2026-08-09`, budget 4 000, ten probe tasks.
+The MCP compile path now uses bounded source follow-up. Identifier, blast,
+API-contract, module-topology, and runtime-config tasks no longer spend budget
+on `verified_change` unless the task explicitly asks for a change plan.
+
+| arm | tokens | facts | recall |
+| --- | ---: | ---: | ---: |
+| `naive` | 264 567 | 40/40 | 100 % |
+| `cortex-targeted` | **20 881** | 27/40 | 68 % |
+| `cortex-source` | **30 973** | **33/40** | **83 %** |
+
+Compared with `probe-10-recheck-2026-08-09`, source follow-up recovers two
+additional facts while delivering 1 598 fewer tokens. The source arm remains
+88 % below naive. Both runtime-config failures improved to at least 50 % recall:
+`llm-profile-gate` reaches 3/4 and `shadow-handle` reaches 2/4.
+
 ## Next measurements worth taking
 
 1. Recover the remaining identifier-set misses (`CriticalItemExceedsBudget`,

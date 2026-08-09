@@ -31,6 +31,8 @@
 pub mod naive;
 pub mod probe_tasks;
 pub mod report;
+pub mod sequence;
+pub mod sequence_arms;
 pub mod tasks;
 
 use cortex_context::estimate_tokens;

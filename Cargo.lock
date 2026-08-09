@@ -162,8 +162,12 @@ version = "0.1.0"
 dependencies = [
  "blazingly-json",
  "cortex-context",
+ "cortex-domain",
+ "cortex-sequences",
+ "cortex-skills",
  "cortex-weavatrix",
  "serde",
+ "sha2 0.10.9",
 ]
 
 [[package]]

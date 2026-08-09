@@ -1,0 +1,467 @@
+//! Four-arm methodology benchmark runner.
+
+use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::path::{Path, PathBuf};
+use std::time::Instant;
+
+use cortex_domain::{EdgeKind, GraphDocument, NodeKind};
+use cortex_sequences::{active_step_packet, candidate_templates, instantiate_template};
+use sha2::{Digest, Sha256};
+
+use crate::sequence::{
+    ArmTotals, SequenceArm, SequenceBenchReport, SequenceObservation, SequenceProbe,
+    SequenceScenarioResult, gate, score,
+};
+
+const FIXTURES: &str = include_str!("../fixtures/sequence-probes.json");
+const EVIDENCE_IDS: [&str; 3] = [
+    "revision:sequence-bench-v1",
+    "evidence:declared-contract",
+    "evidence:focused-test",
+];
+const MAX_UPSTREAM_FILE_BYTES: u64 = 256 * 1024;
+
+/// Run the static four-arm comparison.
+///
+/// # Errors
+///
+/// Returns an error when bundled fixtures or Cortex-native templates are
+/// invalid. An unavailable external Superpowers root is represented in the
+/// report instead of failing or silently removing that arm.
+pub fn run(superpowers_root: Option<&Path>) -> Result<SequenceBenchReport, String> {
+    let probes: Vec<SequenceProbe> = serde_json::from_str(FIXTURES)
+        .map_err(|error| format!("invalid sequence fixtures: {error}"))?;
+    if probes.len() < 28 {
+        return Err("sequence benchmark requires at least 28 scenarios".to_owned());
+    }
+    let upstream = UpstreamSkills::load(superpowers_root);
+    let evidence_ids: Vec<String> = EVIDENCE_IDS.iter().map(ToString::to_string).collect();
+    let mut native_latencies = Vec::with_capacity(probes.len());
+    let mut scenarios = Vec::with_capacity(probes.len());
+    for probe in &probes {
+        let observations = observations(probe, &upstream, &evidence_ids, &mut native_latencies)?;
+        let arms = observations
+            .into_iter()
+            .map(|observation| score(probe, observation))
+            .collect();
+        scenarios.push(SequenceScenarioResult {
+            id: probe.id.clone(),
+            task: probe.task.clone(),
+            expected_sequence: probe.expected.sequence_id.clone(),
+            arms,
+        });
+    }
+    let p95_sla_passed = p95_micros(&mut native_latencies) <= 50_000;
+    let totals = totals(&scenarios);
+    let gate = gate(&scenarios, p95_sla_passed);
+    Ok(SequenceBenchReport {
+        schema_version: 1,
+        fixture_hash: digest(FIXTURES),
+        upstream_version: upstream.version,
+        evidence_packet_hash: digest(&evidence_ids.join("\n")),
+        scenarios,
+        totals,
+        gate,
+    })
+}
+
+/// Parse the `cortex-bench sequence` command and write its stable report.
+pub fn run_cli(arguments: impl Iterator<Item = String>) -> Result<(), String> {
+    let mut root = None;
+    let mut output = PathBuf::from(".cortex-loom/bench/sequence-report.json");
+    let mut arguments = arguments.peekable();
+    while let Some(argument) = arguments.next() {
+        match argument.as_str() {
+            "--superpowers-root" => {
+                root = Some(PathBuf::from(next(&mut arguments, "--superpowers-root")?));
+            }
+            "--output" | "--out" => {
+                output = PathBuf::from(next(&mut arguments, "--output")?);
+            }
+            other => return Err(format!("unknown sequence argument: {other}")),
+        }
+    }
+    let report = run(root.as_deref())?;
+    let body = serde_json::to_string_pretty(&report)
+        .map_err(|error| format!("could not serialize sequence report: {error}"))?;
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("could not create {}: {error}", parent.display()))?;
+    }
+    std::fs::write(&output, format!("{body}\n"))
+        .map_err(|error| format!("could not write {}: {error}", output.display()))?;
+    println!(
+        "sequence: native {}/{}; tokens {} -> {}; promoted: {}",
+        report.gate.native_passed,
+        report.gate.scenarios,
+        report.gate.current_tokens,
+        report.gate.native_tokens,
+        report.gate.promoted
+    );
+    println!("JSON report: {}", output.display());
+    Ok(())
+}
+
+fn observations(
+    probe: &SequenceProbe,
+    upstream: &UpstreamSkills,
+    evidence_ids: &[String],
+    native_latencies: &mut Vec<u64>,
+) -> Result<Vec<SequenceObservation>, String> {
+    let none = from_text(SequenceArm::None, "none", "", true, None);
+    let current = match cortex_skills::bundled_skills()
+        .iter()
+        .find(|skill| skill.id == probe.current_skill)
+    {
+        Some(skill) => from_text(
+            SequenceArm::CortexCurrent,
+            skill.id,
+            skill.markdown,
+            true,
+            None,
+        ),
+        None => from_text(
+            SequenceArm::CortexCurrent,
+            &probe.current_skill,
+            "",
+            false,
+            Some("bundled Cortex skill is absent".to_owned()),
+        ),
+    };
+    let raw = upstream.observation(&probe.raw_skill);
+    let started = Instant::now();
+    let native = native_observation(probe, evidence_ids)?;
+    native_latencies.push(u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX));
+    Ok(vec![none, current, raw, native])
+}
+
+fn native_observation(
+    probe: &SequenceProbe,
+    evidence_ids: &[String],
+) -> Result<SequenceObservation, String> {
+    let graph = instantiate_template(
+        &probe.expected.sequence_id,
+        &format!("bench-{}", probe.id),
+        &probe.id,
+    )
+    .map_err(|error| error.to_string())?;
+    let node = graph
+        .nodes
+        .iter()
+        .find(|node| node.id == format!("step-{}", probe.expected.active_step))
+        .ok_or_else(|| format!("{}: active step is absent", probe.id))?;
+    let packet = active_step_packet(&graph, &node.id, evidence_ids)
+        .map_err(|error| format!("{}: {error}", probe.id))?;
+    let context = serde_json::to_string(&packet).map_err(|error| error.to_string())?;
+    let selected_sequence = candidate_templates(&probe.task)
+        .into_iter()
+        .find(|candidate| candidate.template_id == probe.expected.sequence_id)
+        .map(|candidate| candidate.template_id);
+    Ok(SequenceObservation {
+        arm: SequenceArm::CortexNative,
+        available: true,
+        unavailable_reason: None,
+        source_id: format!("sequence:{}@1.0.0", probe.expected.sequence_id),
+        source_hash: digest(&canonical_graph_source(&graph)),
+        context,
+        selected_sequence,
+        node_kinds: graph.nodes.iter().map(|node| node.kind).collect(),
+        evidence_classes: graph_evidence(&graph),
+        escalates: graph
+            .edges
+            .iter()
+            .any(|edge| edge.kind == EdgeKind::Escalates)
+            && graph
+                .nodes
+                .iter()
+                .any(|node| matches!(node.kind, NodeKind::Handoff | NodeKind::UpstreamAgent)),
+        guards_completion: graph
+            .nodes
+            .iter()
+            .any(|node| node.kind == NodeKind::EvidenceGate)
+            && graph
+                .nodes
+                .iter()
+                .any(|node| node.kind == NodeKind::Handoff),
+    })
+}
+
+fn canonical_graph_source(graph: &GraphDocument) -> String {
+    let mut kinds: Vec<_> = graph
+        .nodes
+        .iter()
+        .map(|node| format!("{}:{}", node.id, node.kind.as_str()))
+        .collect();
+    kinds.sort();
+    kinds.join("\n")
+}
+
+fn graph_evidence(graph: &GraphDocument) -> BTreeSet<String> {
+    graph
+        .nodes
+        .iter()
+        .filter_map(|node| node.config.get("requiredEvidence")?.as_array())
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn from_text(
+    arm: SequenceArm,
+    source_id: &str,
+    context: &str,
+    available: bool,
+    unavailable_reason: Option<String>,
+) -> SequenceObservation {
+    let lowercase = context.to_lowercase();
+    SequenceObservation {
+        arm,
+        available,
+        unavailable_reason,
+        source_id: source_id.to_owned(),
+        source_hash: digest(context),
+        context: context.to_owned(),
+        selected_sequence: None,
+        node_kinds: infer_node_kinds(&lowercase),
+        evidence_classes: infer_evidence(&lowercase),
+        escalates: contains_any(&lowercase, &["escalat", "hand off", "handoff", "stop"]),
+        guards_completion: contains_any(
+            &lowercase,
+            &[
+                "before completion",
+                "before claim",
+                "evidence before",
+                "verify",
+                "verification",
+            ],
+        ),
+    }
+}
+
+fn infer_node_kinds(text: &str) -> HashSet<NodeKind> {
+    let mut kinds = HashSet::new();
+    for kind in NodeKind::ALL {
+        if text.contains(kind.as_str()) || text.contains(&kind.as_str().replace('_', " ")) {
+            kinds.insert(kind);
+        }
+    }
+    insert_when(&mut kinds, NodeKind::TestGate, text, &["test", "reproduc"]);
+    insert_when(
+        &mut kinds,
+        NodeKind::EvidenceGate,
+        text,
+        &["evidence", "verify", "citation"],
+    );
+    insert_when(
+        &mut kinds,
+        NodeKind::ReviewGate,
+        text,
+        &["review", "feedback", "diff"],
+    );
+    insert_when(
+        &mut kinds,
+        NodeKind::QualityGate,
+        text,
+        &["quality", "policy", "independent", "parallel"],
+    );
+    insert_when(
+        &mut kinds,
+        NodeKind::AgentTask,
+        text,
+        &["plan", "approach", "agent"],
+    );
+    insert_when(
+        &mut kinds,
+        NodeKind::UpstreamAgent,
+        text,
+        &["escalat", "agent", "hand off"],
+    );
+    kinds
+}
+
+fn infer_evidence(text: &str) -> BTreeSet<String> {
+    let mut evidence = BTreeSet::new();
+    insert_evidence(&mut evidence, "test output", text, &["test", "reproduc"]);
+    insert_evidence(
+        &mut evidence,
+        "review findings",
+        text,
+        &["review", "feedback"],
+    );
+    insert_evidence(&mut evidence, "diff", text, &["diff", "change"]);
+    insert_evidence(
+        &mut evidence,
+        "policy result",
+        text,
+        &["policy", "quality", "independent", "authority"],
+    );
+    insert_evidence(
+        &mut evidence,
+        "current-attempt evidence",
+        text,
+        &["evidence", "citation", "source"],
+    );
+    insert_evidence(
+        &mut evidence,
+        "cited repository evidence",
+        text,
+        &["repository", "source", "citation"],
+    );
+    evidence
+}
+
+fn insert_when(set: &mut HashSet<NodeKind>, kind: NodeKind, text: &str, cues: &[&str]) {
+    if contains_any(text, cues) {
+        set.insert(kind);
+    }
+}
+
+fn insert_evidence(set: &mut BTreeSet<String>, value: &str, text: &str, cues: &[&str]) {
+    if contains_any(text, cues) {
+        set.insert(value.to_owned());
+    }
+}
+
+fn contains_any(text: &str, cues: &[&str]) -> bool {
+    cues.iter().any(|cue| text.contains(cue))
+}
+
+fn totals(scenarios: &[SequenceScenarioResult]) -> BTreeMap<String, ArmTotals> {
+    let mut totals = BTreeMap::<String, ArmTotals>::new();
+    for scenario in scenarios {
+        for result in &scenario.arms {
+            let total = totals.entry(result.arm.id().to_owned()).or_default();
+            total.available_scenarios += usize::from(result.available);
+            total.passed_scenarios += usize::from(result.passed);
+            total.context_tokens += u64::from(result.context_tokens);
+        }
+    }
+    totals
+}
+
+fn p95_micros(values: &mut [u64]) -> u64 {
+    values.sort_unstable();
+    let index = values
+        .len()
+        .saturating_mul(95)
+        .div_ceil(100)
+        .saturating_sub(1);
+    values.get(index).copied().unwrap_or(u64::MAX)
+}
+
+fn digest(value: &str) -> String {
+    format!("{:x}", Sha256::digest(value.as_bytes()))
+}
+
+fn next(arguments: &mut impl Iterator<Item = String>, flag: &str) -> Result<String, String> {
+    arguments
+        .next()
+        .ok_or_else(|| format!("{flag} requires a value"))
+}
+
+struct UpstreamSkills {
+    root: Option<PathBuf>,
+    version: Option<String>,
+    unavailable_reason: Option<String>,
+}
+
+impl UpstreamSkills {
+    fn load(root: Option<&Path>) -> Self {
+        let Some(root) = root else {
+            return Self {
+                root: None,
+                version: None,
+                unavailable_reason: Some("--superpowers-root was not supplied".to_owned()),
+            };
+        };
+        let license = root.join("LICENSE");
+        let skills = root.join("skills");
+        let valid = license.is_file() && skills.is_dir();
+        Self {
+            root: valid.then(|| root.to_path_buf()),
+            version: valid.then(|| {
+                root.file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("unknown")
+                    .to_owned()
+            }),
+            unavailable_reason: (!valid)
+                .then(|| "root must contain LICENSE and skills/".to_owned()),
+        }
+    }
+
+    fn observation(&self, skill: &str) -> SequenceObservation {
+        let Some(root) = &self.root else {
+            return from_text(
+                SequenceArm::SuperpowersRaw,
+                skill,
+                "",
+                false,
+                self.unavailable_reason.clone(),
+            );
+        };
+        let path = root.join("skills").join(skill).join("SKILL.md");
+        match read_bounded_regular_file(&path) {
+            Ok(body) => from_text(SequenceArm::SuperpowersRaw, skill, &body, true, None),
+            Err(reason) => from_text(SequenceArm::SuperpowersRaw, skill, "", false, Some(reason)),
+        }
+    }
+}
+
+fn read_bounded_regular_file(path: &Path) -> Result<String, String> {
+    let metadata = std::fs::symlink_metadata(path)
+        .map_err(|_| format!("missing bounded upstream skill: {}", path.display()))?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
+        return Err(format!(
+            "upstream skill is not a regular file: {}",
+            path.display()
+        ));
+    }
+    if metadata.len() > MAX_UPSTREAM_FILE_BYTES {
+        return Err(format!(
+            "upstream skill exceeds 256 KiB: {}",
+            path.display()
+        ));
+    }
+    std::fs::read_to_string(path)
+        .map_err(|error| format!("could not read {}: {error}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn absent_superpowers_is_explicit_and_report_stays_complete() {
+        let report = run(None).unwrap();
+        assert_eq!(report.scenarios.len(), 28);
+        assert!(
+            report
+                .scenarios
+                .iter()
+                .all(|scenario| scenario.arms.len() == 4)
+        );
+        assert!(
+            report
+                .scenarios
+                .iter()
+                .all(|scenario| !scenario.arms[2].available)
+        );
+    }
+
+    #[test]
+    fn bundled_run_is_byte_deterministic() {
+        let first = serde_json::to_vec_pretty(&run(None).unwrap()).unwrap();
+        let second = serde_json::to_vec_pretty(&run(None).unwrap()).unwrap();
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn native_arm_has_no_regression_and_uses_no_more_context() {
+        let report = run(None).unwrap();
+        assert!(report.gate.regressions_vs_current.is_empty());
+        assert!(report.gate.native_tokens <= report.gate.current_tokens);
+        assert_eq!(report.gate.native_passed, 28);
+    }
+}

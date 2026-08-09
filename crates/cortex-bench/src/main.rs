@@ -27,6 +27,15 @@ use cortex_weavatrix::{
 };
 
 fn main() -> ExitCode {
+    if std::env::args().nth(1).as_deref() == Some("sequence") {
+        return match cortex_bench::sequence_arms::run_cli(std::env::args().skip(2)) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(message) => {
+                eprintln!("cortex-bench sequence: {message}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     let settings = match Settings::from_args() {
         Ok(settings) => settings,
         Err(message) => {

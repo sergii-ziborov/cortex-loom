@@ -1,10 +1,8 @@
 //! Deterministic evidence sufficiency checks.
 //!
-//! This is deliberately not an answer-quality model. It verifies that the
-//! gathered and finally selected packet contains the evidence classes the
-//! task shape requires. A thin packet may be retried once by the adapter; if
-//! it is still thin, the caller must escalate rather than treat absence as a
-//! verified answer.
+//! This is not an answer-quality model. It verifies that gathered and selected
+//! packets contain the evidence classes the task requires. A thin packet may
+//! be retried once; if it remains thin, the caller must escalate.
 
 use std::collections::HashSet;
 
@@ -30,6 +28,8 @@ struct EvidenceProfile {
     kinds: HashSet<EvidenceKind>,
     search_hits: usize,
     coverage_text: String,
+    /// Original-case bodies for structural, boundary-sensitive checks.
+    coverage_fragments: Vec<String>,
 }
 
 struct CoverageRequirement {
@@ -108,6 +108,12 @@ fn profile<'a>(evidence: impl Iterator<Item = &'a crate::EvidenceFragment>) -> E
                 .push_str(&item.content.to_ascii_lowercase());
             profile.coverage_text.push('\n');
         }
+        if matches!(
+            item.kind,
+            EvidenceKind::SourceReads | EvidenceKind::SymbolContext
+        ) {
+            profile.coverage_fragments.push(item.content.clone());
+        }
     }
     profile
 }
@@ -168,6 +174,20 @@ fn assess(
                 .iter()
                 .any(|pattern| profile.coverage_text.contains(pattern))
             {
+                present.push(name);
+            } else {
+                missing.push(name);
+            }
+        }
+        // A definition head is not enough: its braces must balance inside one
+        // fragment so a clipped body cannot pass sufficiency.
+        if let Some(symbol) = symbol {
+            let name = format!("definition:{}", symbol.to_ascii_lowercase());
+            required.push(name.clone());
+            let complete = profile.coverage_fragments.iter().any(|fragment| {
+                crate::source_followup::definition_is_complete(fragment, symbol) == Some(true)
+            });
+            if complete {
                 present.push(name);
             } else {
                 missing.push(name);
@@ -276,6 +296,12 @@ fn coverage_requirements(
         && !identifiers.iter().any(|identifier| identifier == symbol)
     {
         identifiers.insert(0, symbol.to_owned());
+    }
+    if let Some(symbol) = symbol
+        && crate::plan_intent::is_creation(task)
+    {
+        let future_member_prefix = format!("{symbol}::");
+        identifiers.retain(|identifier| !identifier.starts_with(&future_member_prefix));
     }
     let runtime_flag =
         runtime_flag_requirement(symbol.or_else(|| identifiers.first().map(String::as_str)));

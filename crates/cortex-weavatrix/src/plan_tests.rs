@@ -34,6 +34,28 @@ fn an_explicit_lowercase_backtick_is_a_searchable_identifier() {
 }
 
 #[test]
+fn rust_search_covers_a_standard_single_crate_source_tree() {
+    let operations = plan(
+        "Implement `ArchiveOptions::disabled()`",
+        Some("ArchiveOptions"),
+        4_000,
+    );
+    let search = operations
+        .iter()
+        .find(|operation| operation.tool == "search_code")
+        .expect("identifier task searches Rust source");
+
+    assert_eq!(search.arguments["glob"], "**/*.rs");
+    let query = search.arguments["query"]
+        .as_str()
+        .expect("search query is text");
+    assert!(
+        query.split('|').any(|part| part == "ArchiveOptions"),
+        "owner symbol missing from query: {query}"
+    );
+}
+
+#[test]
 fn url_paths_and_backticks_are_identifiers() {
     let found =
         extract_identifiers("What breaks if `POST` `/api/skills/compile` changes, see `/mcp`?");

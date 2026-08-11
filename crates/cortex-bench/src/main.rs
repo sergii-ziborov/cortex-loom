@@ -302,6 +302,7 @@ fn cortex_arm(
                 packet.included_ids.len(),
                 task.anchors,
             );
+            arm.delivered_tokens = Some(delivered_tokens(&compiled));
             if !packet.omitted_ids.is_empty() {
                 arm.notes.push(format!(
                     "omitted under budget: {}",
@@ -324,6 +325,23 @@ fn cortex_arm(
         // critical evidence must be visible in the report.
         Err(error) => unavailable(arm_kind, format!("fail-closed: {error}")),
     }
+}
+
+/// What `weavatrix_context_compile` actually serializes for one packet.
+///
+/// The MCP tool returns the whole compiled bundle, not the inner context
+/// string, so the agent pays for JSON escaping, warnings, the sufficiency
+/// report, citation ids and counters on top of the evidence. Measuring only
+/// the inner string was understating the delivered cost, which is the figure
+/// a caller budgets against.
+///
+/// The transport doubles this again when a client reads both `content` and
+/// `structuredContent`; that is a property of MCP rather than of this
+/// compiler, so it is documented instead of counted here.
+fn delivered_tokens(compiled: &cortex_weavatrix::CompiledEvidenceBundle) -> u32 {
+    serde_json::to_string(compiled)
+        .map(|body| cortex_context::estimate_tokens(&body))
+        .unwrap_or_default()
 }
 
 /// Drop the synthetic `TASK` section the compiler prepends.

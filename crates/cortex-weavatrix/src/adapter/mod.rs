@@ -1,5 +1,8 @@
+mod cleanup;
 mod evidence;
 mod gather;
+mod render;
+mod retry;
 #[cfg(test)]
 mod tests;
 

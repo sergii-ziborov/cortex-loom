@@ -1,4 +1,4 @@
-﻿//! Streamable HTTP transport for the MCP server.
+//! Streamable HTTP transport for the MCP server.
 //!
 //! One HTTP session bridges to one in-process MCP loop
 //! (`serve_controlled_streams`) over bounded channel pipes, so both
@@ -41,7 +41,16 @@ const SUPPORTED_PROTOCOL_HEADERS: &[&str] =
 
 /// Serve the Streamable HTTP transport on `address` until the process exits.
 pub fn serve_http(state: crate::CortexMcpState, address: SocketAddr) -> io::Result<()> {
-    let server = Arc::new(crate::build_server(state));
+    serve_http_with(state, address, crate::ServerProfile::Full)
+}
+
+/// Serve one profile over Streamable HTTP.
+pub fn serve_http_with(
+    state: crate::CortexMcpState,
+    address: SocketAddr,
+    profile: crate::ServerProfile,
+) -> io::Result<()> {
+    let server = Arc::new(crate::build_server_with(state, profile));
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()

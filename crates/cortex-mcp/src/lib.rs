@@ -104,10 +104,13 @@ struct WeavatrixContextArgs {
     /// gathering without coupling the planner to the skill compiler.
     skill_id: Option<String>,
     /// Plan the Weavatrix operations from the task instead of always asking
-    /// the same four structural ones. Default. Set `false` for the previous
-    /// fixed set; it is measurably worse on identifier-level tasks (see
-    /// `docs/benchmark.md`) but is kept because a caller may depend on the
-    /// exact fragment ids it produced.
+    /// the same four structural ones. Default.
+    ///
+    /// `false` selects the retired fixed set and is **deprecated**. It is
+    /// dominated on both axes on every probe task measured: 36 039 tokens for
+    /// 24/40 facts against 20 349 for 28/40. It remains accepted only so a
+    /// caller pinned to its exact fragment ids does not break; no new caller
+    /// should pass it.
     #[serde(default = "default_targeted")]
     targeted: bool,
 }
@@ -237,9 +240,14 @@ impl CortexMcpState {
     }
 }
 
-/// Run the server over stdio (the default transport).
+/// Run the full server over stdio (the default transport).
 pub fn serve(state: CortexMcpState) -> io::Result<()> {
-    build_server(state).serve(runtime_config())
+    serve_with(state, ServerProfile::Full)
+}
+
+/// Run one profile's server over stdio.
+pub fn serve_with(state: CortexMcpState, profile: ServerProfile) -> io::Result<()> {
+    build_server_with(state, profile).serve(runtime_config())
 }
 
 /// The shared runtime bounds used by every transport.
@@ -255,23 +263,73 @@ pub fn runtime_config() -> RuntimeConfig {
     }
 }
 
-/// Build the tool registry once; transports share the same server value.
-#[allow(clippy::too_many_lines)]
+/// Which slice of the tool surface a server exposes.
+///
+/// Every tool schema is loaded into the client's context for the whole
+/// session, before a single call is made, so the surface is a standing cost.
+/// Measured on this workspace: `Full` is 27 tools over two `tools/list` pages
+/// and roughly 4 000 estimated tokens. A caller that only wants evidence pays
+/// that for twenty-five tools it never calls.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ServerProfile {
+    /// Graphs, skills, routing, runs, sequences, adapters and evidence.
+    #[default]
+    Full,
+    /// Evidence compilation only. Routing, runs, graphs, skills and sequences
+    /// are absent; a caller that needs them wants [`ServerProfile::Full`].
+    Context,
+}
+
+impl ServerProfile {
+    /// Parse a profile name, for a CLI flag or an environment variable.
+    ///
+    /// # Errors
+    ///
+    /// Returns the offending value when it names no known profile, so a
+    /// misspelling fails loudly instead of silently serving everything.
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "full" => Ok(Self::Full),
+            "context" => Ok(Self::Context),
+            other => Err(format!("unknown profile: {other} (full|context)")),
+        }
+    }
+}
+
+/// Build the full tool registry; transports share the same server value.
 #[must_use]
 pub fn build_server(state: CortexMcpState) -> ConcurrentMcpServer {
+    build_server_with(state, ServerProfile::Full)
+}
+
+/// Build the tool registry for one profile.
+#[must_use]
+pub fn build_server_with(state: CortexMcpState, profile: ServerProfile) -> ConcurrentMcpServer {
     let state = Arc::new(state);
 
     let server = ConcurrentMcpServer::new("cortex-loom", env!("CARGO_PKG_VERSION"))
-        .instructions(
-            "Cortex Loom reduces repository context before Codex or Claude reasons about it. Use route_work first, then weavatrix_context_compile for revision-bound, budgeted evidence. Local-model results are advisory and must retain evidence IDs. High-risk or ambiguous work stays upstream. Refactor is preview-only: this server never applies a plan. Graphs are canonical in the local store; generated Markdown is only a view.",
-        )
+        .instructions(instructions(profile))
         .tool_page_size(16);
     let server = context_tools::register(server, &state);
+    if profile == ServerProfile::Context {
+        return server;
+    }
     let server = graph_skill_tools::register(server, &state);
     let server = route_metric_tools::register(server, &state, route);
     let server = weavatrix_tools::register(server, &state);
     let server = run_tools::register(server, Arc::clone(&state));
     sequence_tools::register(server, &state)
+}
+
+const fn instructions(profile: ServerProfile) -> &'static str {
+    match profile {
+        ServerProfile::Full => {
+            "Cortex Loom reduces repository context before Codex or Claude reasons about it. Use route_work first, then weavatrix_context_compile for revision-bound, budgeted evidence. Local-model results are advisory and must retain evidence IDs. High-risk or ambiguous work stays upstream. Refactor is preview-only: this server never applies a plan. Graphs are canonical in the local store; generated Markdown is only a view."
+        }
+        ServerProfile::Context => {
+            "Cortex Loom reduces repository context before Codex or Claude reasons about it. Call weavatrix_context_compile for revision-bound, budgeted evidence with stable citation IDs; name the symbols, files, and constants you care about in `task`. A packet that reports requiresUpstream or an unmet sufficiency check is not a confident answer. This profile exposes evidence compilation only: routing, runs, graphs, skills, and sequences need the full profile."
+        }
+    }
 }
 
 /// Telemetry writes never fail the tool: the deterministic reply is the
@@ -327,90 +385,5 @@ pub fn graph_summary(graph: &GraphDocument) -> Value {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::path::Path;
-
-    use mcport::ConcurrentToolServer;
-
-    use super::*;
-
-    #[test]
-    fn graph_summary_is_bounded_metadata() {
-        let summary = graph_summary(&default_control_plane());
-        assert_eq!(summary.get("nodes").and_then(Value::as_u64), Some(8));
-        assert!(summary.get("nodes").is_some());
-    }
-
-    #[test]
-    fn registry_exposes_only_the_cortex_sequence_contract() {
-        let state = CortexMcpState {
-            store: GraphStore::open_in_memory().unwrap(),
-            weavatrix: WeavatrixAdapter::new(WeavatrixConfig::discover().unwrap()),
-            shadow: None,
-            semantic: None,
-            llm_router: None,
-        };
-        let catalog = build_server(state).catalog();
-        let names: Vec<_> = catalog
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter_map(|tool| tool["name"].as_str())
-            .collect();
-        for expected in [
-            "sequence_list",
-            "sequence_recommend",
-            "sequence_copy",
-            "sequence_lint",
-            "sequence_step_read",
-        ] {
-            assert!(names.contains(&expected), "missing {expected}");
-        }
-        assert!(!names.iter().any(|name| name.contains("superpowers")));
-    }
-
-    #[test]
-    fn weavatrix_refactor_preview_schema_accepts_only_a_native_plan() {
-        let schema = refactor_preview_schema();
-        assert_eq!(schema["properties"]["plan"]["type"], "object");
-        assert!(schema["properties"].get("operation").is_none());
-        assert!(schema["properties"].get("arguments").is_none());
-        assert_eq!(
-            schema["required"],
-            serde_json::json!(["repository", "plan"])
-        );
-    }
-
-    #[test]
-    fn weavatrix_refactor_preview_response_has_no_apply_authority() {
-        let root =
-            std::env::temp_dir().join(format!("cortex-mcp-native-preview-{}", std::process::id()));
-        if root.exists() {
-            std::fs::remove_dir_all(&root).unwrap();
-        }
-        std::fs::create_dir_all(root.join("src")).unwrap();
-        let adapter = WeavatrixAdapter::new(WeavatrixConfig::discover().unwrap());
-        let plan = serde_json::json!({
-            "schemaVersion": "weavatrix.refactor-plan.v1",
-            "operation": "create",
-            "operations": [{
-                "kind": "create",
-                "value": {"path": "src/new.rs", "contents": "pub fn new() {}\n"}
-            }]
-        });
-
-        let response = preview_refactor_response(&adapter, Path::new(&root), &plan).unwrap();
-
-        assert_eq!(response["mode"], "preview");
-        assert!(response.get("preview").is_some());
-        let rendered = response.to_string().to_ascii_lowercase();
-        for forbidden in ["confirmationtoken", "applyavailable", "rollback"] {
-            assert!(
-                !rendered.contains(forbidden),
-                "forbidden field: {forbidden}"
-            );
-        }
-        assert!(!root.join("src/new.rs").exists());
-        std::fs::remove_dir_all(&root).unwrap();
-    }
-}
+#[path = "lib_tests.rs"]
+mod tests;

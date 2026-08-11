@@ -67,7 +67,7 @@ fn register_discovery(
                 if context.is_cancelled() {
                     return ToolReply::error("cancelled");
                 }
-                ToolReply::structured(template_list())
+                ToolReply::text(template_list())
             },
         )
         .typed_tool(
@@ -88,7 +88,7 @@ fn register_discovery(
                 if arguments.task.trim().is_empty() {
                     return ToolReply::error("task must not be empty");
                 }
-                ToolReply::structured(recommendations(&recommend_state, &arguments.task))
+                ToolReply::text(recommendations(&recommend_state, &arguments.task))
             },
         )
 }
@@ -118,7 +118,7 @@ fn register_editing(
                     return ToolReply::error("cancelled");
                 }
                 match copy_sequence(&copy_state, &arguments) {
-                    Ok(value) => ToolReply::structured(value),
+                    Ok(value) => ToolReply::text(value),
                     Err(error) => ToolReply::error(error),
                 }
             },
@@ -138,7 +138,7 @@ fn register_editing(
                 if context.is_cancelled() {
                     return ToolReply::error("cancelled");
                 }
-                ToolReply::structured(lint_sequence(&arguments.graph))
+                ToolReply::text(lint_sequence(&arguments.graph))
             },
         )
         .typed_tool(
@@ -173,7 +173,7 @@ fn register_editing(
                     Err(error) => return ToolReply::error(error.to_string()),
                 };
                 match active_step_packet(&graph, &arguments.node_id, &arguments.evidence_ids) {
-                    Ok(packet) => ToolReply::structured(packet),
+                    Ok(packet) => ToolReply::text(packet),
                     Err(error) => ToolReply::error(error.to_string()),
                 }
             },

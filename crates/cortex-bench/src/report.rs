@@ -60,6 +60,15 @@ fn render_arm(out: &mut String, arm: &ArmMeasurement) {
         arm.recall() * 100.0,
         per_fact
     );
+    if let Some(delivered) = arm.delivered_tokens
+        && delivered > arm.context_tokens
+    {
+        let ratio = f64::from(delivered) / f64::from(arm.context_tokens.max(1));
+        let _ = writeln!(
+            out,
+            "     delivered over MCP: {delivered} tokens ({ratio:.2}x the selected packet)"
+        );
+    }
     if !arm.missing_anchors.is_empty() {
         let _ = writeln!(out, "     missing: {}", arm.missing_anchors.join(", "));
     }
@@ -136,9 +145,18 @@ fn render_totals(out: &mut String, report: &BenchReport) {
             .iter()
             .map(|arm| arm.satisfied_anchors.len() + arm.missing_anchors.len())
             .sum();
+        let delivered: u32 = arms
+            .iter()
+            .filter_map(|arm| arm.delivered_tokens)
+            .fold(0, u32::saturating_add);
+        let over_mcp = if delivered > 0 {
+            format!("  delivered over MCP {delivered:>9}")
+        } else {
+            String::new()
+        };
         let _ = writeln!(
             out,
-            "   {:<14} {tokens:>9} tokens  {satisfied}/{declared} facts  ({})",
+            "   {:<14} {tokens:>9} tokens{over_mcp}  {satisfied}/{declared} facts  ({})",
             kind.id(),
             kind.description()
         );
@@ -155,4 +173,10 @@ Read before quoting any number above:
   * Tokens are the 4-chars-per-token estimate used throughout the workspace,
     not a tokenizer count for any specific model.
   * A low-token arm with low recall is a failure, not a saving.
+  * `tokens` is the evidence the compiler selected. `delivered over MCP` is
+    what `weavatrix_context_compile` serializes, and it is the figure an
+    agent actually pays. A client that reads both `content` and
+    `structuredContent` pays it twice. Tool schemas are a further standing
+    charge for the whole session, paid before any call: 4 021 tokens for the
+    default profile, 454 for `--profile context`.
 ";

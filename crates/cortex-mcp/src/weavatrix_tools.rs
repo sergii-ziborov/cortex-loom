@@ -52,7 +52,7 @@ pub(crate) fn register(
                         .filter(|graph| index_entry(graph).is_some())
                         .collect();
                     return match export_library_adapter(&skills, arguments.agent, &launch) {
-                        Ok(bundle) => ToolReply::structured(bundle),
+                        Ok(bundle) => ToolReply::text(bundle),
                         Err(error) => ToolReply::error(error.to_string()),
                     };
                 }
@@ -63,7 +63,7 @@ pub(crate) fn register(
                     Err(error) => return ToolReply::error(error.to_string()),
                 };
                 match export_adapter(&graph, arguments.agent, &launch) {
-                    Ok(bundle) => ToolReply::structured(bundle),
+                    Ok(bundle) => ToolReply::text(bundle),
                     Err(error) => ToolReply::error(error.to_string()),
                 }
             },
@@ -94,7 +94,7 @@ pub(crate) fn register(
                         let _ = bundle;
                         ToolReply::error("cancelled")
                     }
-                    Ok(bundle) => ToolReply::structured(bundle),
+                    Ok(bundle) => ToolReply::text(bundle),
                     Err(error) => ToolReply::error(error.to_string()),
                 }
             },
@@ -112,7 +112,7 @@ pub(crate) fn register(
                     &arguments.repository,
                     &arguments.plan,
                 ) {
-                    Ok(response) => ToolReply::structured(response),
+                    Ok(response) => ToolReply::text(response),
                     Err(error) => ToolReply::error(error),
                 }
             },

@@ -313,7 +313,13 @@ fn plan_all(
     hints: PlanHints,
 ) -> Vec<PlannedOperation> {
     let intent = hints.intent_or_detect(task);
-    let identifiers = extract_identifiers(task);
+    let mut identifiers = extract_identifiers(task);
+    if let Some(symbol) = symbol
+        && !identifiers.iter().any(|identifier| identifier == symbol)
+    {
+        identifiers.insert(0, symbol.to_owned());
+        identifiers.truncate(MAX_IDENTIFIERS);
+    }
     let search_budget = share(budget, SEARCH_BUDGET_NUMERATOR, SEARCH_BUDGET_DENOMINATOR);
     let remainder = budget
         .saturating_sub(search_budget)
@@ -345,7 +351,7 @@ fn plan_all(
                 &identifiers,
                 slice,
                 policy,
-                "{apps,crates}/**/*.rs",
+                "**/*.rs",
             ));
             operations.push(search_op(
                 "WX-CONFIG",
@@ -362,7 +368,7 @@ fn plan_all(
                 &blast_search_pattern(symbol),
                 search_budget,
                 policy,
-                "{apps,crates}/**/*.rs",
+                "**/*.rs",
             ));
         } else {
             operations.push(search_op(
@@ -370,7 +376,7 @@ fn plan_all(
                 &identifiers,
                 search_budget,
                 policy,
-                "{apps,crates}/**/*.rs",
+                "**/*.rs",
             ));
         }
     }

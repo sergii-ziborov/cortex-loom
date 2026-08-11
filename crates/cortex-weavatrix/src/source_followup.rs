@@ -20,6 +20,113 @@ pub const MAX_SOURCE_FILES: usize = 6;
 pub const SOURCE_BEFORE: u32 = 24;
 pub const SOURCE_AFTER: u32 = 48;
 
+/// Window shape for one gather pass.
+///
+/// A broad, enumerating question needs more and larger windows than an
+/// identifier question: the measured cross-cutting probe compiled barely half
+/// its budget and lost every fact that lived one file away from the hits.
+/// Breadth widens the follow-up deterministically; the compiler budget is
+/// still the ceiling, so a widened gather can never overrun the packet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceWindow {
+    /// Distinct files to open.
+    pub max_files: usize,
+    /// Lines above each hit.
+    pub before: u32,
+    /// Lines below each hit.
+    pub after: u32,
+    /// Numerator of the budget share the source pool may use (denominator 5).
+    pub pool_fifths: u32,
+}
+
+impl SourceWindow {
+    /// Window for one task: enumerating questions get the wide shape.
+    #[must_use]
+    pub fn for_task(task: &str) -> Self {
+        if crate::plan_intent::is_broad(task) {
+            Self {
+                max_files: 9,
+                before: SOURCE_BEFORE,
+                after: 84,
+                pool_fifths: 3,
+            }
+        } else {
+            Self::default()
+        }
+    }
+}
+
+impl Default for SourceWindow {
+    fn default() -> Self {
+        Self {
+            max_files: MAX_SOURCE_FILES,
+            before: SOURCE_BEFORE,
+            after: SOURCE_AFTER,
+            pool_fifths: 2,
+        }
+    }
+}
+
+/// Where a symbol's definition head sits in a text, if it is there at all.
+///
+/// Matches `fn name`, `struct name`, `enum name`, `trait name` with a word
+/// boundary after the name, case-insensitively.
+#[must_use]
+pub fn definition_head_index(text: &str, symbol: &str) -> Option<usize> {
+    let lower = text.to_ascii_lowercase();
+    let symbol = symbol.to_ascii_lowercase();
+    for keyword in ["fn ", "struct ", "enum ", "trait "] {
+        let mut from = 0;
+        while let Some(relative) = lower[from..].find(keyword) {
+            let head = from + relative;
+            let name_start = head + keyword.len();
+            let after_name = name_start + symbol.len();
+            if lower[name_start..].starts_with(symbol.as_str())
+                && !lower[after_name..]
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
+            {
+                return Some(head);
+            }
+            from = name_start;
+        }
+    }
+    None
+}
+
+/// Whether a text carries the symbol's **complete** definition.
+///
+/// `None` when the definition head is absent. `Some(true)` when, from the
+/// head, the braces balance back to zero (or a `;` ends a bodiless item)
+/// before the text runs out. The measured failure this guards against: a
+/// window cut a six-field struct after four fields, the packet passed
+/// sufficiency, and the model faithfully implemented the four fields it was
+/// shown.
+#[must_use]
+pub fn definition_is_complete(text: &str, symbol: &str) -> Option<bool> {
+    let head = definition_head_index(text, symbol)?;
+    let mut depth = 0_i32;
+    let mut opened = false;
+    for character in text[head..].chars() {
+        match character {
+            '{' => {
+                depth += 1;
+                opened = true;
+            }
+            '}' => {
+                depth -= 1;
+                if opened && depth == 0 {
+                    return Some(true);
+                }
+            }
+            ';' if !opened => return Some(true),
+            _ => {}
+        }
+    }
+    Some(false)
+}
+
 /// One search match that can be turned into a `read_source` call.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchHit {
@@ -183,14 +290,14 @@ fn path_rank(path: &str) -> i32 {
 
 /// Arguments for one bounded `read_source` call around a hit.
 #[must_use]
-pub fn read_arguments(hit: &SearchHit, token_budget: u32) -> Value {
-    let bounded_before = SOURCE_BEFORE.min(token_budget / 48);
+pub fn read_arguments_with(hit: &SearchHit, token_budget: u32, window: SourceWindow) -> Value {
+    let bounded_before = window.before.min(token_budget / 48);
     let start_line = hit.line.saturating_sub(bounded_before).max(1);
     json!({
         "path": hit.path,
         "start_line": start_line,
         "before": 0,
-        "after": bounded_before + SOURCE_AFTER,
+        "after": bounded_before + window.after,
         "token_budget": token_budget.max(200),
     })
 }
@@ -198,14 +305,24 @@ pub fn read_arguments(hit: &SearchHit, token_budget: u32) -> Value {
 /// Share of the caller's budget spent on source windows, and the per-file
 /// slice once the path list is known.
 #[must_use]
-pub fn per_file_budget(budget: u32, file_count: usize, policy: PlanPolicy) -> u32 {
+pub fn per_file_budget_with(
+    budget: u32,
+    file_count: usize,
+    policy: PlanPolicy,
+    window: SourceWindow,
+) -> u32 {
     if file_count == 0 {
         return 0;
     }
-    let pool = policy
-        .source_tokens
-        .min(budget.saturating_mul(2) / 5)
-        .max(200);
+    let share = budget
+        .saturating_mul(window.pool_fifths.clamp(1, 4))
+        .wrapping_div(5);
+    let mut pool = policy.source_tokens.min(share).max(200);
+    if window.pool_fifths > 2 {
+        // A widened gather may exceed the policy's normal source allowance —
+        // that is the point of widening — but never the budget share itself.
+        pool = share.max(200);
+    }
     let count = u32::try_from(file_count).unwrap_or(u32::MAX).max(1);
     (pool / count).max(200)
 }
@@ -288,157 +405,76 @@ mod tests {
     }
 
     #[test]
+    fn definition_completeness_tracks_brace_balance_not_head_presence() {
+        let complete = "pub struct ArchiveOptions {\n  a: u64,\n  b: usize,\n}\n";
+        let truncated = "pub struct ArchiveOptions {\n  a: u64,\n";
+        let absent = "let options = ArchiveOptions::default();";
+        let bodiless = "pub struct Marker;\n";
+        let nested = "fn outer() {\n  if x {\n    y();\n  }\n}\nmore text";
+        assert_eq!(
+            definition_is_complete(complete, "ArchiveOptions"),
+            Some(true)
+        );
+        assert_eq!(
+            definition_is_complete(truncated, "ArchiveOptions"),
+            Some(false)
+        );
+        assert_eq!(definition_is_complete(absent, "ArchiveOptions"), None);
+        assert_eq!(definition_is_complete(bodiless, "Marker"), Some(true));
+        assert_eq!(definition_is_complete(nested, "outer"), Some(true));
+    }
+
+    #[test]
+    fn definition_head_requires_a_word_boundary() {
+        assert!(definition_head_index("pub fn permits(&self)", "permits").is_some());
+        assert!(definition_head_index("pub fn permits_all()", "permits").is_none());
+        assert!(definition_head_index("permits(&self)", "permits").is_none());
+    }
+
+    #[test]
+    fn broad_tasks_widen_the_source_window() {
+        let broad = SourceWindow::for_task(
+            "List every mechanism in this crate that can silently cause a miss.",
+        );
+        let narrow = SourceWindow::for_task("Rename `read_limited` in containers.rs");
+        assert!(broad.max_files > narrow.max_files);
+        assert!(broad.after > narrow.after);
+        assert!(broad.pool_fifths > narrow.pool_fifths);
+        assert_eq!(narrow, SourceWindow::default());
+    }
+
+    #[test]
+    fn widened_pool_may_exceed_policy_source_tokens_but_not_the_budget_share() {
+        let policy = PlanPolicy::default();
+        let narrow = per_file_budget_with(4_000, 4, policy, SourceWindow::default());
+        let wide = per_file_budget_with(
+            4_000,
+            4,
+            policy,
+            SourceWindow {
+                max_files: 9,
+                before: SOURCE_BEFORE,
+                after: 84,
+                pool_fifths: 3,
+            },
+        );
+        assert!(wide >= narrow);
+        assert!(wide <= 4_000 * 3 / 5 / 4 + 200);
+    }
+
+    #[test]
     fn read_arguments_open_a_window_around_the_hit() {
         let hit = hit("crates/cortex-mcp/src/http.rs", 63);
-        let args = read_arguments(&hit, 400);
+        let args = read_arguments_with(&hit, 400, SourceWindow::default());
         assert_eq!(args["path"], "crates/cortex-mcp/src/http.rs");
         assert_eq!(args["start_line"], 55);
         assert_eq!(args["token_budget"], 400);
     }
-
-    /// Live probe: the skills-compile contract lives on the Rust server route.
-    #[test]
-    fn source_followup_opens_the_rust_server_for_skills_compile() {
-        use crate::plan::PlanPolicy;
-        use crate::{WeavatrixAdapter, WeavatrixConfig};
-        use std::path::Path;
-
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        if !root.join("apps/cortex-server/src/main.rs").exists() {
-            return;
-        }
-        let task = "What breaks if the `/api/skills/compile` HTTP contract changes?";
-        let planned = crate::plan::plan(task, None, 4_000);
-        let search = planned
-            .iter()
-            .find(|operation| operation.tool == "search_code")
-            .expect("contract plan searches");
-        let query = search.arguments["query"].as_str().unwrap_or("");
-        assert!(
-            query == "/api/skills/compile" || query.starts_with("/api/skills/compile|"),
-            "search query was {query}"
-        );
-        assert!(
-            !query.split('|').any(|part| part == "HTTP"),
-            "HTTP acronym leaked into search: {query}"
-        );
-        let adapter = WeavatrixAdapter::new(WeavatrixConfig::discover().expect("config"));
-        let bundle = adapter
-            .prepare_targeted_context_with_source_reads(
-                &root,
-                task,
-                None,
-                4_000,
-                PlanPolicy::default(),
-            )
-            .expect("source follow-up bundle");
-        assert!(
-            bundle
-                .evidence
-                .iter()
-                .all(|fragment| fragment.kind != crate::EvidenceKind::ChangePlan),
-            "gathering evidence must not add an unverified change plan"
-        );
-        let haystack: String = bundle
-            .evidence
-            .iter()
-            .map(|fragment| fragment.content.as_str())
-            .collect();
-        assert!(
-            haystack.contains("compile_skill") || haystack.contains("/api/skills/compile"),
-            "expected Rust server contract evidence; query={query}; warnings={:?}; search_head={}",
-            bundle.warnings,
-            bundle
-                .evidence
-                .iter()
-                .find(|fragment| fragment.id.starts_with("WX-SEARCH"))
-                .map(|fragment| fragment.content.chars().take(400).collect::<String>())
-                .unwrap_or_default(),
-        );
-        let compiled = crate::compile_evidence_bundle(bundle, task, 4_000, None)
-            .expect("source bundle compiles");
-        assert!(
-            compiled
-                .context
-                .included_ids
-                .iter()
-                .any(|id| id.starts_with("WX-SOURCE")),
-            "source evidence must survive the compiler: {:?}",
-            compiled.context.omitted_ids
-        );
-        assert!(!compiled.context.requires_upstream);
-    }
-
-    #[test]
-    fn thin_rust_only_search_gets_one_wide_retry_and_source_followup() {
-        use crate::plan::PlanPolicy;
-        use crate::{PlanHints, WeavatrixAdapter, WeavatrixConfig};
-        use std::path::Path;
-
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        if !root.join("ui/src/api/client.ts").exists() {
-            return;
-        }
-        let identifier = format!("compile{}", "Markdown");
-        let task = format!("Where does the `{identifier}` client call live?");
-        let adapter = WeavatrixAdapter::new(WeavatrixConfig::discover().expect("config"));
-        let (bundle, report) = adapter
-            .prepare_verified_targeted_context(
-                &root,
-                &task,
-                None,
-                4_000,
-                PlanPolicy::default(),
-                PlanHints::default(),
-            )
-            .expect("verified context");
-        assert!(
-            report.retry_performed,
-            "the Rust-only search should be thin"
-        );
-        assert!(report.sufficient, "retry remained thin: {report:?}");
-        assert!(
-            bundle
-                .evidence
-                .iter()
-                .any(|item| item.id.starts_with("WX-RETRY-SEARCH"))
-        );
-        assert!(
-            bundle
-                .evidence
-                .iter()
-                .any(|item| item.id.starts_with("WX-RETRY-SOURCE"))
-        );
-        let compiled = crate::compile_evidence_bundle(bundle.clone(), &task, 4_000, None)
-            .expect("retry bundle compiles");
-        let naive_tokens = u32::try_from(
-            std::fs::read_to_string(root.join("ui/src/api/client.ts"))
-                .expect("UI client")
-                .chars()
-                .count()
-                .div_ceil(4),
-        )
-        .unwrap_or(u32::MAX);
-        assert!(
-            compiled.context.selected_estimated_tokens < naive_tokens,
-            "retry context should stay below the one known whole file: {naive_tokens}"
-        );
-        let final_report = crate::assess_compiled(
-            &bundle,
-            &compiled.context.included_ids,
-            &task,
-            None,
-            PlanHints::default(),
-            true,
-            report.retry_performed,
-        );
-        assert!(
-            final_report.sufficient,
-            "compiled retry remained thin: {final_report:?}; included={:?}",
-            compiled.context.included_ids
-        );
-    }
 }
+
+#[cfg(test)]
+#[path = "source_followup_live_tests.rs"]
+mod live_tests;
 
 #[cfg(test)]
 #[path = "source_followup_contract_tests.rs"]

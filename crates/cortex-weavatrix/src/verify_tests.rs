@@ -126,6 +126,131 @@ fn semantic_retry_rebuilds_the_complete_contract_packet() {
     assert!(shadow.contains("CORTEX_[A-Z0-9_]*SHADOW"));
 }
 
+/// The measured failure: a six-field struct clipped after four fields passed
+/// sufficiency, and the model faithfully implemented the four fields it saw.
+#[test]
+fn a_truncated_definition_of_the_named_symbol_is_insufficient() {
+    let truncated = "pub struct ArchiveOptions {\n    pub enabled: bool,\n    pub max_archive_bytes: u64,\n    pub max_entry_bytes: u64,\n    pub max_expanded_bytes: u64,\n";
+    let complete = "pub struct ArchiveOptions {\n    pub enabled: bool,\n    pub max_archive_bytes: u64,\n    pub max_entry_bytes: u64,\n    pub max_expanded_bytes: u64,\n    pub max_entries: usize,\n    pub max_decoder_memory_bytes: usize,\n}\n";
+    let bundle = |body: &str| EvidenceBundle {
+        repository: "repo".to_owned(),
+        evidence: vec![
+            fragment(
+                "WX-SEARCH",
+                EvidenceKind::SearchHits,
+                r#"{"matches":[{"path":"src/options/types.rs","line":87}]}"#,
+            ),
+            fragment("WX-DEF", EvidenceKind::SourceReads, body),
+        ],
+        warnings: Vec::new(),
+    };
+    let included = ["WX-SEARCH".to_owned(), "WX-DEF".to_owned()];
+    let task = "Add a constructor to `ArchiveOptions` with every limit zero";
+
+    let clipped = assess_compiled(
+        &bundle(truncated),
+        &included,
+        task,
+        Some("ArchiveOptions"),
+        PlanHints::default(),
+        true,
+        false,
+    );
+    assert!(!clipped.sufficient);
+    assert!(
+        clipped
+            .missing_evidence
+            .iter()
+            .any(|item| item == "definition:archiveoptions"),
+        "missing was {:?}",
+        clipped.missing_evidence
+    );
+
+    let whole = assess_compiled(
+        &bundle(complete),
+        &included,
+        task,
+        Some("ArchiveOptions"),
+        PlanHints::default(),
+        true,
+        false,
+    );
+    assert!(
+        !whole
+            .missing_evidence
+            .iter()
+            .any(|item| item.starts_with("definition:")),
+        "missing was {:?}",
+        whole.missing_evidence
+    );
+}
+
+#[test]
+fn creating_a_named_member_requires_its_owner_not_the_future_member() {
+    let complete = "pub struct ArchiveOptions {\n    pub enabled: bool,\n    pub max_archive_bytes: u64,\n    pub max_entry_bytes: u64,\n    pub max_expanded_bytes: u64,\n    pub max_entries: usize,\n    pub max_decoder_memory_bytes: usize,\n}\n";
+    let bundle = EvidenceBundle {
+        repository: "repo".to_owned(),
+        evidence: vec![
+            fragment(
+                "WX-SEARCH",
+                EvidenceKind::SearchHits,
+                r#"{"matches":[{"path":"src/options/types.rs","line":87,"text":"pub struct ArchiveOptions"}]}"#,
+            ),
+            fragment("WX-DEF", EvidenceKind::SourceReads, complete),
+        ],
+        warnings: Vec::new(),
+    };
+
+    let report = assess_compiled(
+        &bundle,
+        &["WX-SEARCH".to_owned(), "WX-DEF".to_owned()],
+        "Implement `ArchiveOptions::disabled()` with every limit zero",
+        Some("ArchiveOptions"),
+        PlanHints::default(),
+        true,
+        false,
+    );
+
+    assert!(report.sufficient, "unexpected missing evidence: {report:?}");
+    assert!(
+        !report
+            .required_evidence
+            .iter()
+            .any(|item| item.contains("ArchiveOptions::disabled"))
+    );
+}
+
+/// The definition must balance inside one fragment: two windows that each
+/// hold half the struct do not add up to a definition anyone can read.
+#[test]
+fn definition_completeness_does_not_sum_across_fragments() {
+    let first_half = "pub struct ArchiveOptions {\n    pub enabled: bool,\n";
+    let second_half = "    pub max_entries: usize,\n}\n";
+    let bundle = EvidenceBundle {
+        repository: "repo".to_owned(),
+        evidence: vec![
+            fragment("WX-SOURCE-1", EvidenceKind::SourceReads, first_half),
+            fragment("WX-SOURCE-2", EvidenceKind::SourceReads, second_half),
+        ],
+        warnings: Vec::new(),
+    };
+    let report = assess_compiled(
+        &bundle,
+        &["WX-SOURCE-1".to_owned(), "WX-SOURCE-2".to_owned()],
+        "Change `ArchiveOptions`",
+        Some("ArchiveOptions"),
+        PlanHints::default(),
+        true,
+        false,
+    );
+    assert!(
+        report
+            .missing_evidence
+            .iter()
+            .any(|item| item == "definition:archiveoptions")
+    );
+}
+
 #[test]
 fn identifier_only_semantic_retry_keeps_its_search_query() {
     let identifier = ["compile", "Markdown"].concat();

@@ -29,22 +29,22 @@ repository = "https://github.com/sergii-ziborov/cortex-loom"
 [workspace.dependencies]
 axum = "0.8.9"
 include_dir = "0.7.4"
-mcport = "0.3.0"
-rusqlite = { version = "0.40.1", features = ["bundled"] }
+mcport = "0.5.0"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
 # The JSON engine is `blazingly-json`. Private crates take it under the
 # `serde_json` alias for drop-in ergonomics; crates intended for public
 # release depend on it by its real name so their manifests and rustdoc
 # never misrepresent what a consumer is actually taking on.
-blazingly-json = "0.1.1"
-serde_json = { package = "blazingly-json", version = "0.1.1" }
+blazingly-json = "0.1.4"
+serde_json = { package = "blazingly-json", version = "0.1.4" }
 sha2 = "0.10"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 tower-http = { version = "0.7.0", features = ["fs", "trace"] }
-ureq = { version = "3.3.0", default-features = false }
+ureq = { version = "3.4.0", default-features = false }
 weavatrix-edit = "0.1.7"
-weavatrix-refactor-plan = "0.1.0"
-weavatrix-rust = "2.3.0"
+weavatrix-refactor-plan = "0.1.1"
+weavatrix-rust = "2.5.0"
 
 [profile.release]
 lto = "thin"

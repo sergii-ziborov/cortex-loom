@@ -1,8 +1,9 @@
 use serde_json::json;
 
 use super::evidence::{
-    EvidenceKind, MAX_FRAGMENT_CHARS, extract_text, fragments, normalize_graph_stats, split_content,
+    EvidenceKind, MAX_FRAGMENT_CHARS, fragments, normalize_graph_stats, split_content,
 };
+use super::render::extract_text;
 
 #[test]
 fn graph_stats_drop_volatile_build_latency_before_context_compilation() {
@@ -21,6 +22,23 @@ fn extracts_structured_text_before_fallback_content() {
         "structuredContent": {"result": {"text": "structured"}}
     });
     assert_eq!(extract_text(&value), "structured");
+}
+
+#[test]
+fn read_source_lines_become_plain_source_instead_of_json() {
+    let value = json!({
+        "path": "src/options/types.rs",
+        "lines": [
+            {"line": 87, "text": "pub struct ArchiveOptions {"},
+            {"line": 88, "text": "    pub enabled: bool,"},
+            {"line": 89, "text": "}"}
+        ]
+    });
+
+    assert_eq!(
+        extract_text(&value),
+        "pub struct ArchiveOptions {\n    pub enabled: bool,\n}"
+    );
 }
 
 #[test]

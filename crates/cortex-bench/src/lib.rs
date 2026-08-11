@@ -140,6 +140,16 @@ pub struct ArmMeasurement {
     pub unavailable_reason: Option<String>,
     pub context_tokens: u32,
     pub context_chars: usize,
+    /// Tokens the MCP tool actually serializes for this arm.
+    ///
+    /// `context_tokens` is the evidence the compiler selected. It is not what
+    /// an agent pays: `weavatrix_context_compile` returns the whole
+    /// [`cortex_weavatrix::CompiledEvidenceBundle`] as JSON, so the packet is
+    /// escaped and carries its own warnings, sufficiency report, citation ids
+    /// and counters. Reporting only the inner figure understates the product.
+    /// `None` for arms that have no transport form.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivered_tokens: Option<u32>,
     /// Files, fragments, or packet items, depending on the arm.
     pub units: usize,
     pub satisfied_anchors: Vec<String>,
@@ -180,6 +190,7 @@ impl ArmMeasurement {
             unavailable_reason: Some(reason),
             context_tokens: 0,
             context_chars: 0,
+            delivered_tokens: None,
             units: 0,
             satisfied_anchors: Vec::new(),
             missing_anchors: Vec::new(),
@@ -226,6 +237,7 @@ pub fn measure_scoped(
         unavailable_reason: None,
         context_tokens: estimate_tokens(sent),
         context_chars: sent.chars().count(),
+        delivered_tokens: None,
         units,
         satisfied_anchors,
         missing_anchors,

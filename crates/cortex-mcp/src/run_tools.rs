@@ -87,7 +87,7 @@ pub(super) fn register(
                     ));
                 }
                 match create_state.store.runs().create(&arguments.id, &graph) {
-                    Ok(run) => ToolReply::structured(run),
+                    Ok(run) => ToolReply::text(run),
                     Err(error) => ToolReply::error(error.to_string()),
                 }
             },
@@ -107,7 +107,7 @@ pub(super) fn register(
                 }
                 match get_state.store.runs().get(&arguments.id) {
                     Ok(Some(run)) => match get_state.store.runs().get_graph(&arguments.id) {
-                        Ok(Some(graph)) => ToolReply::structured(serde_json::json!({
+                        Ok(Some(graph)) => ToolReply::text(serde_json::json!({
                             "run": run,
                             "graph": graph
                         })),
@@ -140,7 +140,7 @@ pub(super) fn register(
                     arguments.graph_id.as_deref(),
                     arguments.limit.unwrap_or(50),
                 ) {
-                    Ok(runs) => ToolReply::structured(
+                    Ok(runs) => ToolReply::text(
                         runs.iter().map(run_summary).collect::<Vec<_>>(),
                     ),
                     Err(error) => ToolReply::error(error.to_string()),
@@ -269,7 +269,7 @@ pub(super) fn register(
                     .runs()
                     .apply(&arguments.id, &arguments.command)
                 {
-                    Ok(run) => ToolReply::structured(run),
+                    Ok(run) => ToolReply::text(run),
                     Err(error) => ToolReply::error(error.to_string()),
                 }
             },
@@ -296,7 +296,7 @@ pub(super) fn register(
                     arguments.after.unwrap_or(0),
                     arguments.limit.unwrap_or(100),
                 ) {
-                    Ok(events) => ToolReply::structured(events),
+                    Ok(events) => ToolReply::text(events),
                     Err(error) => ToolReply::error(error.to_string()),
                 }
             },
@@ -315,7 +315,7 @@ pub(super) fn register(
                     return ToolReply::error("cancelled");
                 }
                 match state.store.runs().verify_replay(&arguments.id) {
-                    Ok(verification) => ToolReply::structured(verification),
+                    Ok(verification) => ToolReply::text(verification),
                     Err(error) => ToolReply::error(error.to_string()),
                 }
             },

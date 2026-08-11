@@ -125,17 +125,48 @@ project's premise.
 
 The control answers the question this project has to answer honestly.
 
-**Weavatrix earns the recall.** Planning which of its 42 operations to call
+Weavatrix is built by the same author, so this split is engineering
+attribution, not a competitive claim: it decides which layer to invest in
+next, and nothing here is a reason to present one as beating the other. The
+figure that matters outside this section is what the two cost **together**
+against not having them — see "One question, every approach" below.
+
+> **Correction, updated 2026-08-11.** The 71 % compiler saving recorded below was
+> measured against `weavatrix-rust` 2.1.1, which accepted `token_budget`
+> everywhere and honoured it in one place. **That saving no longer exists.**
+> Since 2.2.0 the parameter is refused where it is not implemented and the
+> planner only sends it where it works, so Weavatrix now trims its own
+> answers. On the current ten-task probe set (`weavatrix-rust` 2.5.0), the
+> compiler and the operations it compiles are effectively tied:
+>
+> | arm | tokens | facts |
+> | --- | ---: | ---: |
+> | `weavatrix-planned` | 23 636 | 28/40 |
+> | `cortex-targeted` | **23 287** | 28/40 |
+>
+> **−1.5 % tokens, identical recall on all ten tasks.** This is too small to
+> support an economic claim about compiler budgeting. The paragraphs below are kept
+> because they explain what was true on 2.1.1, not what is true now.
+>
+> This does not make the layer worthless, and it does change what it is for.
+> What survives the control is *planning* (which operations to call at all),
+> *source follow-up* (28/40 → 40/40), the fail-closed refusal, the omission
+> record, and — measured separately in "As an MCP" below — collapsing a
+> four-call agent session into one. What does **not** survive is the claim
+> that priority-ordered budgeting saves tokens over Weavatrix's own.
+
+**Weavatrix earns the recall.** Planning which of its operations to call
 moved facts from 14/24 to 18/24; the compiler cannot invent evidence that was
 never fetched.
 
-**Cortex Loom earns the tokens.** The same planned evidence costs 52 087
-tokens under Weavatrix's own budgeting and 14 898 through the compiler — **71 %
-fewer at identical recall, 18/24 either way.** The reason is structural rather
-than clever: each of five operations budgets its own answer with no knowledge
-that the others ran, so none of them can spend a low-value fragment's share on
-a high-value one. Only the layer holding every fragment can rank them against
-each other and stop when the budget is spent.
+**Cortex Loom earned the tokens on 2.1.1.** The same planned evidence cost
+52 087 tokens under Weavatrix's own budgeting and 14 898 through the
+compiler — 71 % fewer at identical recall, 18/24 either way. The reason was
+structural rather than clever: each of five operations budgeted its own answer
+with no knowledge that the others ran, so none of them could spend a low-value
+fragment's share on a high-value one. Only the layer holding every fragment
+could rank them against each other and stop when the budget was spent. On
+2.2.0 and later Weavatrix does that trimming itself.
 
 Cross-operation deduplication (`ContextRequest::deduplicate`) is part of the
 same idea and, on this fixture set, a small part: 1 repeated line on two of
@@ -491,6 +522,27 @@ handoffs outside the prompt. It therefore uses **63.35% fewer methodology
 tokens than current Cortex skills** and **94.77% fewer than raw Superpowers**
 without losing a declared scenario. The default-promotion gate passes.
 
+> **Read the 94.77 % carefully.** It compares **one** `ActiveStepPacket`
+> (~142 tokens) against **one whole** `SKILL.md` (~2 502 tokens). Each
+> scenario scores a single step; the fixtures reach `step-6`, so executing a
+> complete sequence sends five or six packets, roughly 715–860 tokens. The
+> honest amortized figure against raw Superpowers is therefore about
+> **66–71 %**, not 94.77 %. The per-step number is the right one for "what
+> enters context at this moment" and the wrong one for "what the workflow
+> costs".
+>
+> **And the scoring is not symmetric.** `cortex-native` is scored from its own
+> typed graph — `node.config["requiredEvidence"]` and node kinds read straight
+> off the instantiated template — while the prose arms are scored by keyword
+> inference over their text (`infer_node_kinds`, `infer_evidence` in
+> `sequence_arms.rs`). The fixtures' `requiredNodeKinds` and `requiredEvidence`
+> are written in the same vocabulary the templates declare, and the harness
+> hands native the template named by `expected.sequenceId`. Only
+> `selected-sequence` independently tests routing, and that check auto-passes
+> for every other arm. **28/28 is therefore closer to an internal consistency
+> check than to a comparison**, and the gap to `superpowers-raw` measures how
+> often English prose happens to contain the expected keywords.
+
 This is a structural methodology benchmark, not proof that an LLM completed a
 coding task. Raw prose is normalized into declared capabilities for scoring;
 native sequences are scored from their typed graph. Every report records the
@@ -553,11 +605,322 @@ native `graph_stats.build_ms` telemetry remains excluded from evidence packets
 | `cortex-full` | 21 124 | 28/40 | 70% |
 | `cortex-source` | **34 564** | **40/40** | **100%** |
 
-Targeted is 93.45% below naive. Source verification adds twelve facts for
-14 215 tokens and is 88.87% below naive. All ten source tasks are 4/4, including
-both env/config probes. Against the earlier P2 best on the same declared
-40-fact set, targeted keeps 28/40 while using 2 258 fewer tokens; source keeps
-40/40 while using 1 541 fewer. This meets the no-recall-regression condition and
-improves both current product arms on estimated tokens. The aspirational
-`~30k` source cost is still missed by 4 564 tokens, so the next lever remains
-more selective direct-source packing—not hot-path model compression.
+## As an MCP — what a caller actually pays
+
+Everything above measures `packet.content`: the evidence the compiler selected.
+That is not what an agent is billed for. `weavatrix_context_compile` returns the
+whole `CompiledEvidenceBundle` as JSON, so the packet arrives escaped and
+carrying its warnings, sufficiency report, citation ids and counters. Stamp
+`final-quality-2026-08-11`, same ten tasks, budget 4 000, on
+`weavatrix-rust` 2.5.0:
+
+| arm | selected | delivered over MCP | facts |
+| --- | ---: | ---: | ---: |
+| `cortex-loom` | 35 350 | 40 070 | 23/40 |
+| `cortex-targeted` | 23 287 | **27 571** | 28/40 |
+| `cortex-full` | 27 111 | 31 870 | 28/40 |
+| `cortex-source` | 32 623 | **37 773** | 40/40 |
+
+**Serialization costs 13–18 % across these aggregate arms on top of the
+selected evidence.** `cortex-source` against a 319 564-token naive baseline
+is −89.8 % selected and −88.2 % delivered. Two further costs are real and are *not* in the table: an MCP
+client that reads both `content` and `structuredContent` pays the payload
+twice, and the server's tool schemas are a standing charge before any call is
+made — see the profile table below.
+
+### Tool schemas are a standing charge, and `tools/list` paginates
+
+`tool_page_size(16)` means a single `tools/list` reply is not the surface. The
+client follows `nextCursor` and loads every page into context for the whole
+session. Measured on this workspace:
+
+| profile | tools | pages | schema tokens |
+| --- | ---: | ---: | ---: |
+| `--profile full` (default) | 27 | 2 | **4 021** |
+| `--profile context` | 2 | 1 | **454** |
+
+The context profile registers `context_compile` and
+`weavatrix_context_compile` and nothing else. A caller that only wants
+evidence was paying 4 021 tokens per session for twenty-five tools it never
+called; it now pays 454. Routing, runs, graphs, skills, and sequences need the
+full profile.
+
+### One question, every approach
+
+Same question — *who calls `compile_evidence_bundle`, and what breaks if it
+starts refusing more packets?* — against four declared facts, every server
+driven for real over JSON-RPC, measured 2026-08-10:
+
+| approach | schema | payload | **session** | calls | facts |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| naive: read the candidate files | 0 | 79 040 | 79 040 | — | 4/4 |
+| agent-native: `ripgrep` + file reads | 0 | 4 904 | 4 904 | 5 | 3/4 |
+| agent-native + Superpowers 6.2.0 | 0 | 8 037 | 8 037 | 5 | 3/4 |
+| Serena MCP 1.28.1 (`ide-assistant`) | 6 283 | 4 257 | 10 540 | 3 | 4/4 |
+| Weavatrix MCP 1.4.0 | 5 276 | 14 316 | 19 592 | 4 | 4/4 |
+| Cortex Loom MCP, full profile | 4 021 | 9 318 | 13 339 | **1** | 4/4 |
+| **Cortex Loom MCP, context profile** | **454** | 9 347 | **9 801** | **1** | **4/4** |
+
+Warm latency for the same sessions: agent-native 42 ms of tool time across
+five model turns; Serena 3 013 ms across three (and 45 s on the first call,
+paying for the language server's index); Weavatrix 178 ms across four; Cortex
+Loom **23.8 ms in one**.
+
+Reading this table honestly:
+
+- **The stack is what earns the saving.** Against reading the files, the
+  context profile is **−87.6 % tokens at equal recall**. That is the number
+  this project exists for, and Weavatrix earns most of it.
+- **Turn count is the term nobody prices.** Every call is a model turn that
+  re-reads the whole session. Four calls cost roughly four prefills plus their
+  outputs, so a 19 592-token four-call session is far more than twice as
+  expensive as a 9 801-token one-call session in practice.
+- **Serena is the closest on tokens and is doing something different.** Its
+  payloads are the leanest here (4 257) because LSP answers are precise and
+  small, and it spends that advantage on a 6 283-token schema and three round
+  trips. It is symbol-exact where the graph is heuristic; it pays a language
+  server's index where the graph pays 98 ms.
+- **Superpowers is orthogonal.** It adds 3 133 tokens of methodology
+  (`using-superpowers` 766 + `systematic-debugging` 2 367) and **no
+  repository facts** — recall stays 3/4. It is not a retrieval competitor and
+  should not be read as one.
+- **`agent-native` is the cheapest arm that gets the wrong answer.** 4 904
+  tokens and 3/4: `rg` without context lines returns the call site but not the
+  enclosing symbol, so "who calls it" is answered as a file rather than as a
+  function.
+
+## Live model, unfamiliar repository — what a 9B actually answers
+
+Measured 2026-08-10 on `weavatrix-search` at `50953b3` with `qwen3.5:9b`
+(temperature 0, thinking off, `num_predict` 400, one shot). Three questions of
+rising difficulty; ground truth read out of the source by hand; answers graded
+against required claims, not against literal presence in context. Every MCP
+server ran for real (`weavatrix@1.5.0`, Serena 1.28.1, Cortex `--profile
+context` on mcport 0.5.0), and the client ingested one representation per
+reply.
+
+Score is required claims present in the model's *answer*, summed over the
+three tasks (3 + 4 + 5 = 12):
+
+| approach | quality | session tokens | calls | model prefill (tok) |
+| --- | ---: | ---: | ---: | ---: |
+| no-context (control) | 1/12 | 0 | 0 | 343 |
+| **naive: read the module dirs** | **10/12** | 17 580 | 0 | 18 985 |
+| agent-native (`rg` + windows) | 7/12 | 23 327 | 12 | 27 824 |
+| agent-native + Superpowers | 8/12 | 34 279 | 12 | 36 846 |
+| Serena MCP | 5/12 | 20 768 | 6 | **2 503** |
+| weavatrix MCP | **10/12** | 40 680 | 9 | 21 150 |
+| cortex MCP (one packet) | 4/12 | **8 779** | **3** | 7 933 |
+
+Per difficulty: easy `T1` — naive 3/3, weavatrix 3/3, serena 3/3, cortex 2/3;
+medium `T2` — naive/weavatrix/agent 4/4, cortex 2/4, serena 2/4; hard,
+cross-cutting `T3` — naive/weavatrix 3/5, agent 2/5, **serena 0/5, cortex
+0/5**.
+
+What this run establishes, uncomfortable parts first:
+
+- **Cortex packets are the cheapest and the thinnest.** Best session cost
+  and round-trip count in the table, and the worst retrieval-arm quality,
+  collapsing to 0/5 on the cross-cutting question. The `T3` packet used
+  2 347 of its 4 000-token budget — selection stopped early and the
+  sufficiency gate accepted it. Same defect family as the implementation
+  benchmark below: **the gate passes packets that are too thin for the
+  question.** The lever is not more budget; it is spending the granted
+  budget when the intent is broad, and failing sufficiency otherwise.
+- **On a small crate, reading the module is the quality king.** 10/12 at
+  17.6 k tokens. The premise "reading files whole is wasteful" is a
+  large-repository premise; on a 10 k-line crate the module *is* the right
+  packet. Cortex's economics argument starts where repositories stop
+  fitting in a context window.
+- **Serena is the prefill champion and breadth-limited.** 2 503 prefill
+  tokens across all three tasks — an order of magnitude under everyone —
+  because LSP answers are exact symbol bodies. That exactness is also why it
+  scored 0/5 on the question whose answer lives across options, feature
+  gates, and path handling.
+- **Weavatrix's raw dump ties naive on quality** at 2.3× naive's session
+  cost and 4.6× cortex's: breadth wins answers and costs tokens; nothing in
+  between exists yet.
+- Caveats that keep these numbers honest: one shot per cell, one small
+  model; `agent-native` is a scripted lower bound (fixed first-160-line
+  windows, which on `T1` cut the very definition an agent would have
+  opened); `T3` generation hit the 400-token cap on three arms; and model
+  wall-clock varied up to 400× per prefill token between cells (Ollama
+  GPU/CPU placement drift), so cross-arm timing claims rest on token
+  counts, not milliseconds.
+
+## Implementation, end to end — one approach per isolated worktree
+
+Measured 2026-08-10 on `weavatrix-search` at `50953b3`, a repository neither
+the harness author nor the model had worked in. Task: add
+`ArchiveOptions::disabled()` returning a configuration with `enabled: false`
+and **every** limit field zero. The struct has six fields of mixed types
+(`u64` and `usize`), so compilation directly measures whether the evidence
+carried the complete definition. Each approach ran in its own `git worktree`,
+the model (`qwen3.5:9b`, temperature 0, thinking off, one shot) saw only that
+approach's evidence, and a **hidden harness test the model never saw** was the
+arbiter: `..Default::default()` would compile and still fail it.
+
+| arm | session tokens | calls | prefill | generation | compiled | hidden test |
+| --- | ---: | ---: | ---: | ---: | :-: | :-: |
+| agent-native (`rg` + defining file whole) | **1 788** | 2 | 2 264 tok | 78 tok | **yes** | **pass** |
+| weavatrix-mcp (search+inspect+read) | 10 788 | 3 | 3 592 tok | 60 tok | no | fail |
+| cortex-mcp (one compiled packet) | 2 401 | 1 | 2 217 tok | 60 tok | no | fail |
+
+(The MCP rows are the re-run on the updated stack — `weavatrix@1.5.0`,
+mcport 0.5.0 single-representation replies; the first run's numbers were
+9 700 / 4 658 with the mirrored payloads and additionally failed on syntax.)
+
+**The plain agent won outright, and it was also the cheapest.** Reading the
+defining file whole cost 1 788 tokens and produced the only compiling,
+passing implementation.
+
+Why the MCP arms failed is more useful than the scoreboard. On the updated
+stack both models produced a clean `impl ArchiveOptions` block — and **both
+omitted the same two fields**, `max_entries` and `max_decoder_memory_bytes`.
+Replaying the exact cortex call proves the fields were absent from the packet
+itself, and the weavatrix arm's evidence truncated at the same boundary:
+**both products inherit the same `weavatrix-rust` symbol window, and that
+window cuts the struct body**. The cortex sufficiency check accepted the
+truncated packet anyway. A packet can therefore pass sufficiency while
+truncating the definition of the very symbol the task names. The fix
+direction is shared: implementation-intent evidence must carry the named
+symbol's complete definition, and Cortex's sufficiency must fail when it
+does not. One shot on one small model; a frontier model might guess the
+missing fields from the doc comment — the local-first premise is exactly
+that it must not have to.
+
+**Post-fix rerun, 2026-08-11.** Cortex now requests the complete owner
+definition for creation tasks, rejects an incomplete named definition, keeps
+retry search inside source/config trees, renders `read_source` as plain source,
+and removes a truncated source duplicate once a complete definition exists.
+The same real stdio MCP call and the same one-shot model produced a 97-token
+`impl` containing all six fields:
+
+| selected evidence | model prefill | generation | sufficient | upstream | compiled | hidden test |
+| ---: | ---: | ---: | :-: | :-: | :-: | :-: |
+| **2 310** | 2 669 | 97 | **yes** | no | **yes** | **pass** |
+
+The hidden test was applied only after generation in a detached worktree and
+asserted `enabled == false` plus zero for every limit. This closes the specific
+false-positive sufficiency defect above; it does not turn the earlier one-shot
+comparison into a general model-quality claim.
+
+## Symbol resolution: graph against LSP, against a hand-auditable truth
+
+Measured 2026-08-10 on `weavatrix-search` at `50953b3`, in an isolated
+worktree. Ground truth: every textual occurrence of six symbols, mechanically
+classified (definition / import / comment / reference) with each reference
+mapped to its enclosing function; the classification table is stored with the
+results so it can be audited line by line. Unit of comparison: the referencing
+function, which is what both tools return. Weavatrix `get_dependents` is
+scored on `distance == 1` only; Serena `find_referencing_symbols` on
+non-`File` entries.
+
+| symbol | truth | Weavatrix 1.5.0 | Serena 1.28.1 | wx ms | serena ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `read_limited` | 4 | **4/4** | 4/4 | 8 | 14 925 (cold) |
+| `finish_block` | 1 | **1/1** | 1/1 | 18 | 400 |
+| `quiet_match` | 2 | 1/2 | **2/2** | 20 | 480 |
+| `safe_virtual_path` | 2 | 1/2 | **2/2** | 15 | 356 |
+| `search_expanded_file` | 2 | 1/2 | **2/2** | 18 | 768 |
+| `ArchiveOptions` (struct) | 2 | 0/2 | **2/2** | 15 | 3 383 |
+| **total** | **13** | **8/13 (62 %)** | **13/13 (100 %)** | 8–20 | 356–3 383 warm |
+
+Precision was 1.0 for both sides after the direct-only filter; Serena's two
+"extras" on `ArchiveOptions` are real references the mechanical truth cannot
+represent (an `impl Default` block and a struct field), so its effective
+precision is also 1.0.
+
+What the misses are, specifically — this is the actionable part:
+
+- Free-function **call** edges are fully resolved by both (`read_limited`
+  4/4, `finish_block` 1/1).
+- Weavatrix missed one **method call through a field receiver**
+  (`collector.quiet_match(...)` inside `process_line`), one call in
+  `search_zip`, one in `dispatch.rs::expanded`, and **both type references**
+  to the struct (`fn default`, `fn with_archives`). The graph holds a
+  separate `references` relation, so the data may exist while
+  `get_dependents` only walks call edges — a tool-semantics gap rather than
+  missing extraction.
+- The trade is now quantified rather than asserted: **the graph answers in
+  8–20 ms where the LSP takes 0.4–3.4 s warm and ~15 s cold; the LSP resolves
+  13/13 where the graph resolves 8/13.** Serena is symbol-exact and pays a
+  language server; Weavatrix is instant and misses reference-kind edges on
+  this repository. Cortex inherits whichever engine it stands on — one more
+  reason its sufficiency checks must not assume the evidence under them is
+  complete.
+
+## git: CLI against Weavatrix git operations
+
+Same three questions an agent actually asks, both sides warm, 2026-08-10.
+`git` numbers are what an agent pastes into context; Weavatrix numbers are
+the tool result on the wire.
+
+| question | git CLI | Weavatrix MCP 1.4.0 |
+| --- | ---: | ---: |
+| last 25 commits | 306 tok / 115 ms | 7 416 tok / 44 ms |
+| what changed vs HEAD~10 | 1 651 tok / 192 ms | 125 467 tok / 251 ms |
+| hot files + co-changes, 6 months | 7 669 tok / 291 ms | 7 433 tok / **79 ms** |
+
+Reading it honestly: **Weavatrix wins latency** (44–79 ms against 115–291 ms
+— the CLI pays process spawn and pager plumbing every call), and on the
+analytical question it also wins content: `git_history` returns computed
+hot-file and co-change tables at the same token cost as the raw `--numstat`
+dump the agent would still have to aggregate itself. For the plain-history
+question the CLI is 24× cheaper on tokens because `git_history` always
+attaches its analytics. And `graph_diff HEAD~10` returned **125 k tokens**
+without a budget parameter — a structural diff that would evict half a
+session; it needs the same `token_budget` treatment `search_code` already
+has. `git worktree add` itself: 7.0 s cold, ~1.2 s each warm.
+
+### Weavatrix 1.1.2 → 1.4.0 → 1.5.0
+
+Measured back to back on the same machine, same repository, same queries:
+
+| | 1.1.2 | 1.4.0 | 1.5.0 |
+| --- | ---: | ---: | ---: |
+| tools / schema tokens | 38 / 4 665 | 41 / 5 276 | 42 / **8 283** |
+| `open_repo` payload | 3 169 | **606** | 610 |
+| `open_repo` | 106.4 ms | 228.1 ms | 110.2 ms |
+| `search_code` | 6.5 ms | 31.6 ms | 15.5 ms |
+| `get_dependents` | 0.22 ms | 16.7 ms | 9.2 ms |
+| `inspect_symbol` | 0.94 ms | 22.0 ms | 10.5 ms |
+
+1.4.0 cut the `open_repo` reply by 81 % but regressed latency 5–75× on every
+operation. **1.5.0 repairs most of the regression** (2–3× above 1.1.2 rather
+than 5–75×) and keeps the lean `open_repo`. Two remaining observations for
+the maintainer: the tool schemas grew to 8 283 tokens — a 57 % higher
+standing charge per session than 1.4.0 — and `content` + `structuredContent`
+carry two *different* renderings of each result (text ~7.3 k chars,
+structured ~4.8 k for the same `search_code` answer), so a client that
+ingests both still pays ~1.5× one representation.
+
+For reference, `ripgrep` 15.0.0 answers the same literal query on this
+repository in **19.7 ms** warm.
+
+### mcport 0.5.0: the mirror is now opt-out, and Cortex opted out
+
+MCP recommends mirroring `structuredContent` into a text block; mcport ≤0.4
+always did, so every Cortex reply carried its payload twice. mcport 0.5.0
+added `ToolPayload::{Text, Mirrored, Structured}`, and every Cortex tool now
+replies `ToolReply::text` — one compact representation, readable by any
+client. Measured on the standing example call
+(`weavatrix_context_compile`, cortex-loom, budget 4 000):
+
+| | mirrored (≤0.4 behaviour) | `text` (now) |
+| --- | ---: | ---: |
+| reply payload | 9 347 tok | **5 080 tok** |
+| session with context profile | 9 801 tok | **5 566 tok** |
+
+The "delivered over MCP" columns elsewhere in this document predate this
+change and now represent an upper bound roughly 1.8× the current wire cost.
+
+On the final 2026-08-11 rerun, targeted is 92.7% below naive. Source
+verification adds twelve facts for 9 336 selected tokens and is 89.8% below
+naive (88.2% by delivered MCP size). All ten source tasks are 4/4, including
+both env/config probes. Two runs with the same stamp produced byte-identical
+reports (SHA-256
+`B2C650464DCCD233E0186C50A0FC8ACCD7F455B178092A33D52BE237F887BE6B`).
+The aspirational `~30k` source cost is still missed by 2 623 selected tokens,
+so the next lever remains more selective direct-source packing—not hot-path
+model compression.

@@ -135,7 +135,10 @@ completion, sufficiency, routing, or mutation authority. See
 - **React/SVG editor** on `:43817`: graphs, runs, evidence, Sequence Studio,
   model interaction, library import, help, and embedded docs.
 - **MCP stdio or Streamable HTTP** on `:43818`: bounded graph, run, sequence,
-  routing, skill, usage, Weavatrix context, and preview tools.
+  routing, skill, usage, Weavatrix context, and preview tools. `--profile
+  context` (or `CORTEX_MCP_PROFILE=context`) serves evidence compilation
+  alone — two tools and 454 tokens of schema instead of twenty-seven and
+  4 021, for callers that never touch runs, graphs, or sequences.
 - **HTTP API**: the same graphs, sequences, runs, telemetry, adapters, and docs
   used by the UI.
 - **`SKILL.md` round trip**: compile Markdown into a typed graph and export a
@@ -161,14 +164,38 @@ separate:
   raw Superpowers 6.2.0, and the seven Cortex-native sequences across 28
   declared quality/safety scenarios.
 
-Latest deterministic results (2026-08-09):
+Latest deterministic results (stamp `final-quality-2026-08-11`):
 
-| repository arm | estimated tokens | anchor facts |
-| --- | ---: | ---: |
-| naive known directories | 310 625 | 40/40 |
-| raw Weavatrix | 87 462 | 26/40 |
-| Cortex targeted | **20 349** | 28/40 |
-| Cortex targeted + verified source | **34 564** | **40/40** |
+| repository arm | selected tokens | delivered over MCP | anchor facts |
+| --- | ---: | ---: | ---: |
+| naive known directories | 319 564 | — | 40/40 |
+| raw Weavatrix | 100 486 | — | 29/40 |
+| Cortex targeted | **23 287** | 27 571 | 28/40 |
+| Cortex targeted + verified source | **32 623** | 37 773 | **40/40** |
+
+"Selected" is what the compiler chose; "delivered" is what
+`weavatrix_context_compile` actually serializes, which is the figure a caller
+budgets against.
+
+Measured end to end as a server, on one question with four declared facts,
+against every alternative driven for real over JSON-RPC:
+
+| approach | session tokens | calls | facts |
+| --- | ---: | ---: | ---: |
+| read the candidate files | 79 040 | — | 4/4 |
+| `ripgrep` + file reads | 4 904 | 5 | 3/4 |
+| Serena MCP 1.28.1 | 10 540 | 3 | 4/4 |
+| **Cortex Loom, `--profile context`** | **5 566** | **1** | **4/4** |
+
+**−93.0% against reading the files, at equal recall, in a single round trip.**
+Session tokens include the server's tool schemas, which every client loads for
+the whole session: 486 for the context profile against ~4 000 for the full
+one. Since mcport 0.5.0 every reply is a single compact text representation —
+the earlier `structuredContent` mirror is gone, which alone halved the wire
+cost. Round trips matter more than the totals suggest, because each one
+re-reads the entire session. Full tables, latency, the Weavatrix and
+Superpowers rows, and a live-model implementation benchmark are in
+[benchmark](docs/benchmark.md).
 
 | methodology arm | estimated tokens | scenarios passed |
 | --- | ---: | ---: |
@@ -176,10 +203,16 @@ Latest deterministic results (2026-08-09):
 | raw Superpowers 6.2.0 | 72 839 | 15/28 |
 | Cortex-native active-step packets | **3 812** | **28/28** |
 
-The source arm preserves the previous best 40/40 while using 1 541 fewer
-estimated tokens; targeted preserves 28/40 while using 2 258 fewer. Native
+The source arm preserves 40/40 recall at 89.8% fewer selected tokens than the
+naive fixture baseline (88.2% fewer by delivered MCP size); targeted uses
+92.7% fewer selected tokens but preserves only 28/40 facts. Native
 sequences use 94.77% fewer methodology tokens than raw Superpowers with no
-declared scenario regression. The paired live `qwen3.5:4b` sequence smoke did
+declared scenario regression — but that figure compares one active-step packet
+against a whole `SKILL.md`. A complete sequence sends five or six packets, so
+the amortized saving is about 66–71%; and the native arm is scored from its own
+typed graph while prose arms are scored by keyword inference, which makes 28/28
+closer to a consistency check than to a comparison. Both caveats are worked out
+in [benchmark](docs/benchmark.md). The paired live `qwen3.5:4b` sequence smoke did
 not pass its exact gate (0/12, p95 86.8 s), so that model is not promoted.
 
 Promotion is fail-closed: both current and raw baselines must be available,

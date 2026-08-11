@@ -40,6 +40,55 @@ pub fn detect(task: &str) -> TaskIntent {
     TaskIntent::IdentifierChange
 }
 
+/// Whether the task enumerates ("list every mechanism that can…") rather
+/// than pointing at one identifier.
+///
+/// A broad question answered by a thin packet was the measured failure mode:
+/// on the live-model benchmark the cross-cutting probe compiled 2 347 of a
+/// 4 000-token budget and scored 0/5, while the arm that read whole modules
+/// scored 3/5. Breadth is a property of the question, so it is detected from
+/// the question, not inferred from an after-the-fact token count.
+#[must_use]
+pub fn is_broad(task: &str) -> bool {
+    const CUES: &[&str] = &[
+        "every mechanism",
+        "all mechanisms",
+        "list every",
+        "list all",
+        "all the ways",
+        "every way",
+        "all places",
+        "everywhere",
+        "each mechanism",
+        "each place",
+        "what can cause",
+        "can silently",
+        "silently cause",
+        "silently fail",
+        "silently drop",
+        "all reasons",
+        "every reason",
+        "exhaustive",
+    ];
+    let lower = task.to_ascii_lowercase();
+    CUES.iter().any(|cue| lower.contains(cue))
+        || (lower.contains("silently") && (lower.contains("nothing") || lower.contains("miss")))
+}
+
+/// Whether the task asks to introduce code that may not exist yet.
+///
+/// This is intentionally narrow. It is used only to avoid treating a named
+/// future member such as `ArchiveOptions::disabled` as evidence that must
+/// already exist; the owning symbol's complete definition remains required.
+#[must_use]
+pub(crate) fn is_creation(task: &str) -> bool {
+    let lower = task.to_ascii_lowercase();
+    lower
+        .split(|character: char| !character.is_ascii_alphabetic())
+        .take(6)
+        .any(|word| matches!(word, "implement" | "add" | "create" | "introduce"))
+}
+
 fn blast_radius_cue(lower: &str) -> bool {
     const CUES: &[&str] = &[
         "blast radius",
@@ -121,7 +170,29 @@ fn runtime_config_cue(lower: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{TaskIntent, detect};
+    use super::{TaskIntent, detect, is_broad, is_creation};
+
+    #[test]
+    fn enumerating_questions_are_broad_and_pointed_ones_are_not() {
+        assert!(is_broad(
+            "A regex matches a file on disk but returns nothing inside a .tar.gz. \
+             List every mechanism in this crate that can silently cause that."
+        ));
+        assert!(is_broad("What can cause the collector to drop matches?"));
+        assert!(!is_broad("Rename `read_limited` in containers.rs"));
+        assert!(!is_broad(
+            "Who depends on `route` if its signature changes?"
+        ));
+    }
+
+    #[test]
+    fn creation_cues_are_limited_to_the_task_opening() {
+        assert!(is_creation("Implement `ArchiveOptions::disabled()`"));
+        assert!(is_creation("Please add `ArchiveOptions::disabled()`"));
+        assert!(!is_creation(
+            "Who calls `ArchiveOptions::disabled()` after the change?"
+        ));
+    }
 
     #[test]
     fn blast_contract_and_topology_cues_are_recognised() {

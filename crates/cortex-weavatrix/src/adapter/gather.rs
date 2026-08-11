@@ -2,10 +2,12 @@ use std::path::Path;
 
 use serde_json::json;
 
+use super::cleanup::prune_incomplete_definition_duplicates;
 use super::evidence::{
-    EvidenceBundle, EvidenceKind, SourceReadPlan, append_source_reads, budget_overrun, fragments,
-    native_call, normalize_graph_stats, retry_wide_search,
+    EvidenceBundle, EvidenceKind, SourceReadPlan, append_definition_read, append_source_reads,
+    append_type_expansion_reads, budget_overrun, fragments, native_call, normalize_graph_stats,
 };
+use super::retry::retry_wide_search;
 use super::{WeavatrixAdapter, WeavatrixError};
 
 struct TargetedEvidence {
@@ -268,6 +270,17 @@ impl WeavatrixAdapter {
             }
         }
         if source_followup {
+            if let Some(symbol) = symbol {
+                append_definition_read(
+                    engine,
+                    &mut evidence,
+                    &mut warnings,
+                    &search_hits,
+                    symbol,
+                    budget,
+                    false,
+                );
+            }
             append_source_reads(
                 engine,
                 &mut evidence,
@@ -278,8 +291,15 @@ impl WeavatrixAdapter {
                 SourceReadPlan {
                     id_prefix: "WX-SOURCE",
                     preferred_patterns: &[],
+                    window: crate::source_followup::SourceWindow::for_task(task),
                 },
             );
+            if crate::plan_intent::is_broad(task) {
+                append_type_expansion_reads(engine, &mut evidence, &mut warnings, budget);
+            }
+            if let Some(symbol) = symbol {
+                prune_incomplete_definition_duplicates(&mut evidence, symbol);
+            }
         }
         Ok(TargetedEvidence {
             bundle: EvidenceBundle {
@@ -289,6 +309,34 @@ impl WeavatrixAdapter {
             },
             search_hits,
         })
+    }
+
+    /// Re-read the named symbol's definition with a doubled window when the
+    /// sufficiency report flagged it as incomplete.
+    fn retry_definition(
+        engine: &mut weavatrix_rust::Weavatrix,
+        symbol: Option<&str>,
+        budget: u32,
+        initial: &crate::EvidenceSufficiency,
+        gathered: &mut TargetedEvidence,
+    ) {
+        let Some(symbol) = symbol else { return };
+        if !initial
+            .missing_evidence
+            .iter()
+            .any(|item| item.starts_with("definition:"))
+        {
+            return;
+        }
+        append_definition_read(
+            engine,
+            &mut gathered.bundle.evidence,
+            &mut gathered.bundle.warnings,
+            &gathered.search_hits,
+            symbol,
+            budget,
+            true,
+        );
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -314,6 +362,7 @@ impl WeavatrixAdapter {
             .lock()
             .map_err(|_| WeavatrixError::LockPoisoned)?;
         let engine = Self::session(&mut sessions, &root)?;
+        Self::retry_definition(engine, symbol, budget, initial, gathered);
         let needs_search_retry = initial
             .missing_evidence
             .iter()
@@ -337,10 +386,12 @@ impl WeavatrixAdapter {
                 if !retry_hits.is_empty() {
                     let preferred_patterns =
                         crate::verify::source_priority_patterns(task, symbol, hints);
-                    gathered
-                        .bundle
-                        .evidence
-                        .retain(|item| item.kind != EvidenceKind::SourceReads);
+                    // The definition read survives the source rebuild: it is
+                    // the one fragment whose absence the retry may exist to
+                    // repair, and dropping it here reintroduced truncation.
+                    gathered.bundle.evidence.retain(|item| {
+                        item.kind != EvidenceKind::SourceReads || item.id.starts_with("WX-DEF")
+                    });
                     append_source_reads(
                         engine,
                         &mut gathered.bundle.evidence,
@@ -351,6 +402,7 @@ impl WeavatrixAdapter {
                         SourceReadPlan {
                             id_prefix: "WX-RETRY-SOURCE",
                             preferred_patterns: &preferred_patterns,
+                            window: crate::source_followup::SourceWindow::for_task(task),
                         },
                     );
                 }
@@ -395,8 +447,12 @@ impl WeavatrixAdapter {
                 SourceReadPlan {
                     id_prefix: "WX-RETRY-SOURCE",
                     preferred_patterns: &[],
+                    window: crate::source_followup::SourceWindow::for_task(task),
                 },
             );
+        }
+        if let Some(symbol) = symbol {
+            prune_incomplete_definition_duplicates(&mut gathered.bundle.evidence, symbol);
         }
         Ok(())
     }

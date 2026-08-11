@@ -44,14 +44,14 @@ pub(crate) fn register(
                     return ToolReply::error("cancelled");
                 }
                 match compile_context(&arguments) {
-                    Ok(packet) => ToolReply::structured(packet),
+                    Ok(packet) => ToolReply::text(packet),
                     Err(error) => ToolReply::error(error.to_string()),
                 }
             },
         )
         .typed_tool(
             "weavatrix_context_compile",
-            "Plan Weavatrix operations from the task, then compile their evidence into one deterministic, budgeted context packet with stable citation IDs. Name the symbols, files, and constants you care about in `task`: identifiers in the text drive which operations run.",
+            "Plan Weavatrix operations from the task, then compile their evidence into one deterministic, budgeted context packet with stable citation IDs. Name the symbols, files, and constants you care about in `task`: identifiers in the text drive which operations run. Leave `targeted` unset: `targeted=false` selects a retired fixed operation set that is measurably worse on both tokens and recall.",
             json!({
                 "type": "object",
                 "properties": {
@@ -212,7 +212,7 @@ pub(crate) fn register(
                                 },
                             });
                         }
-                        ToolReply::structured(packet)
+                        ToolReply::text(packet)
                     }
                     Err(error) => ToolReply::error(error.to_string()),
                 }

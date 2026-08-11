@@ -100,7 +100,7 @@ pub(crate) fn register(
                         latency_ms: routed.latency_ms,
                     },
                 );
-                ToolReply::structured(decision)
+                ToolReply::text(decision)
             },
         )
         .typed_tool(
@@ -146,7 +146,7 @@ pub(crate) fn register(
                     },
                 };
                 let handle = shadow_state.shadow.as_deref();
-                ToolReply::structured(serde_json::json!({
+                ToolReply::text(serde_json::json!({
                     "enabled": handle.is_some(),
                     "smallModel": handle.and_then(ShadowHandle::small_model),
                     "mediumModel": handle.and_then(ShadowHandle::medium_model),
@@ -195,7 +195,7 @@ pub(crate) fn register(
                         Err(error) => return ToolReply::error(error.to_string()),
                     },
                 };
-                ToolReply::structured(serde_json::json!({
+                ToolReply::text(serde_json::json!({
                     "summary": summary,
                     "quality": quality,
                     "samples": samples,
@@ -232,7 +232,7 @@ pub(crate) fn register(
                     note: arguments.note,
                 };
                 match report_state.store.usage().insert_report(&report) {
-                    Ok(id) => ToolReply::structured(serde_json::json!({"recorded": true, "id": id})),
+                    Ok(id) => ToolReply::text(serde_json::json!({"recorded": true, "id": id})),
                     Err(error) => ToolReply::error(error.to_string()),
                 }
             },

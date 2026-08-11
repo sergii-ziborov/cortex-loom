@@ -82,8 +82,10 @@ Cody**, **Greptile**, **Augment Context Engine**, **Bito AI Architect**.
 - **Its own deterministic `token_budget`**, with the same `bytes / 4`
   estimator this workspace uses and an honest `dropped_items` / `fit` account
   on every response.
-- Measured on this repository: 2 275 nodes, 6 594 edges, **78 ms** build,
-  incremental refresh on change.
+- Measured on this repository, 2026-08-10: **3 539 nodes, 10 263 edges, 98 ms**
+  build, incremental refresh on change. As an MCP server (`weavatrix@1.4.0`,
+  `--profile=code`) it exposes **41 tools** whose schemas cost **5 276 tokens**
+  of session context before any call is made.
 
 Against that, the comparison set is not in the same category. Serena is
 symbol-precision LSP-backed navigation; Repomix packs a repository into a

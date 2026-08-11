@@ -30,7 +30,7 @@ pub(crate) fn register(
                 }
                 let limit = arguments.limit.unwrap_or(50).clamp(1, 100);
                 match graph_list_state.store.list() {
-                    Ok(graphs) => ToolReply::structured(
+                    Ok(graphs) => ToolReply::text(
                         graphs
                             .iter()
                             .take(limit)
@@ -55,7 +55,7 @@ pub(crate) fn register(
                 }
                 let id = arguments.id.as_deref().unwrap_or(DEFAULT_GRAPH_ID);
                 match graph_state.store.get(id) {
-                    Ok(Some(graph)) => ToolReply::structured(graph),
+                    Ok(Some(graph)) => ToolReply::text(graph),
                     Ok(None) => ToolReply::error(format!("graph not found: {id}")),
                     Err(error) => ToolReply::error(error.to_string()),
                 }
@@ -75,7 +75,7 @@ pub(crate) fn register(
                     return ToolReply::error("cancelled");
                 }
                 match graph_save_state.store.save(&arguments.graph) {
-                    Ok(graph) => ToolReply::structured(graph),
+                    Ok(graph) => ToolReply::text(graph),
                     Err(error) => ToolReply::error(error.to_string()),
                 }
             },
@@ -100,7 +100,7 @@ pub(crate) fn register(
                     return ToolReply::error("skill Markdown exceeds the 2 MiB limit");
                 }
                 match import_skill_markdown(&arguments.source, &arguments.markdown) {
-                    Ok(graph) => ToolReply::structured(graph),
+                    Ok(graph) => ToolReply::text(graph),
                     Err(error) => ToolReply::error(error.to_string()),
                 }
             },
@@ -119,7 +119,7 @@ pub(crate) fn register(
                     return ToolReply::error("cancelled");
                 }
                 match export_skill_markdown(&arguments.graph) {
-                    Ok(markdown) => ToolReply::structured(serde_json::json!({
+                    Ok(markdown) => ToolReply::text(serde_json::json!({
                         "markdown": markdown
                     })),
                     Err(error) => ToolReply::error(error.to_string()),
@@ -142,11 +142,11 @@ pub(crate) fn register(
                     Ok(graphs) => {
                         let entries: Vec<_> = graphs.iter().filter_map(index_entry).collect();
                         if arguments.format.as_deref() == Some("structured") {
-                            return ToolReply::structured(
+                            return ToolReply::text(
                                 entries.iter().map(index_json).collect::<Vec<_>>(),
                             );
                         }
-                        ToolReply::structured(serde_json::json!({
+                        ToolReply::text(serde_json::json!({
                             "markdown": render_index(&entries),
                             "count": entries.len(),
                         }))
@@ -170,7 +170,7 @@ pub(crate) fn register(
                 }
                 match read_state.store.get(&arguments.id) {
                     Ok(Some(graph)) => match export_skill_markdown(&graph) {
-                        Ok(markdown) => ToolReply::structured(serde_json::json!({
+                        Ok(markdown) => ToolReply::text(serde_json::json!({
                             "id": graph.id,
                             "name": graph.name,
                             "markdown": markdown,

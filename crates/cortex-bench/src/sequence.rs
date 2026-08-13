@@ -5,6 +5,9 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use cortex_domain::NodeKind;
 use serde::{Deserialize, Serialize};
 
+use crate::manifest::BenchmarkManifest;
+use crate::scoreboard::ScoreboardRow;
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SequenceProbe {
@@ -148,7 +151,9 @@ pub struct SequenceGate {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SequenceBenchReport {
-    pub schema_version: u32,
+    pub schema_version: String,
+    pub historical: bool,
+    pub manifest: BenchmarkManifest,
     pub fixture_hash: String,
     pub upstream_version: Option<String>,
     pub external_library: Option<ExternalLibraryStamp>,
@@ -156,6 +161,7 @@ pub struct SequenceBenchReport {
     pub scenarios: Vec<SequenceScenarioResult>,
     pub totals: BTreeMap<String, ArmTotals>,
     pub gate: SequenceGate,
+    pub scoreboard: Vec<ScoreboardRow>,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -15,6 +15,7 @@ use serde_json::Value;
 use weavatrix_rust::Weavatrix;
 
 pub use evidence::{EvidenceBundle, EvidenceFragment, EvidenceKind};
+pub(crate) use render::SEARCH_HEADER;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct WeavatrixConfig;

@@ -41,14 +41,20 @@ pub struct SourceWindow {
 
 impl SourceWindow {
     /// Window for one task: enumerating questions get the wide shape.
+    ///
+    /// The pool grew from three fifths to four once graph answers were
+    /// rendered as text: `context_bundle` fell from ~1 500 tokens of JSON to
+    /// ~250 of prose, and a broad question was then compiling 2 518 of a
+    /// 4 000-token budget. Under-spending a granted budget on the one intent
+    /// that asks for breadth is the opposite of what this window exists for.
     #[must_use]
     pub fn for_task(task: &str) -> Self {
         if crate::plan_intent::is_broad(task) {
             Self {
                 max_files: 9,
                 before: SOURCE_BEFORE,
-                after: 84,
-                pool_fifths: 3,
+                after: 120,
+                pool_fifths: 4,
             }
         } else {
             Self::default()

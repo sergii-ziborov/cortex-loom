@@ -1,4 +1,4 @@
-# Shadow mode — milestone 3, iteration 1 (implemented)
+# Shadow mode
 
 Wire evaluated Ollama profiles into the MCP host behind explicit runtime
 configuration and shadow-mode metrics, with zero workflow influence.
@@ -54,7 +54,7 @@ exact model tag. A profile without a passing calibration run may still be
 shadowed for measurement, but its report is expected to carry the failing
 verdict alongside every aggregate so nobody mistakes observation for approval.
 
-## Shadowed operations (iteration 1)
+## Shadowed operations
 
 - `route_classification` — the local model re-classifies the task; compare the
   tier against the deterministic classifier (`cortex-router/src/classifier.rs`).
@@ -155,9 +155,9 @@ Covered by `cortex-shadow/src/tests.rs` and `cortex-store` shadow tests:
 - Full gates as usual: `cargo fmt --check`, `cargo test --workspace`,
   `cargo clippy --workspace --all-targets -D warnings`, UI build.
 
-## Out of scope (iteration 1)
+## Out of scope
 
 - Any influence of shadow output on routing or compilation.
 - UI overlays for shadow metrics.
-- Embeddings and semantic selection (roadmap gate 4).
+- Embeddings and semantic selection.
 - NPU claims (research gate: requires OpenVINO/Foundry calibration).

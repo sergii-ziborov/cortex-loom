@@ -72,8 +72,8 @@ exist specifically for node editors, so the canvas is not from scratch, and
   - Text-heavy forms — the node inspector is mostly forms — are egui's weakest
     area.
   - Loopback access from another machine disappears; the UI becomes local-only.
-  - **Cross-compilation regresses.** The roadmap records that the pure-Rust
-    crates cross-check cleanly for `aarch64-unknown-linux-gnu` and that a
+  - **Cross-compilation regresses.** The pure-Rust crates cross-check cleanly
+    for `aarch64-unknown-linux-gnu`, and a
     Raspberry Pi build needs only a C cross-compiler for SQLite. An egui front
     end adds windowing and GPU stacks to that list. Today the UI is static
     files that need no target support at all.

@@ -20,8 +20,8 @@ use crate::{EvidenceKind, PlanHints};
 mod operations;
 
 use operations::{
-    asks_for_change_plan, blast_search_pattern, dependents_op, endpoints_op, modules_op, search_op,
-    search_pattern_op, share, symbol_op, verify_op,
+    asks_for_change_plan, blast_search_pattern, dependents_op, endpoints_op, modules_op,
+    neighbors_op, search_op, search_pattern_op, share, symbol_op, verify_op,
 };
 
 /// Most identifiers to carry into a search. Beyond this the alternation stops
@@ -232,6 +232,16 @@ pub fn search_pattern(identifiers: &[String]) -> String {
         .join("|")
 }
 
+/// Whether a symbol is spelled like a type: `PascalCase` with a lowercase tail.
+///
+/// All-caps constants and `snake_case` functions are excluded on purpose —
+/// the reference-edge gap this gates on was measured only for type names.
+fn is_type_name(symbol: &str) -> bool {
+    symbol.chars().next().is_some_and(char::is_uppercase)
+        && symbol.chars().any(char::is_lowercase)
+        && !symbol.contains('_')
+}
+
 fn escape_regex_literal(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len());
     for character in value.chars() {
@@ -333,6 +343,15 @@ fn plan_all(
         TaskIntent::BlastRadius => {
             if let Some(symbol) = symbol {
                 operations.push(dependents_op(symbol, policy));
+                // Type names only. Call edges cover functions completely
+                // (measured 4/4 on the reference ground truth), so adding
+                // neighbours there just evicted the search hits under the
+                // budget and cost two probe anchors. The reference-edge gap
+                // `get_neighbors` closes exists for structs and enums, whose
+                // names are PascalCase.
+                if is_type_name(symbol) {
+                    operations.push(neighbors_op(symbol, policy));
+                }
             }
         }
         TaskIntent::ApiContract => {

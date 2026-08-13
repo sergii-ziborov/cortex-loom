@@ -22,6 +22,6 @@ mod contract_tests {
     fn first_party_plan_contract_is_available() {
         let limits = weavatrix_refactor_plan::RefactorPlanLimits::default();
         assert!(limits.max_operations > 0);
-        assert_eq!(weavatrix_rust::VERSION, "2.5.0");
+        assert_eq!(weavatrix_rust::VERSION, "2.5.1");
     }
 }

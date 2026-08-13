@@ -295,7 +295,7 @@ impl WeavatrixAdapter {
                 },
             );
             if crate::plan_intent::is_broad(task) {
-                append_type_expansion_reads(engine, &mut evidence, &mut warnings, budget);
+                append_type_expansion_reads(engine, &mut evidence, &mut warnings, task, budget);
             }
             if let Some(symbol) = symbol {
                 prune_incomplete_definition_duplicates(&mut evidence, symbol);

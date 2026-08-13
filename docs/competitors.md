@@ -188,8 +188,8 @@ Ranked by how hard each would be for a competitor to copy.
 - **Distribution.** Superpowers has six figures of stars; we have a private
   repo and four unpublished crates.
 - **Language and repo coverage.** Inherited entirely from Weavatrix.
-- **Editor maturity.** LangGraph Studio is a product; our React/SVG editor is
-  a first milestone.
+- **Editor maturity.** LangGraph Studio is a mature product; our React/SVG
+  editor is less mature.
 - **No agent of our own.** OpenCode, Cline, Goose, Aider and Codex CLI all own
   the loop. We are a server they have to be told to call. Every integration is
   a config file someone must write.

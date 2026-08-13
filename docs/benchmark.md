@@ -422,7 +422,7 @@ on `cortex-targeted` alone — no source follow-up required for those fixtures.
 still ~87 % below naive. Source follow-up is insurance for identifier-adjacent
 facts, not the primary structural fix.
 
-## P0: source follow-up on the MCP path
+## Source follow-up on the MCP path
 
 Stamp `p0-source-skip-verify-final-2026-08-09`, budget 4 000, ten probe tasks.
 The MCP compile path now uses bounded source follow-up. Identifier, blast,
@@ -440,7 +440,7 @@ additional facts while delivering 1 598 fewer tokens. The source arm remains
 88 % below naive. Both runtime-config failures improved to at least 50 % recall:
 `llm-profile-gate` reaches 3/4 and `shadow-handle` reaches 2/4.
 
-## P1: skill → gather → verify
+## Skill-guided gather and verification
 
 Stamp `p1-skill-gather-verify-final-2026-08-09`, budget 4 000, ten probe
 tasks. The source arm now exercises the same gather/sufficiency/retry path as
@@ -461,15 +461,7 @@ bounded source window, and compiles to 1 815 estimated tokens versus 3 247 for
 that one known whole file (44 % less). The point of the retry is recovery from
 an obviously thin gather, not repeated searching until recall looks good.
 
-## Next measurements worth taking
-
-1. Recover the remaining identifier-set misses (`CriticalItemExceedsBudget`,
-   `unquote`, `heading_text`, `tools/list`, `RetryLimitTooLarge`) without
-   approaching naive cost — likely tighter symbol windows, not more ops.
-2. Score against real upstream consumption from the usage ledger
-   (`usage_report`) instead of the character estimate.
-
-## P2: semantic sufficiency and one contract retry
+## Semantic sufficiency and one contract retry
 
 Stamp `p2-semantic-sufficiency-final2-2026-08-09`, budget 4 000, ten probe
 tasks. Source verification now checks task-specific evidence terms instead of
@@ -484,19 +476,17 @@ backticks plus templated URL paths remain searchable identifiers.
 | `cortex-targeted` | **22 607** | 28/40 | 70 % | **-92.0 %** |
 | `cortex-source` | **36 105** | **40/40** | **100 %** | **-87.1 %** |
 
-Compared with P1, source costs 5 346 more delivered tokens and recovers eight
-more facts (32/40 -> 40/40). Compared with the first semantic-retry attempt it
+Compared with skill-guided gathering, source costs 5 346 more delivered tokens
+and recovers eight more facts (32/40 -> 40/40). Compared with the first semantic-retry attempt it
 recovers the last three facts with 14 fewer tokens: retrying the complete
 contract fixed `ProfileRegistry` and `ShadowHandle` without another pass.
 Every source packet is structurally sufficient after at most one retry.
 
 The quality target (at least 32/40 and no env/config task below 50 %) passes;
-the approximately 30k aggregate token target does not. The remaining work is
-selective source-window packing: prioritize windows that close distinct
-requirements before compilation. Dropping raw search snippets or retaining
-both initial and retry windows was measured and rejected because each reduced
-recall while still approaching the 4k per-task ceiling. Hot-path LLM
-compression remains the wrong lever.
+the approximately 30k aggregate token target does not. Dropping raw search
+snippets or retaining both initial and retry windows was measured and rejected
+because each reduced recall while still approaching the 4k per-task ceiling.
+Hot-path LLM compression remains the wrong lever.
 
 The first run refreshed repository evidence, so cold-to-warm JSON was not byte
 identical. Two subsequent warm runs with the same stamp were byte identical
@@ -748,6 +738,178 @@ What this run establishes, uncomfortable parts first:
   GPU/CPU placement drift), so cross-arm timing claims rest on token
   counts, not milliseconds.
 
+## Rendering graph evidence — 2026-08-12
+
+Profiling a compiled packet fragment by fragment found the largest single
+cost in the product, and it was not retrieval:
+
+| fragment | T1 | T2 | T3 | shape |
+| --- | ---: | ---: | ---: | --- |
+| `WX-SYMBOL` (`context_bundle`) | 1 209 | 2 075 | 1 455 | **one minified JSON line** |
+| `WX-SEARCH` (`search_code`) | 405 | 230 | 301 | one minified JSON line |
+| everything else (source, definitions, types) | 965 | 967 | 2 186 | readable code |
+| packet total | 2 579 | 3 272 | 3 942 | |
+
+`render.rs` already turned `read_source` into plain lines; every other native
+answer fell through to `value.to_string()`. So **37–63 % of each packet was
+JSON structure** — and it was the same escaped-JSON form the T3 experiment had
+already shown a 9B model refuses to reason over. One neighbour cost ~123
+tokens to state one relationship:
+
+```
+{"direction":"outgoing","node":{"id":"symbol:src/collector/mod.rs#struct:Collector@25:19",
+ "kind":"struct","label":"Collector","span":{"end":{"column":2,"line":46},...}},
+ "provenance":{"confidence":"high","detail":"resolved through an import...",
+ "extractor":"weavatrix.rust.syn","span":{...}},"relation":"references"}
+```
+
+The same facts as a line:
+
+```
+  -> references Collector (struct) src/collector/mod.rs:25 via src/multiline/mod.rs:149
+```
+
+Search results render as `path:line: text` — the grep shape every agent
+already reads. Rendering is lossless in facts: every label, kind, path, line,
+relation and evidence site survives. What is dropped is JSON syntax, node ids
+that restate `file:line:kind:label`, column offsets, and the extractor name.
+
+Measured, same stamps, same budget, no other change:
+
+| | before | after |
+| --- | ---: | ---: |
+| `WX-SYMBOL` share of packet | 1 209 / 2 075 / 1 455 | **204 / 346 / 252** (−83 %) |
+| probe `cortex-targeted` | 23 293 @ 28/40 | **10 536 @ 28/40** (−55 %) |
+| probe `cortex-source` | 32 676 @ 40/40 | **21 363 @ 40/40** (−35 %) |
+| probe `cortex-source` delivered over MCP | 37 827 | **24 323** |
+| implementation packet (`ArchiveOptions`) | 2 946, six fields | **1 242, six fields** |
+| live quality session, three questions | 11 245 @ 10/12 | **6 945 @ 9/12** |
+
+**No recall regression on the deterministic sets.** The one behavioural
+coupling this touched was sufficiency's hit detector, which sniffed for the
+`"path"`/`"line"` JSON keys to decide whether a search fragment carried hits;
+it reads the rendered header now and still recognises the legacy JSON form.
+
+Freeing that much budget exposed two gathering bugs, both found by reading
+the warnings rather than the totals:
+
+- A broad question was compiling 2 518 of 4 000 tokens. The source pool for
+  enumerating intents moved from three fifths of the budget to four, with
+  120-line windows: under-spending a granted budget on the one intent that
+  asks for breadth is the opposite of what that window exists for.
+- `definition read skipped: no defining hit for Archive`. Candidate
+  extraction reads names out of code, so it also proposes *fragments* of
+  names; `Archive` defines nothing, and it had consumed one of four
+  expansion slots. A name that resolves to no definition now costs a lookup
+  instead of a slot, ties break toward the longer name, and each round has
+  its own read cap — without that cap the first round spent every slot and
+  the second hop, the one that finds a type through an intermediate, never
+  ran.
+
+Where this leaves the field, three questions, `qwen3.5:9b`, one shot:
+
+| approach | quality | session tokens | calls |
+| --- | ---: | ---: | ---: |
+| **Cortex Loom, context profile** | **9/12** | **6 945** | **3** |
+| naive: read the module dirs | 10/12 | 17 580 | 0 |
+| Serena MCP | 5/12 | 20 768 | 6 |
+| agent-native (`rg` + windows) | 7/12 | 23 327 | 12 |
+| agent-native + Superpowers | 8/12 | 34 279 | 12 |
+| weavatrix MCP, raw dump | 10/12 | 40 680 | 9 |
+
+**Cheapest in the field by 2.5×, and cheaper than every arm it also
+out-answers.** It beats Serena, the native agent, and Superpowers on both
+axes at once; it remains one point behind naive and the raw graph dump, at a
+quarter and a sixth of their cost. T3 alone has scored 0, 2, 2, 3 and 3 of 5
+across otherwise identical repeats, so the one-point gap is inside the
+one-shot noise this harness can resolve — which is a statement about the
+harness, not a claim of parity.
+
+## The fix round — 2026-08-11
+
+The three failures above shared one root: the sufficiency gate accepted
+packets that were too thin for their question. Three changes landed, each
+carried by a measurement:
+
+1. **The named symbol's definition is read whole.** A dedicated
+   `read_source` starts at the definition head and widens once if the braces
+   do not balance (`WX-DEF`, critical). Sufficiency now requires
+   `definition:<symbol>` — present only when one fragment carries the
+   complete, brace-balanced definition — and the one permitted retry re-reads
+   it with a doubled window. Clipped duplicates of a definition are pruned
+   once the complete read exists, so the model never sees the four-field
+   prefix after the six-field truth.
+2. **Broad questions spend the budget.** Enumerating cues ("list every
+   mechanism", "silently cause") widen the source follow-up (9 files, 84-line
+   windows, 3/5 budget pool instead of 2/5).
+3. **Second-hop type expansion.** Source windows are scanned for user-defined
+   type names, ranked by task-word affinity before frequency, and the best
+   candidates' definitions are read (`WX-TYPE-*`, two rounds, four reads
+   max). Two rounds because the answering type is often visible only through
+   an intermediate: the probe's windows never name `ArchiveOptions` — it
+   surfaces as a field inside `SearchOptions`, which round one reads.
+   Expansions are a new `type_expansion` evidence kind at High priority, not
+   critical, so a full budget drops breadth instead of failing the compile.
+
+Measured effect, same harnesses, same model, same one-shot protocol:
+
+| check | before | after |
+| --- | --- | --- |
+| implementation: `ArchiveOptions::disabled()` | not compiling (4/6 fields) | **compiles, hidden test passes** (2 946 tok session) |
+| T3 packet, cross-cutting facts present | 3/7 | **6/7** (3 925 of 4 000 budget used) |
+| live quality, cortex arm | 4/12 | **9/12** (T1 3/3, T2 3/4, T3 3/5) at 11 245 session tokens |
+| probe recall (`cortex-source`) | 40/40 @ 34 712 | **40/40 @ 32 628** |
+| sequence gate | promoted | promoted |
+
+That puts the cortex arm one point under the two 10/12 arms — naive
+(17 580 tokens) and the raw weavatrix dump (40 680) — at 64 % and 28 % of
+their session cost respectively, still in one round trip per question.
+
+Two measurement notes that belong next to the number. First, the harness now
+feeds the model `context.content` — the packet's actual deliverable — instead
+of the JSON envelope; with identical facts in the packet, the envelope run
+scored 0/5 on T3 because the model, instructed to use only the evidence,
+declined to read mechanisms out of escaped JSON. Form is part of quality. A
+correct client consumes the packet, so the harness does; the envelope still
+counts toward wire cost. Second, one-shot variance is visible at this scale:
+T2 moved between 4/4 and 3/4 across repeats (the model paraphrasing
+`finish_block` instead of naming it).
+
+### Form, isolated: labels × consumption — 2026-08-12
+
+Two form-only levers, no change to which facts the packet carries, measured
+as a 2×2 on the same three questions:
+
+- **definition labels** — definition reads render their section header as
+  `weavatrix:read_source definition:<Type>`, so the packet *says* which
+  fragment is the definition the question turns on;
+- **packet consumption** — the model reads `context.content` (plain text)
+  against the raw JSON envelope a naive client pastes today.
+
+| quality /12 | envelope client | packet client |
+| --- | ---: | ---: |
+| unlabeled | 7 (T3 0/5) | 9 |
+| **labeled** | **9** (T3 2/5) | **10** |
+
+Both levers are worth about two points each and they stack. Labeled + packet
+reaches **10/12 — even with `naive` at 64 % of its session tokens, even with
+the raw weavatrix dump at 27 % of its cost, in one call per question.**
+Labels are the striking half: they recovered T3 from 0/5 to 2/5 *through*
+the escaped JSON, purely by naming what each fragment is.
+
+Labels shipped (`WX-DEF`/`WX-TYPE-*` headers). The consumption lever cannot
+ship from this repository: mcport 0.5 serializes every success value into
+the text block, so a plain-text first block needs a `ToolReply::plain_text`
+constructor upstream. The measured payoff for whoever pastes tool results
+verbatim — every current agent client — is the envelope column above.
+
+The residual T3 misses are `enabled` (present in the labeled
+`ArchiveOptions` expansion, still not surfaced in any answer — an
+answer-side limit of the 9B at temperature 0) and `safe_virtual_path`: a
+private function no window opens because nothing on the gathered paths
+references it by name. That is the current boundary of deterministic
+gathering, recorded rather than papered over.
+
 ## Implementation, end to end — one approach per isolated worktree
 
 Measured 2026-08-10 on `weavatrix-search` at `50953b3`, a repository neither
@@ -849,6 +1011,17 @@ What the misses are, specifically — this is the actionable part:
   this repository. Cortex inherits whichever engine it stands on — one more
   reason its sufficiency checks must not assume the evidence under them is
   complete.
+
+**Addendum, 2026-08-12, `weavatrix@1.7.1` / `weavatrix-rust` 2.5.1.** The
+re-run reproduces 8/13 for default `get_dependents` (now at 7–9 ms) — but the
+missing edges are *in the graph*: `get_neighbors ArchiveOptions` returns both
+missed type-referencing functions in ~1.8 k tokens. The gap is the default
+tool's semantics, not extraction. Cortex now compensates on its side: a
+blast-radius plan for a `PascalCase` symbol adds `get_neighbors` alongside
+`get_dependents`, verified live — the struct packet carries `with_archives`
+and the `Default` impl at 3 982/4 000 tokens. The op is gated to type names
+because adding it unconditionally evicted search hits under the budget and
+cost two probe anchors on function-symbol tasks; measured, reverted, gated.
 
 ## git: CLI against Weavatrix git operations
 

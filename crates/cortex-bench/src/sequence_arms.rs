@@ -9,6 +9,8 @@ use cortex_sequences::{active_step_packet, candidate_templates, instantiate_temp
 use sha2::{Digest, Sha256};
 
 use crate::external_skills::ExternalSkillLibrary;
+use crate::manifest::{BenchmarkManifest, McpManifest};
+use crate::scoreboard::{FailureClass, ScoreboardRow};
 use crate::sequence::{
     ArmTotals, SequenceArm, SequenceBenchReport, SequenceObservation, SequenceProbe,
     SequenceScenarioResult, gate, score,
@@ -94,8 +96,15 @@ pub fn run(superpowers_root: Option<&Path>) -> Result<SequenceBenchReport, Strin
     let p95_sla_passed = p95_micros(&mut native_latencies) <= 50_000;
     let totals = totals(&scenarios);
     let gate = gate(&scenarios, p95_sla_passed);
+    let scoreboard = sequence_scoreboard(&scenarios);
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
+    let command: Vec<String> = std::env::args().collect();
+    let manifest =
+        BenchmarkManifest::detect("sequence-v2", &root, &command, McpManifest::in_process());
     Ok(SequenceBenchReport {
-        schema_version: 1,
+        schema_version: manifest.report_schema.clone(),
+        historical: false,
+        manifest,
         fixture_hash: digest(FIXTURES),
         upstream_version: upstream
             .stamp
@@ -106,7 +115,32 @@ pub fn run(superpowers_root: Option<&Path>) -> Result<SequenceBenchReport, Strin
         scenarios,
         totals,
         gate,
+        scoreboard,
     })
+}
+
+fn sequence_scoreboard(scenarios: &[SequenceScenarioResult]) -> Vec<ScoreboardRow> {
+    let mut rows = Vec::new();
+    for scenario in scenarios {
+        for arm in &scenario.arms {
+            let possible = 6;
+            let earned = possible - arm.failures.len().min(possible);
+            let mut row =
+                ScoreboardRow::new("sequence", &scenario.id, arm.arm.id(), 0, earned, possible);
+            row.tokens.selected = Some(arm.context_tokens);
+            if !row.task_success {
+                row.failure_class = Some(match arm.arm {
+                    crate::sequence::SequenceArm::CortexCurrent
+                    | crate::sequence::SequenceArm::CortexNative => FailureClass::CortexBug,
+                    crate::sequence::SequenceArm::None
+                    | crate::sequence::SequenceArm::SuperpowersRaw => FailureClass::HarnessBug,
+                });
+            }
+            row.refresh_verdict();
+            rows.push(row);
+        }
+    }
+    rows
 }
 
 /// Parse the `cortex-bench sequence` command and write its stable report.

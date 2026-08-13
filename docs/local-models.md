@@ -322,16 +322,10 @@ Qwen3-8B) are measured. **`route_work` uses the gated classifier when
 `CORTEX_LLM=1`** (profiles from `CORTEX_LLM_PROFILES`, default
 `config/llm-profiles.json`): the model may only escalate above the lexical
 floor; endpoint failure, unknown labels, and under-calls keep the lexical
-decision. Remaining work, in order:
-
-1. Prefer reading the device OVMS reports into `Placement::observed` when the
-   server exposes it; until then `device: unknown` stays the honest value.
-2. Optional accuracy polish: repository-analysis fixtures still over-call to
-   `upstream_strong` (fail-closed, does not block the gate).
-3. Measure the disabled `micro_extract` candidate only when its exact local
-   artifact is already installed; never download one from the evaluation path.
-4. Add the `digest` role's cache, keyed by repository revision, and measure it
-   as a sixth benchmark arm.
+decision. Device placement remains `unknown` when OVMS does not expose it.
+Repository-analysis fixtures currently over-call to `upstream_strong`, which
+is fail-closed and does not block the gate. The `micro_extract` and `digest`
+roles are not promoted.
 
 ## Sources
 

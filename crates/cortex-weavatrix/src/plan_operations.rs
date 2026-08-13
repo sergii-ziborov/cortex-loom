@@ -105,6 +105,25 @@ pub(super) fn dependents_op(symbol: &str, policy: PlanPolicy) -> PlannedOperatio
     }
 }
 
+/// Reference-relation neighbours of the symbol.
+///
+/// `get_dependents` walks call edges; measured on `weavatrix-rust` 2.5.1, a
+/// struct's *type references* — the `fn default` and builder that mention it
+/// without calling it — surface only through `get_neighbors`. A blast-radius
+/// question about a struct answered from call edges alone scored 0/2 on the
+/// reference ground truth while this call carried both misses in ~1.8 k
+/// tokens.
+pub(super) fn neighbors_op(symbol: &str, policy: PlanPolicy) -> PlannedOperation {
+    PlannedOperation {
+        id: "WX-NEIGHBORS",
+        tool: "get_neighbors",
+        kind: EvidenceKind::Dependents,
+        arguments: json!({ "label": symbol }),
+        expected_tokens: policy.dependents_tokens.min(2_000),
+        bounded: false,
+    }
+}
+
 pub(super) fn endpoints_op(policy: PlanPolicy) -> PlannedOperation {
     PlannedOperation {
         id: "WX-ENDPOINTS",

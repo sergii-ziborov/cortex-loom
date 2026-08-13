@@ -36,15 +36,15 @@ serde = { version = "1.0.229", features = ["derive"] }
 # `serde_json` alias for drop-in ergonomics; crates intended for public
 # release depend on it by its real name so their manifests and rustdoc
 # never misrepresent what a consumer is actually taking on.
-blazingly-json = "0.1.4"
-serde_json = { package = "blazingly-json", version = "0.1.4" }
+blazingly-json = "0.1.5"
+serde_json = { package = "blazingly-json", version = "0.1.5" }
 sha2 = "0.10"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 tower-http = { version = "0.7.0", features = ["fs", "trace"] }
 ureq = { version = "3.4.0", default-features = false }
 weavatrix-edit = "0.1.7"
 weavatrix-refactor-plan = "0.1.1"
-weavatrix-rust = "2.5.0"
+weavatrix-rust = "2.5.1"
 
 [profile.release]
 lto = "thin"

@@ -29,15 +29,21 @@
 //! tokens per satisfied fact, not raw token count.
 
 mod external_skills;
+pub mod manifest;
 pub mod naive;
 pub mod probe_tasks;
 pub mod report;
+pub mod schedule;
+pub mod scoreboard;
 pub mod sequence;
 pub mod sequence_arms;
 pub mod tasks;
 
 use cortex_context::estimate_tokens;
 use serde::{Deserialize, Serialize};
+
+use crate::manifest::{BenchmarkManifest, McpManifest};
+use crate::scoreboard::{FailureClass, ScoreboardRow};
 
 /// Default upstream evidence budget, matching the measured `maxTokens`
 /// default the adapter usage contract instructs agents to send.
@@ -152,8 +158,18 @@ pub struct ArmMeasurement {
     pub delivered_tokens: Option<u32>,
     /// Files, fragments, or packet items, depending on the arm.
     pub units: usize,
+    /// Retrieval units executed by this in-process arm.
+    pub calls: Option<u32>,
+    /// End-to-end arm latency, including graph preparation and compilation.
+    pub latency_ms: Option<f64>,
     pub satisfied_anchors: Vec<String>,
     pub missing_anchors: Vec<String>,
+    /// Whether the producing layer claimed the evidence was sufficient.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sufficient: Option<bool>,
+    /// Primary owner of a failed fact, assigned from evidence lineage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_class: Option<FailureClass>,
     /// Anything the arm wants on the record, such as omitted evidence ids.
     pub notes: Vec<String>,
 }
@@ -192,10 +208,34 @@ impl ArmMeasurement {
             context_chars: 0,
             delivered_tokens: None,
             units: 0,
+            calls: Some(0),
+            latency_ms: None,
             satisfied_anchors: Vec::new(),
             missing_anchors: Vec::new(),
+            sufficient: None,
+            failure_class: Some(FailureClass::HarnessBug),
             notes: Vec::new(),
         }
+    }
+
+    /// Recompute the failure owner after scoring or adding sufficiency data.
+    pub fn refresh_verdict(&mut self) {
+        self.failure_class = if self.missing_anchors.is_empty() {
+            None
+        } else {
+            Some(match self.arm {
+                ArmKind::Naive => FailureClass::HarnessBug,
+                // These are all operation sets, plans, or compiler views
+                // selected by the Cortex adapter. Direct engine losslessness
+                // is scored separately by source-truth external suites.
+                ArmKind::WeavatrixRaw
+                | ArmKind::WeavatrixPlanned
+                | ArmKind::CortexLoom
+                | ArmKind::CortexLoomTargeted
+                | ArmKind::CortexLoomFull
+                | ArmKind::CortexLoomSource => FailureClass::CortexBug,
+            })
+        };
     }
 }
 
@@ -231,7 +271,7 @@ pub fn measure_scoped(
             missing_anchors.push(anchor.id.to_owned());
         }
     }
-    ArmMeasurement {
+    let mut measurement = ArmMeasurement {
         arm,
         available: true,
         unavailable_reason: None,
@@ -239,10 +279,16 @@ pub fn measure_scoped(
         context_chars: sent.chars().count(),
         delivered_tokens: None,
         units,
+        calls: None,
+        latency_ms: None,
         satisfied_anchors,
         missing_anchors,
+        sufficient: None,
+        failure_class: None,
         notes: Vec::new(),
-    }
+    };
+    measurement.refresh_verdict();
+    measurement
 }
 
 /// Record an arm that could not run, with the reason kept on the report.
@@ -273,13 +319,74 @@ impl TaskResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BenchReport {
+    pub schema_version: String,
+    pub historical: bool,
+    pub manifest: BenchmarkManifest,
     pub repository: String,
     pub budget: u32,
+    pub trial: usize,
     /// Set when the caller pinned a timestamp; the harness never reads a
     /// clock itself, so a report is reproducible byte for byte.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stamp: Option<String>,
     pub tasks: Vec<TaskResult>,
+    pub scoreboard: Vec<ScoreboardRow>,
+}
+
+impl BenchReport {
+    #[must_use]
+    pub fn new(
+        repository: &std::path::Path,
+        budget: u32,
+        trial: usize,
+        stamp: Option<String>,
+        tasks: Vec<TaskResult>,
+        command: &[String],
+    ) -> Self {
+        let scoreboard = context_scoreboard(&tasks, trial);
+        let manifest = BenchmarkManifest::detect(
+            "context-probe-v2",
+            repository,
+            command,
+            McpManifest::in_process(),
+        );
+        Self {
+            schema_version: manifest.report_schema.clone(),
+            historical: false,
+            manifest,
+            repository: repository.display().to_string(),
+            budget,
+            trial,
+            stamp,
+            tasks,
+            scoreboard,
+        }
+    }
+}
+
+fn context_scoreboard(tasks: &[TaskResult], trial: usize) -> Vec<ScoreboardRow> {
+    let mut rows = Vec::new();
+    for task in tasks {
+        for arm in &task.arms {
+            let mut row = ScoreboardRow::new(
+                "deterministic-probe",
+                &task.task_id,
+                arm.arm.id(),
+                trial,
+                arm.satisfied_anchors.len(),
+                task.anchor_count,
+            );
+            row.sufficient = arm.sufficient;
+            row.failure_class = arm.failure_class;
+            row.tokens.selected = Some(arm.context_tokens);
+            row.tokens.delivered = arm.delivered_tokens;
+            row.calls = arm.calls;
+            row.latency_ms = arm.latency_ms;
+            row.refresh_verdict();
+            rows.push(row);
+        }
+    }
+    rows
 }
 
 /// Reduction in context tokens from `from` to `to`, as a fraction.

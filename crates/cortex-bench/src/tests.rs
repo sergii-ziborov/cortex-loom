@@ -1,9 +1,12 @@
 use std::path::Path;
 
+use crate::manifest::{BenchmarkManifest, McpManifest};
 use crate::naive::{matches, scan};
 use crate::probe_tasks;
+use crate::schedule::alternating_orders;
+use crate::scoreboard::{FailureClass, ScoreboardRow, has_unclassified_failures};
 use crate::tasks::tasks;
-use crate::{Anchor, ArmKind, measure, token_delta, unavailable};
+use crate::{Anchor, ArmKind, BenchReport, TaskResult, measure, token_delta, unavailable};
 
 const ANCHORS: &[Anchor] = &[
     Anchor {
@@ -114,4 +117,121 @@ fn fixture_anchors_exist_in_the_repository() {
             arm.missing_anchors
         );
     }
+}
+
+#[test]
+fn manifest_observes_versions_and_revisions_instead_of_accepting_labels() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
+    let manifest = BenchmarkManifest::detect(
+        "context-probe-v2",
+        &root,
+        &[
+            "cortex-bench".to_owned(),
+            "--set".to_owned(),
+            "probe".to_owned(),
+        ],
+        McpManifest::in_process(),
+    );
+
+    assert_eq!(manifest.report_schema, "cortex-benchmark.v2");
+    assert_eq!(
+        manifest.target.commit.value.as_deref().map(str::len),
+        Some(40)
+    );
+    assert_eq!(
+        manifest.cortex.commit.value.as_deref().map(str::len),
+        Some(40)
+    );
+    assert_eq!(
+        manifest.engines["weavatrix-rust"].value.as_deref(),
+        Some("2.5.1")
+    );
+    assert_eq!(
+        manifest.engines["npm-weavatrix"].value.as_deref(),
+        Some("1.7.1")
+    );
+    assert_eq!(
+        manifest.mcp.payload_representation,
+        "serialized-tool-payload"
+    );
+}
+
+#[test]
+fn competitive_schedule_changes_first_and_last_arms_across_three_trials() {
+    let arms = vec!["a", "b", "c", "d"];
+    let orders = alternating_orders(&arms, 3);
+
+    assert_eq!(orders[0], ["a", "b", "c", "d"]);
+    assert_eq!(orders[1], ["d", "c", "b", "a"]);
+    assert_eq!(orders[2], ["c", "d", "a", "b"]);
+    assert_ne!(orders[0].first(), orders[1].first());
+    assert_ne!(orders[1].last(), orders[2].last());
+
+    let paired = alternating_orders(&["a", "b"], 3);
+    assert_eq!(paired, [["a", "b"], ["b", "a"], ["a", "b"]]);
+}
+
+#[test]
+fn sufficient_failed_tasks_are_false_confidence_and_need_an_owner() {
+    let mut row = ScoreboardRow::new("probe", "task", "cortex-source", 1, 3, 4);
+    row.sufficient = Some(true);
+    row.task_success = false;
+    row.refresh_verdict();
+
+    assert!(row.false_confidence);
+    assert!(has_unclassified_failures(std::slice::from_ref(&row)));
+
+    row.failure_class = Some(FailureClass::CortexBug);
+    assert!(!has_unclassified_failures(&[row]));
+}
+
+#[test]
+fn context_report_serializes_manifest_and_false_confidence_rows() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
+    let mut arm = measure(ArmKind::CortexLoomSource, "unrelated", 1, ANCHORS);
+    arm.sufficient = Some(true);
+    arm.refresh_verdict();
+    let report = BenchReport::new(
+        &root,
+        4_000,
+        0,
+        Some("p0-test".to_owned()),
+        vec![TaskResult {
+            task_id: "manifest-task".to_owned(),
+            prompt: "test".to_owned(),
+            budget: 4_000,
+            anchor_count: ANCHORS.len(),
+            arms: vec![arm],
+        }],
+        &[
+            "cortex-bench".to_owned(),
+            "--set".to_owned(),
+            "probe".to_owned(),
+        ],
+    );
+    let value = serde_json::to_value(report).unwrap();
+
+    assert_eq!(value["schemaVersion"], "cortex-benchmark.v2");
+    assert_eq!(value["historical"], false);
+    assert_eq!(
+        value["manifest"]["engines"]["weavatrix-rust"]["value"],
+        "2.5.1"
+    );
+    assert_eq!(value["scoreboard"][0]["falseConfidence"], true);
+    assert_eq!(value["scoreboard"][0]["failureClass"], "CORTEX_BUG");
+}
+
+#[test]
+fn sequence_report_is_self_describing_too() {
+    let report = crate::sequence_arms::run(None).unwrap();
+    let value = serde_json::to_value(report).unwrap();
+
+    assert_eq!(value["schemaVersion"], "cortex-benchmark.v2");
+    assert_eq!(value["historical"], false);
+    assert_eq!(value["manifest"]["reportSchema"], "cortex-benchmark.v2");
+    assert!(
+        value["scoreboard"]
+            .as_array()
+            .is_some_and(|rows| !rows.is_empty())
+    );
 }

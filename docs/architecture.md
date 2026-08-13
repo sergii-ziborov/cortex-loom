@@ -76,6 +76,6 @@ The protocol-independent crates do not depend on MCP, HTTP, or the UI. `cortex-m
 
 ## Public extraction candidates
 
-`cortex-domain`, `cortex-context`, `cortex-router`, and `cortex-skills` are prepared for public release: each carries publishing metadata, its own README, both license texts, and `publish = true`. They are dual-licensed **MIT OR Apache-2.0**; the rest of the workspace stays private and unlicensed (`publish = false`). See [publishing.md](publishing.md) for the order and the commands.
+`cortex-domain`, `cortex-context`, `cortex-router`, and `cortex-skills` each carry package metadata, their own README, both license texts, and `publish = true`. They are dual-licensed **MIT OR Apache-2.0**; the rest of the workspace is unlicensed (`publish = false`).
 
 The application, model policy, run history, user workflows, shadow and usage telemetry, and the UI remain private unless separately approved.

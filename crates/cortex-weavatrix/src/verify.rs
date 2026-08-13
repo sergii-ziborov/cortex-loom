@@ -101,7 +101,10 @@ fn profile<'a>(evidence: impl Iterator<Item = &'a crate::EvidenceFragment>) -> E
         profile.kinds.insert(item.kind);
         if matches!(
             item.kind,
-            EvidenceKind::SearchHits | EvidenceKind::SourceReads | EvidenceKind::SymbolContext
+            EvidenceKind::SearchHits
+                | EvidenceKind::SourceReads
+                | EvidenceKind::SymbolContext
+                | EvidenceKind::TypeExpansion
         ) {
             profile
                 .coverage_text
@@ -110,7 +113,7 @@ fn profile<'a>(evidence: impl Iterator<Item = &'a crate::EvidenceFragment>) -> E
         }
         if matches!(
             item.kind,
-            EvidenceKind::SourceReads | EvidenceKind::SymbolContext
+            EvidenceKind::SourceReads | EvidenceKind::SymbolContext | EvidenceKind::TypeExpansion
         ) {
             profile.coverage_fragments.push(item.content.clone());
         }
@@ -472,8 +475,22 @@ fn requirement(
     }
 }
 
+/// Whether a search fragment carries actual hits rather than an empty result.
+///
+/// Search evidence is rendered as `path:line: text` now, so the old check for
+/// the `"path"`/`"line"` JSON keys would report every fragment as empty and
+/// fail sufficiency on tasks that had found everything they needed.
 fn search_fragment_has_hits(content: &str) -> bool {
-    content.contains("\"path\"") && content.contains("\"line\"")
+    if let Some(rest) = content.strip_prefix(crate::adapter::SEARCH_HEADER) {
+        return rest
+            .split_whitespace()
+            .next()
+            .and_then(|count| count.parse::<usize>().ok())
+            .is_some_and(|count| count > 0);
+    }
+    // Fragments split off the head keep hit lines without the header, and a
+    // legacy JSON fragment must still be recognised.
+    content.contains(".rs:") || (content.contains("\"path\"") && content.contains("\"line\""))
 }
 
 pub(crate) const fn kind_name(kind: EvidenceKind) -> &'static str {
@@ -486,6 +503,7 @@ pub(crate) const fn kind_name(kind: EvidenceKind) -> &'static str {
         EvidenceKind::Dependents => "dependents",
         EvidenceKind::Endpoints => "endpoints",
         EvidenceKind::SourceReads => "source_reads",
+        EvidenceKind::TypeExpansion => "type_expansion",
     }
 }
 

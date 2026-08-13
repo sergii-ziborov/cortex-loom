@@ -73,18 +73,6 @@ static DOCS: &[BundledDoc] = &[
         summary: "Whether the editor should be rewritten in Rust, and what it would cost.",
         markdown: include_str!("../../../docs/rust-ui.md"),
     },
-    BundledDoc {
-        id: "roadmap",
-        title: "Roadmap",
-        summary: "What is done, what is next, and which gates remain open.",
-        markdown: include_str!("../../../docs/roadmap.md"),
-    },
-    BundledDoc {
-        id: "publishing",
-        title: "Publishing",
-        summary: "Which crates are public, under which licence, and in what order.",
-        markdown: include_str!("../../../docs/publishing.md"),
-    },
 ];
 
 #[derive(Debug, Serialize)]

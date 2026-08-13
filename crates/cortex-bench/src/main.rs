@@ -12,10 +12,12 @@
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::time::Instant;
 
 use cortex_bench::naive::{NaiveScan, scan};
 use cortex_bench::probe_tasks::probe_tasks;
 use cortex_bench::report::render;
+use cortex_bench::schedule::alternating_orders;
 use cortex_bench::tasks::{BenchTask, find, tasks};
 use cortex_bench::{
     ArmKind, ArmMeasurement, BenchReport, DEFAULT_BUDGET, TaskResult, measure, measure_scoped,
@@ -82,12 +84,15 @@ fn run(settings: &Settings) -> Result<BenchReport, String> {
         eprintln!("cortex-bench: {}", task.id);
         results.push(run_task(settings, task, weavatrix.as_ref()));
     }
-    Ok(BenchReport {
-        repository: settings.repository.display().to_string(),
-        budget: settings.budget,
-        stamp: settings.stamp.clone(),
-        tasks: results,
-    })
+    let command: Vec<String> = std::env::args().collect();
+    Ok(BenchReport::new(
+        &settings.repository,
+        settings.budget,
+        settings.trial,
+        settings.stamp.clone(),
+        results,
+        &command,
+    ))
 }
 
 fn run_task(
@@ -95,101 +100,123 @@ fn run_task(
     task: &BenchTask,
     weavatrix: Option<&WeavatrixAdapter>,
 ) -> TaskResult {
-    let mut arms = vec![naive_arm(settings, task)];
-    match weavatrix {
-        None => {
-            let reason = "skipped: --no-weavatrix";
-            arms.push(unavailable(ArmKind::WeavatrixRaw, reason));
-            arms.push(unavailable(ArmKind::CortexLoom, reason));
-        }
-        Some(adapter) => {
-            match prepare(adapter, &settings.repository, task) {
-                Ok(bundle) => {
-                    arms.push(weavatrix_raw_arm(task, &bundle));
-                    arms.push(cortex_arm(ArmKind::CortexLoom, settings, task, bundle));
-                }
-                Err(error) => {
-                    arms.push(unavailable(ArmKind::WeavatrixRaw, error.clone()));
-                    arms.push(unavailable(ArmKind::CortexLoom, error));
-                }
-            }
-            match adapter.prepare_targeted_context(
-                &settings.repository,
-                task.prompt,
-                task.symbol,
-                settings.budget,
-            ) {
-                Ok(bundle) => {
-                    // Same evidence twice: once as Weavatrix returned it,
-                    // once through the compiler. Any difference is the
-                    // compiler's, and nothing else can be credited to it.
-                    arms.push(planned_raw_arm(task, &bundle));
-                    arms.push(cortex_arm(
-                        ArmKind::CortexLoomTargeted,
-                        settings,
-                        task,
-                        bundle,
-                    ));
-                }
-                Err(error) => {
-                    let reason = error.to_string();
-                    arms.push(unavailable(ArmKind::WeavatrixPlanned, reason.clone()));
-                    arms.push(unavailable(ArmKind::CortexLoomTargeted, reason));
-                }
-            }
-            // Nothing trimmed: the operations the budget normally drops are
-            // fetched anyway, so the trimming itself can be scored.
-            let untrimmed = PlanPolicy {
-                overcommit: 1_000,
-                ..PlanPolicy::default()
-            };
-            match adapter.prepare_targeted_context_with(
-                &settings.repository,
-                task.prompt,
-                task.symbol,
-                settings.budget,
-                untrimmed,
-            ) {
-                Ok(bundle) => {
-                    arms.push(cortex_arm(ArmKind::CortexLoomFull, settings, task, bundle));
-                }
-                Err(error) => arms.push(unavailable(ArmKind::CortexLoomFull, error.to_string())),
-            }
-            // Search hits name files; open bounded windows there and ask
-            // whether the remaining contract/transport facts appear without
-            // paying the naive whole-file cost.
-            match adapter.prepare_verified_targeted_context(
-                &settings.repository,
-                task.prompt,
-                task.symbol,
-                settings.budget,
-                PlanPolicy::default(),
-                cortex_weavatrix::PlanHints::default(),
-            ) {
-                Ok((mut bundle, report)) => {
-                    bundle.warnings.push(format!(
-                        "sufficiency: {}; retry: {}",
-                        report.sufficient, report.retry_performed
-                    ));
-                    arms.push(cortex_arm(
-                        ArmKind::CortexLoomSource,
-                        settings,
-                        task,
-                        bundle,
-                    ));
-                }
-                Err(error) => {
-                    arms.push(unavailable(ArmKind::CortexLoomSource, error.to_string()));
-                }
-            }
-        }
-    }
+    let kinds = [
+        ArmKind::Naive,
+        ArmKind::WeavatrixRaw,
+        ArmKind::WeavatrixPlanned,
+        ArmKind::CortexLoom,
+        ArmKind::CortexLoomTargeted,
+        ArmKind::CortexLoomFull,
+        ArmKind::CortexLoomSource,
+    ];
+    let schedule = alternating_orders(&kinds, settings.trial + 1);
+    let order = schedule.last().expect("one order for the selected trial");
+    let arms = order
+        .iter()
+        .copied()
+        .map(|kind| run_arm(kind, settings, task, weavatrix))
+        .collect();
     TaskResult {
         task_id: task.id.to_owned(),
         prompt: task.prompt.to_owned(),
         budget: settings.budget,
         anchor_count: task.anchors.len(),
         arms,
+    }
+}
+
+fn run_arm(
+    kind: ArmKind,
+    settings: &Settings,
+    task: &BenchTask,
+    weavatrix: Option<&WeavatrixAdapter>,
+) -> ArmMeasurement {
+    let started = Instant::now();
+    let mut arm = run_arm_inner(kind, settings, task, weavatrix);
+    arm.calls = Some(u32::from(arm.available));
+    arm.latency_ms = Some(started.elapsed().as_secs_f64() * 1_000.0);
+    arm
+}
+
+fn run_arm_inner(
+    kind: ArmKind,
+    settings: &Settings,
+    task: &BenchTask,
+    weavatrix: Option<&WeavatrixAdapter>,
+) -> ArmMeasurement {
+    if kind == ArmKind::Naive {
+        return naive_arm(settings, task);
+    }
+    let Some(adapter) = weavatrix else {
+        return unavailable(kind, "skipped: --no-weavatrix");
+    };
+    match kind {
+        ArmKind::Naive => unreachable!(),
+        ArmKind::WeavatrixRaw => prepare(adapter, &settings.repository, task).map_or_else(
+            |error| unavailable(kind, error),
+            |bundle| weavatrix_raw_arm(task, &bundle),
+        ),
+        ArmKind::CortexLoom => prepare(adapter, &settings.repository, task).map_or_else(
+            |error| unavailable(kind, error),
+            |bundle| cortex_arm(kind, settings, task, bundle),
+        ),
+        ArmKind::WeavatrixPlanned | ArmKind::CortexLoomTargeted => adapter
+            .prepare_targeted_context(
+                &settings.repository,
+                task.prompt,
+                task.symbol,
+                settings.budget,
+            )
+            .map_or_else(
+                |error| unavailable(kind, error.to_string()),
+                |bundle| {
+                    if kind == ArmKind::WeavatrixPlanned {
+                        planned_raw_arm(task, &bundle)
+                    } else {
+                        cortex_arm(kind, settings, task, bundle)
+                    }
+                },
+            ),
+        ArmKind::CortexLoomFull => {
+            let untrimmed = PlanPolicy {
+                overcommit: 1_000,
+                ..PlanPolicy::default()
+            };
+            adapter
+                .prepare_targeted_context_with(
+                    &settings.repository,
+                    task.prompt,
+                    task.symbol,
+                    settings.budget,
+                    untrimmed,
+                )
+                .map_or_else(
+                    |error| unavailable(kind, error.to_string()),
+                    |bundle| cortex_arm(kind, settings, task, bundle),
+                )
+        }
+        ArmKind::CortexLoomSource => adapter
+            .prepare_verified_targeted_context(
+                &settings.repository,
+                task.prompt,
+                task.symbol,
+                settings.budget,
+                PlanPolicy::default(),
+                cortex_weavatrix::PlanHints::default(),
+            )
+            .map_or_else(
+                |error| unavailable(kind, error.to_string()),
+                |(mut bundle, report)| {
+                    bundle.warnings.push(format!(
+                        "sufficiency: {}; retry: {}",
+                        report.sufficient, report.retry_performed
+                    ));
+                    let mut arm = cortex_arm(kind, settings, task, bundle);
+                    arm.sufficient = Some(report.sufficient);
+                    arm.refresh_verdict();
+                    arm
+                },
+            ),
     }
 }
 
@@ -381,6 +408,7 @@ struct Settings {
     out: PathBuf,
     use_weavatrix: bool,
     stamp: Option<String>,
+    trial: usize,
 }
 
 impl Settings {
@@ -393,6 +421,7 @@ impl Settings {
             out: Path::new(".cortex-loom").join("bench").join("report.json"),
             use_weavatrix: true,
             stamp: None,
+            trial: 0,
         };
         let mut arguments = std::env::args().skip(1);
         while let Some(argument) = arguments.next() {
@@ -407,6 +436,11 @@ impl Settings {
                 "--set" => settings.set = next(&mut arguments, "--set")?,
                 "--out" => settings.out = PathBuf::from(next(&mut arguments, "--out")?),
                 "--stamp" => settings.stamp = Some(next(&mut arguments, "--stamp")?),
+                "--trial" => {
+                    settings.trial = next(&mut arguments, "--trial")?
+                        .parse()
+                        .map_err(|_| "--trial expects a non-negative integer".to_owned())?;
+                }
                 "--no-weavatrix" => settings.use_weavatrix = false,
                 "--list" => {
                     for task in tasks() {

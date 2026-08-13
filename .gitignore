@@ -7,4 +7,3 @@
 *.db-shm
 *.db-wal
 .env
-

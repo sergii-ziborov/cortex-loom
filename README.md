@@ -2,7 +2,7 @@
 
 Cortex Loom is a local, graph-native process control plane in front of Codex, Claude, and Copilot. It selects evidence with deterministic tools and Weavatrix, delegates bounded low-risk transformations to explicit local-model profiles, verifies their output, and leaves ambiguous, mutating, or high-risk engineering decisions to the upstream coding agent.
 
-The first milestone contains:
+The current release contains:
 
 - a typed, editable process graph with human, evidence, test, review, retry, handoff, local-model, and upstream-agent nodes;
 - round-trip `SKILL.md` import/export with source provenance;
@@ -23,7 +23,7 @@ The first milestone contains:
 - in-app **Help** and **Docs** panels: keyboard and node/edge reference plus the full design documentation served from the binary at `/api/docs`, so a running instance explains itself offline;
 - deterministic context and methodology benchmarks (`cortex-bench`) covering naive, Weavatrix, Cortex, raw Superpowers 6.2.0, and Cortex-native sequence arms — see [benchmark](docs/benchmark.md) and [competitors](docs/competitors.md).
 
-This repository is private. Four crates inside it are prepared for public release under **MIT OR Apache-2.0** — `cortex-domain` (typed process-graph schema), `cortex-context` (budget-bounded evidence selection and retrieval ranking), `cortex-router` (fail-closed routing policy), and `cortex-skills` (`SKILL.md` round trip). Each carries its own README, license texts, and publishing metadata; everything else stays private and unlicensed. See [publishing](docs/publishing.md).
+Four crates are dual-licensed under **MIT OR Apache-2.0** — `cortex-domain` (typed process-graph schema), `cortex-context` (budget-bounded evidence selection and retrieval ranking), `cortex-router` (fail-closed routing policy), and `cortex-skills` (`SKILL.md` round trip). Each carries its own README, license texts, and package metadata; everything else is unlicensed.
 
 ## What Cortex Loom is — and is not
 
@@ -34,10 +34,29 @@ graph, search, dependency, transport, architecture, and preview operations;
 Cortex chooses which operations to ask for, packs their evidence under a
 budget, runs explicit sufficiency gates, and records what was allowed to act.
 
+### Ecosystem place (AI control plane)
+
+```text
+Cortex Loom (this) ──► asks Weavatrix for code facts
+                   ──► may propose GraphPatch / work against Weavatrix Loom
+                   ──► does not own Loom Registry or semantic compiler
+```
+
+| Product | Role vs Cortex |
+| --- | --- |
+| **Weavatrix** | Code intelligence (facts) |
+| **[Weavatrix Loom](https://github.com/sergii-ziborov/weavatrix-loom)** | Semantic composition + **capability Registry** + compile → Rust |
+| **Cortex Loom** (this) | Agent workflow, token economy, routing, process graph |
+| **[FerroSift](https://github.com/sergii-ziborov/ferrosift)** | Transform recipes/ops (not Cortex, not Loom Registry) |
+
+The thin `wvx-cortex` crate inside weavatrix-loom is only **intent → GraphPatch
+ops** — not this full product. Loom [ADR-0012](https://github.com/sergii-ziborov/weavatrix-loom/blob/main/docs/adr/0012-ecosystem-boundaries.md).
+
 It is intentionally not:
 
 - an autonomous code-writing model;
 - a second repository indexer;
+- a **capability interchange Registry** or semantic compiler (Weavatrix Loom);
 - a hosted tracing dependency;
 - a JavaScript Weavatrix compatibility layer;
 - an auto-apply path for Weavatrix Refactor.
@@ -185,17 +204,24 @@ against every alternative driven for real over JSON-RPC:
 | read the candidate files | 79 040 | — | 4/4 |
 | `ripgrep` + file reads | 4 904 | 5 | 3/4 |
 | Serena MCP 1.28.1 | 10 540 | 3 | 4/4 |
-| **Cortex Loom, `--profile context`** | **5 566** | **1** | **4/4** |
+| **Cortex Loom, `--profile context`** | **4 167** | **1** | **4/4** |
 
-**−93.0% against reading the files, at equal recall, in a single round trip.**
+**−94.7% against reading the files, at equal recall, in a single round trip.**
 Session tokens include the server's tool schemas, which every client loads for
 the whole session: 486 for the context profile against ~4 000 for the full
-one. Since mcport 0.5.0 every reply is a single compact text representation —
-the earlier `structuredContent` mirror is gone, which alone halved the wire
-cost. Round trips matter more than the totals suggest, because each one
-re-reads the entire session. Full tables, latency, the Weavatrix and
-Superpowers rows, and a live-model implementation benchmark are in
-[benchmark](docs/benchmark.md).
+one. Two changes carry most of that: since mcport 0.5.0 every reply is a
+single compact text representation rather than a payload mirrored into
+`content` and `structuredContent`, and since 2026-08-12 graph answers are
+rendered as text instead of passed through as minified JSON, which alone was
+37–63% of every packet. Round trips matter more than the totals suggest,
+because each one re-reads the entire session.
+
+On three harder questions against an unfamiliar repository, answered by a
+local `qwen3.5:9b`, the context profile is the cheapest arm in the field at
+6 945 session tokens — 2.5× under naive, 3.0× under Serena, 4.9× under
+Superpowers — and out-answers Serena, the bare agent, and Superpowers while
+doing it. Full tables, latency, symbol-resolution accuracy, and a live-model
+implementation benchmark are in [benchmark](docs/benchmark.md).
 
 | methodology arm | estimated tokens | scenarios passed |
 | --- | ---: | ---: |
@@ -246,4 +272,4 @@ cargo run -p cortex-server
 
 Calibrate local model and embedding profiles with `cargo run -p cortex-eval -- --discover` and `cargo run -p cortex-eval` (reports land in `.cortex-loom/eval/`; absent models are skipped, never pulled). The editor opens at `http://127.0.0.1:43817`. When the UI was built before `cargo build`, its assets are embedded into `cortex-server` and the release binary is a single self-contained file; `--ui-dir` or `CORTEX_LOOM_UI_DIR` still serve from disk for development. Save a graph before creating a run; ready/running/completed node and edge states are rendered directly on the SVG. The run workbench submits provenance-bearing evidence, records approve/reject decisions, triggers graph-configured retries, and verifies replay without repeating external work. Run the stdio MCP server with `cargo run -p cortex-mcp`, or serve Streamable HTTP with `cargo run -p cortex-mcp -- --http 127.0.0.1:43818` (sessions via `Mcp-Session-Id`, loopback-only origins; the official MCP conformance suite passes against `config/mcp-conformance-baseline.yaml`).
 
-Design notes: [architecture](docs/architecture.md), [research](docs/research.md), [evaluation gates](docs/evaluation.md), and [roadmap](docs/roadmap.md).
+Design notes: [architecture](docs/architecture.md), [research](docs/research.md), and [evaluation gates](docs/evaluation.md).

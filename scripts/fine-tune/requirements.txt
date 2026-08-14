@@ -1,0 +1,13 @@
+# Training-only Python. Not a product runtime: nothing here is in Cargo, in the
+# OVMS bundle, or on any Cortex request path. See README.md in this folder.
+#
+# Windows PyPI torch wheels are CPU-only, which is what this box trains on:
+# there is no CUDA device here and 4-bit bitsandbytes is CUDA-only, so this is
+# LoRA in fp32/bf16, not QLoRA.
+torch==2.9.1
+transformers==4.57.1
+peft==0.18.0
+accelerate==1.11.0
+safetensors==0.7.0
+sentencepiece==0.2.1
+numpy==2.3.4

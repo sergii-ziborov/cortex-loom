@@ -172,13 +172,19 @@ fn mechanism_index(task: &str, items: &[EvidenceItem]) -> Option<EvidenceItem> {
         &mut lines,
         &blob,
         &["safe_virtual_path", "../", "traversal"],
-        "mechanism: path-skip — safe_virtual_path",
+        "mechanism: path-skip — name `safe_virtual_path` (parent-dir / traversal skip)",
     );
     push_mechanism(
         &mut lines,
         &blob,
         &["quiet_match", "fn quiet"],
         "mechanism: quiet-path — quiet_match",
+    );
+    push_mechanism(
+        &mut lines,
+        &blob,
+        &["fn finish_block", "finish_block("],
+        "mechanism: flush — call `finish_block`",
     );
     push_mechanism(
         &mut lines,

@@ -10,7 +10,9 @@ publish = false
 [dependencies]
 cortex-bench = { path = "../cortex-bench" }
 cortex-context = { path = "../cortex-context" }
+cortex-domain = { path = "../cortex-domain" }
 cortex-llm = { path = "../cortex-llm" }
+cortex-sequences = { path = "../cortex-sequences" }
 cortex-ollama = { path = "../cortex-ollama" }
 cortex-router = { path = "../cortex-router" }
 serde.workspace = true

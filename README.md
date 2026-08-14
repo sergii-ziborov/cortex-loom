@@ -100,12 +100,14 @@ editor are transports over the same typed contracts.
 | `parallel-investigation` | split independent read-only work and reconcile contradictions |
 | `sequence-authoring` | create or revise sequences through pressure tests and lint |
 
-Together they encode 13 useful mechanics adapted from Superpowers:
-brainstorming, planning, plan execution, TDD, systematic debugging, worktree
+Together they encode 13 useful mechanics Superpowers also names
+(brainstorming, planning, plan execution, TDD, systematic debugging, worktree
 isolation, parallel and subagent work, receiving and requesting review,
-verification, branch finishing, and skill authoring. The global
-`using-superpowers` bootstrap is deliberately omitted because eager mandatory
-prose reduced precision in this product.
+verification, branch finishing, and skill authoring). The graphs and step
+scripts are Cortex rewrites — typed nodes, evidence gates, Weavatrix calls,
+and upstream handoff — not a Superpowers fork and not a 1:1 port of those
+`SKILL.md` files. The global `using-superpowers` bootstrap is omitted because
+eager mandatory prose wasted tokens here.
 
 Built-ins are immutable versioned templates. **Use and edit** creates a
 detached normal graph: users may change steps, gates, budgets, evidence needs,
@@ -131,8 +133,11 @@ falls back to deterministic logic or the upstream agent.
 
 The 0.6B lane is intentionally not a miniature planner or router. Its proposed
 contract is closed-schema extraction with mechanical validation and zero
-completion, sufficiency, routing, or mutation authority. See
-[local models](docs/local-models.md) and [evaluation gates](docs/evaluation.md).
+completion, sufficiency, routing, or mutation authority. The 7B-class product
+model is the OVMS NPU classifier (`Qwen3-8B`), not the Ollama XiYanSQL 7B
+GGUF. Do not unify OVMS and Ollama into one server. See
+[local models](docs/local-models.md), [model inventory](config/model-inventory.json),
+and the Cortex-original [fine-tune corpus](corpora/README.md).
 
 ## Evidence and safety boundaries
 

@@ -73,6 +73,13 @@ struct CliOptions {
 }
 
 fn main() {
+    if std::env::args().nth(1).as_deref() == Some("corpus") {
+        if let Err(error) = cortex_eval::corpus::write_cli() {
+            eprintln!("cortex-eval corpus: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     if let Err(error) = run() {
         eprintln!("cortex-eval: {error}");
         std::process::exit(1);

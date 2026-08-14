@@ -192,9 +192,11 @@ dependencies = [
  "blazingly-json",
  "cortex-bench",
  "cortex-context",
+ "cortex-domain",
  "cortex-llm",
  "cortex-ollama",
  "cortex-router",
+ "cortex-sequences",
  "serde",
  "ureq",
 ]

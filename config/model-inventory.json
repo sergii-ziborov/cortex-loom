@@ -1,0 +1,162 @@
+{
+  "_comment": [
+    "Single map of models this deployment knows about. Product authority is",
+    "still only llm-profiles.json + gatePassed. This file answers: what exists,",
+    "where it runs, whether Cortex needs it. It does not pull or enable models."
+  ],
+  "probedAt": "2026-08-14",
+  "live": {
+    "ollama": "up at :11434 — 7 tags",
+    "ovms8000": "down",
+    "ovms8001": "down",
+    "ovms8002": "down"
+  },
+  "unify": {
+    "hotPath": "open_ai_compatible (OVMS loopback) for embedding + classification",
+    "evalAndLiveJudge": "ollama loopback for calibration and quality benches",
+    "cpu": "forbidden by DevicePolicy unless opted in",
+    "doNotUnifyIntoOneServer": "OVMS owns NPU/GPU IR; Ollama owns GGUF. Same LlmProfile schema, two runtimes. Do not serve the product embedder on both."
+  },
+  "fineTune": {
+    "corpus": "corpora/sft.jsonl",
+    "generate": "cargo run -p cortex-eval -- corpus",
+    "source": "cortex-original only — no Superpowers SKILL.md bodies",
+    "roles": {
+      "classification": "Qwen3-8B NPU IR",
+      "micro_extract": "future Qwen3-0.6B NPU IR (not installed)",
+      "digest": "qwen3.5:9b on Ollama"
+    }
+  },
+  "models": [
+    {
+      "id": "qwen3-embed-ovms-gpu",
+      "family": "qwen3-embedding",
+      "size": "0.6B",
+      "runtime": "open_ai_compatible",
+      "device": "gpu",
+      "endpoint": "http://127.0.0.1:8001",
+      "role": "embedding",
+      "needed": true,
+      "gatePassed": true,
+      "source": "llm-profiles.json#gpu-embedding",
+      "note": "Product embedder. OVMS INT8 IR, pooling LAST."
+    },
+    {
+      "id": "qwen3-8b-ovms-npu",
+      "family": "qwen3",
+      "size": "8B",
+      "runtime": "open_ai_compatible",
+      "device": "npu",
+      "endpoint": "http://127.0.0.1:8000",
+      "role": "classification",
+      "needed": true,
+      "gatePassed": true,
+      "source": "llm-profiles.json#npu-classifier",
+      "note": "7B-class NPU IR. Not the Ollama SQL 7B. May escalate, never downgrade."
+    },
+    {
+      "id": "qwen3.5-9b-ollama",
+      "family": "qwen3.5",
+      "size": "9B",
+      "runtime": "ollama",
+      "device": "gpu",
+      "endpoint": "http://127.0.0.1:11434",
+      "role": "digest",
+      "needed": true,
+      "gatePassed": false,
+      "source": "llm-profiles.json#gpu-digest / eval-profiles.json#local-medium",
+      "note": "Installed. Live quality judge and future revision digest. Not hot-path."
+    },
+    {
+      "id": "qwen3.5-4b-ollama",
+      "family": "qwen3.5",
+      "size": "4B",
+      "runtime": "ollama",
+      "device": "gpu",
+      "endpoint": "http://127.0.0.1:11434",
+      "role": "eval_only",
+      "needed": false,
+      "gatePassed": false,
+      "source": "eval-profiles.json#local-small",
+      "note": "Installed. Sequence live gate failed. Do not promote."
+    },
+    {
+      "id": "phi4-mini-ollama",
+      "family": "phi4",
+      "size": "3.8B",
+      "runtime": "ollama",
+      "device": "gpu",
+      "endpoint": "http://127.0.0.1:11434",
+      "role": "eval_only",
+      "needed": false,
+      "gatePassed": false,
+      "source": "eval-profiles.json#local-small-alt",
+      "note": "Installed control. Not a Cortex product role."
+    },
+    {
+      "id": "qwen3-embedding-ollama",
+      "family": "qwen3-embedding",
+      "size": "0.6B",
+      "runtime": "ollama",
+      "device": "gpu",
+      "endpoint": "http://127.0.0.1:11434",
+      "role": "eval_only",
+      "needed": false,
+      "gatePassed": false,
+      "source": "eval-profiles.json#embed-code",
+      "note": "Same family as product embedder, different runtime. Keep for eval, do not dual-serve."
+    },
+    {
+      "id": "embeddinggemma-ollama",
+      "family": "embeddinggemma",
+      "size": "0.3B",
+      "runtime": "ollama",
+      "device": "gpu",
+      "endpoint": "http://127.0.0.1:11434",
+      "role": "eval_only",
+      "needed": false,
+      "gatePassed": false,
+      "source": "eval-profiles.json#embed-small",
+      "note": "Eval control. Product embedder is Qwen3-Embedding on OVMS."
+    },
+    {
+      "id": "qwen3-0.6b-micro-ovms",
+      "family": "qwen3",
+      "size": "0.6B",
+      "runtime": "open_ai_compatible",
+      "device": "npu",
+      "endpoint": "http://127.0.0.1:8002",
+      "role": "micro_extract",
+      "needed": true,
+      "gatePassed": false,
+      "source": "llm-profiles.json#npu-micro-extract-qwen3-0.6b",
+      "note": "Not installed. Shadow candidate only. Never a router."
+    },
+    {
+      "id": "xiyan-sql-7b-ollama",
+      "family": "xiyan-sql-qwencoder",
+      "size": "7B",
+      "runtime": "ollama",
+      "device": "gpu",
+      "endpoint": "http://127.0.0.1:11434",
+      "role": "not_cortex",
+      "needed": false,
+      "gatePassed": false,
+      "source": "ollama local",
+      "note": "Installed specialist SQL coder. Not a Cortex 7B. Do not reuse as classifier or digest."
+    },
+    {
+      "id": "xiyan-sql-3b-ollama",
+      "family": "xiyan-sql-qwencoder",
+      "size": "3B",
+      "runtime": "ollama",
+      "device": "gpu",
+      "endpoint": "http://127.0.0.1:11434",
+      "role": "not_cortex",
+      "needed": false,
+      "gatePassed": false,
+      "source": "ollama local",
+      "note": "Installed specialist SQL coder. Not a Cortex role."
+    }
+  ]
+}

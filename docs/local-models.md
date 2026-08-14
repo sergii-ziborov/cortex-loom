@@ -10,6 +10,28 @@ Measured on the development machine 2026-08-05.
 | Memory | 47.5 GB, shared with the iGPU |
 | Platform AI | **24 peak TOPS INT8 — CPU, GPU and NPU combined** |
 
+Installed locally, probed 2026-08-14: Ollama up with 7 tags; OVMS
+`:8000/:8001/:8002` down. Product authority is still only
+`config/llm-profiles.json` + `gatePassed`. The full map is
+`config/model-inventory.json`. Fine-tune gold lives in `corpora/`
+(`cargo run -p cortex-eval -- corpus`) and is Cortex-original — not Superpowers.
+
+| what you have | size | runtime | Cortex need? |
+| --- | --- | --- | --- |
+| Qwen3-8B INT4 IR | 8B | OVMS/NPU `:8000` | **yes** — classifier (gated). This is the 7B-class *product* model, not the SQL GGUF. |
+| Qwen3-Embedding 0.6B INT8 IR | 0.6B | OVMS/GPU `:8001` | **yes** — embedder (gated) |
+| `qwen3.5:9b` | 9.7B | Ollama | **yes, later** — digest / live judge. Not hot path. |
+| `qwen3.5:4b` | 4.7B | Ollama | no — sequence gate failed |
+| `phi4-mini` | 3.8B | Ollama | no — eval control |
+| `qwen3-embedding:0.6b` | 0.6B | Ollama | no — same family as OVMS embedder; do not dual-serve |
+| `embeddinggemma` | 0.3B | Ollama | no — eval control |
+| XiYanSQL QwenCoder 7B / 3B | 7.6B / 3.1B | Ollama | **no** — specialist SQL. Not a Cortex 7B. |
+| Qwen3-0.6B micro | 0.6B | OVMS/NPU `:8002` | **yes, later** — not installed; never a router |
+
+Do **not** unify OVMS and Ollama into one server. Same `LlmProfile` schema,
+two runtimes: NPU/GPU OpenVINO IR on OVMS, GGUF on Ollama. CPU stays
+forbidden.
+
 Current configured roles (checked 2026-08-09):
 
 | profile | authority | gate/runtime state |

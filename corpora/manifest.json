@@ -1,0 +1,49 @@
+{
+  "trainingSource": "cortex-original",
+  "license": "MIT OR Apache-2.0",
+  "records": 138,
+  "byTask": [
+    {
+      "name": "classification",
+      "count": 28
+    },
+    {
+      "name": "compression",
+      "count": 6
+    },
+    {
+      "name": "extraction",
+      "count": 10
+    },
+    {
+      "name": "mechanism-index",
+      "count": 2
+    },
+    {
+      "name": "micro-extraction",
+      "count": 8
+    },
+    {
+      "name": "micro-extraction-reject",
+      "count": 10
+    },
+    {
+      "name": "sequence-step",
+      "count": 74
+    }
+  ],
+  "byRole": [
+    {
+      "name": "classification",
+      "count": 38
+    },
+    {
+      "name": "digest",
+      "count": 82
+    },
+    {
+      "name": "micro_extract",
+      "count": 18
+    }
+  ]
+}

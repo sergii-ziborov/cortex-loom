@@ -4,7 +4,12 @@
 
 [obra/superpowers v6.2.0](https://github.com/obra/superpowers/releases/tag/v6.2.0) is an MIT-licensed collection of portable Markdown skills and thin harness integrations. Its [skill-writing guide](https://raw.githubusercontent.com/obra/superpowers/main/skills/writing-skills/SKILL.md) uses YAML frontmatter, Markdown instructions, optional resources, and scenario-based evaluation. It is not an MCP server, scheduler, persistent graph, or agent runtime.
 
-Cortex Loom imports the format and models the methodology as typed workflow semantics. It does not copy the full prose. Any future redistribution of copied upstream material must retain the [MIT notice](https://raw.githubusercontent.com/obra/superpowers/main/LICENSE).
+Cortex Loom borrowed the portable `SKILL.md` *shape* and a checklist of
+mechanic names. The shipped sequences are original typed graphs with our own
+step scripts, evidence gates, and Weavatrix/upstream edges — not a Superpowers
+fork and not a 1:1 copy of those files. Training corpora under `corpora/` are
+Cortex-original for the same reason. Any future redistribution of copied
+upstream material must retain the [MIT notice](https://raw.githubusercontent.com/obra/superpowers/main/LICENSE).
 
 ## Weavatrix refactor boundary
 

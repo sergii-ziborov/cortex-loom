@@ -13,6 +13,7 @@ use serde::Serialize;
 
 pub mod backend;
 pub mod comparators;
+pub mod corpus;
 pub mod fixtures;
 pub mod metrics;
 pub mod openai_backend;

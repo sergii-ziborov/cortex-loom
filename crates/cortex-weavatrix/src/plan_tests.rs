@@ -234,6 +234,7 @@ fn active_skill_hints_override_intent_and_can_forbid_change_plans() {
             intent: Some(crate::IntentHint::RuntimeConfig),
             source_followup: Some(true),
             skip_change_plan: true,
+            has_prior_attempts: false,
         },
     );
     assert!(
@@ -348,4 +349,32 @@ fn test_selection_intent_asks_for_select_tests_first() {
         .expect("select_tests planned");
     assert_eq!(selected.kind, EvidenceKind::TestSelection);
     assert_eq!(selected.arguments["max_tests"], 24);
+}
+
+#[test]
+fn prior_run_memory_is_planned_when_events_exist() {
+    let prior = crate::PriorRunMemory::from_parts(vec![crate::PriorRunEvent {
+        run_id: "run-1".to_owned(),
+        sequence: 4,
+        kind: "node_failed".to_owned(),
+        node_id: Some("gate".to_owned()),
+        detail: Some("thin packet".to_owned()),
+        recorded_at: 1_700_000_000,
+    }]);
+    let operations = crate::plan::plan_with_prior(
+        "Still failing `compile_context` after the last attempt",
+        Some("compile_context"),
+        4_000,
+        PlanPolicy::default(),
+        crate::PlanHints::default(),
+        Some(&prior),
+    );
+    let tools: Vec<&str> = operations.iter().map(|operation| operation.tool).collect();
+    assert_eq!(
+        tools.first().copied(),
+        Some("memory_context"),
+        "prior-attempt questions must keep memory under a 4k budget, got {tools:?}"
+    );
+    assert_eq!(operations[0].kind, EvidenceKind::Memory);
+    assert!(tools.contains(&"search_code"));
 }

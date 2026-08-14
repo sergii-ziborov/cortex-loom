@@ -27,6 +27,7 @@ pub(crate) fn from_graph(graph: &GraphDocument) -> Result<PlanHints, String> {
             .map(|value| parse_bool("skip-change-plan", value))
             .transpose()?
             .unwrap_or(false),
+        has_prior_attempts: false,
     })
 }
 
@@ -53,8 +54,9 @@ fn parse_intent(value: &str) -> Result<IntentHint, String> {
         "git_history" | "git" | "history" => Ok(IntentHint::GitHistory),
         "stack_trace" | "stacktrace" | "backtrace" => Ok(IntentHint::StackTrace),
         "test_selection" | "tests" | "select_tests" => Ok(IntentHint::TestSelection),
+        "prior_attempt" | "prior" | "memory" => Ok(IntentHint::PriorAttempt),
         other => Err(format!(
-            "skill context-intent `{other}` is unsupported; expected identifier_change, blast_radius, api_contract, module_topology, runtime_config, git_history, stack_trace, or test_selection"
+            "skill context-intent `{other}` is unsupported; expected identifier_change, blast_radius, api_contract, module_topology, runtime_config, git_history, stack_trace, test_selection, or prior_attempt"
         )),
     }
 }
@@ -90,6 +92,7 @@ mod tests {
                 intent: Some(IntentHint::RuntimeConfig),
                 source_followup: Some(true),
                 skip_change_plan: true,
+                has_prior_attempts: false,
             }
         );
     }

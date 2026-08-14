@@ -20,6 +20,7 @@ pub enum IntentHint {
     GitHistory,
     StackTrace,
     TestSelection,
+    PriorAttempt,
 }
 
 impl From<IntentHint> for TaskIntent {
@@ -33,6 +34,7 @@ impl From<IntentHint> for TaskIntent {
             IntentHint::GitHistory => Self::GitHistory,
             IntentHint::StackTrace => Self::StackTrace,
             IntentHint::TestSelection => Self::TestSelection,
+            IntentHint::PriorAttempt => Self::PriorAttempt,
         }
     }
 }
@@ -53,6 +55,9 @@ pub struct PlanHints {
     /// for one. Useful for gather/verify-only skills.
     #[serde(default)]
     pub skip_change_plan: bool,
+    /// Prior high-signal run events were supplied for this compile.
+    #[serde(default)]
+    pub has_prior_attempts: bool,
 }
 
 impl PlanHints {
@@ -81,6 +86,7 @@ mod tests {
             intent: Some(IntentHint::RuntimeConfig),
             source_followup: Some(true),
             skip_change_plan: true,
+            has_prior_attempts: false,
         };
         assert_eq!(
             hints.intent_or_detect("ordinary prose"),

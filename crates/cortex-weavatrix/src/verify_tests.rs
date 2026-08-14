@@ -29,6 +29,7 @@ fn config_context_is_thin_until_search_and_source_both_survive() {
         intent: Some(crate::IntentHint::RuntimeConfig),
         source_followup: Some(true),
         skip_change_plan: true,
+        has_prior_attempts: false,
     };
     let thin = assess_compiled(
         &bundle,
@@ -78,6 +79,7 @@ fn profile_gate_requires_semantic_source_coverage_not_just_source_presence() {
         intent: Some(crate::IntentHint::RuntimeConfig),
         source_followup: Some(true),
         skip_change_plan: true,
+        has_prior_attempts: false,
     };
     let report = assess_compiled(
         &bundle,
@@ -469,4 +471,20 @@ fn git_stack_and_test_intents_require_their_native_kinds() {
             .required_evidence
             .contains(&"test_selection".to_owned())
     );
+
+    let hints = PlanHints {
+        has_prior_attempts: true,
+        ..PlanHints::default()
+    };
+    let memory = assess_compiled(
+        &empty,
+        &[],
+        "Still failing after the last attempt",
+        None,
+        hints,
+        false,
+        false,
+    );
+    assert!(memory.required_evidence.contains(&"memory".to_owned()));
+    assert!(memory.missing_evidence.contains(&"memory".to_owned()));
 }

@@ -84,14 +84,22 @@ pub(crate) fn register(
                     None => PlanHints::default(),
                 };
                 let source_followup = hints.source_followup_or(true);
+                let prior = crate::context_memory::load_prior(
+                    &context_state.store,
+                    arguments.run_id.as_deref(),
+                    &arguments.task,
+                );
                 let (prepared, gather_report) = if arguments.targeted {
-                    match context_state.weavatrix.prepare_verified_targeted_context(
+                    match context_state
+                        .weavatrix
+                        .prepare_verified_targeted_context_with_prior(
                         &arguments.repository,
                         &arguments.task,
                         arguments.symbol.as_deref(),
                         arguments.max_tokens,
                         cortex_weavatrix::plan::PlanPolicy::default(),
                         hints,
+                        Some(prior),
                     ) {
                         Ok((bundle, report)) => (Ok(bundle), Some(report)),
                         Err(error) => (Err(error), None),

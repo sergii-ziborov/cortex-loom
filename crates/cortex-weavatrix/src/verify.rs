@@ -136,7 +136,13 @@ fn assess(
         TaskIntent::GitHistory => required_kinds.push(EvidenceKind::GitHistory),
         TaskIntent::StackTrace => required_kinds.push(EvidenceKind::StackTrace),
         TaskIntent::TestSelection => required_kinds.push(EvidenceKind::TestSelection),
-        TaskIntent::IdentifierChange | TaskIntent::RuntimeConfig | TaskIntent::BlastRadius => {}
+        TaskIntent::IdentifierChange
+        | TaskIntent::RuntimeConfig
+        | TaskIntent::BlastRadius
+        | TaskIntent::PriorAttempt => {}
+    }
+    if hints.has_prior_attempts {
+        required_kinds.push(EvidenceKind::Memory);
     }
     if has_identifiers {
         required_kinds.push(EvidenceKind::SearchHits);
@@ -317,6 +323,7 @@ pub(crate) const fn kind_name(kind: EvidenceKind) -> &'static str {
         EvidenceKind::GitHistory => "git_history",
         EvidenceKind::StackTrace => "stack_trace",
         EvidenceKind::TestSelection => "test_selection",
+        EvidenceKind::Memory => "memory",
     }
 }
 

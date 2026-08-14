@@ -19,6 +19,7 @@ use mcport::{ConcurrentMcpServer, FlushPolicy, RuntimeConfig, ToolReply, Transpo
 use serde::Deserialize;
 use serde_json::Value;
 
+mod context_memory;
 mod context_tools;
 mod graph_skill_tools;
 pub mod http;

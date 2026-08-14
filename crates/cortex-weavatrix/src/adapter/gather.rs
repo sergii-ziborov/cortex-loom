@@ -136,6 +136,7 @@ impl WeavatrixAdapter {
             policy,
             crate::PlanHints::default(),
             false,
+            None,
         )
         .map(|gathered| gathered.bundle)
     }
@@ -160,6 +161,7 @@ impl WeavatrixAdapter {
             policy,
             crate::PlanHints::default(),
             true,
+            None,
         )
         .map(|gathered| gathered.bundle)
     }
@@ -180,6 +182,32 @@ impl WeavatrixAdapter {
         policy: crate::plan::PlanPolicy,
         hints: crate::PlanHints,
     ) -> Result<(EvidenceBundle, crate::EvidenceSufficiency), WeavatrixError> {
+        self.prepare_verified_targeted_context_with_prior(
+            repository, task, symbol, budget, policy, hints, None,
+        )
+    }
+
+    /// As [`Self::prepare_verified_targeted_context`], with prior-run memory.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WeavatrixError`] when the repository or native graph cannot
+    /// be opened or refreshed.
+    #[allow(clippy::too_many_arguments)]
+    pub fn prepare_verified_targeted_context_with_prior(
+        &self,
+        repository: &Path,
+        task: &str,
+        symbol: Option<&str>,
+        budget: u32,
+        policy: crate::plan::PlanPolicy,
+        mut hints: crate::PlanHints,
+        prior: Option<crate::PriorRunMemory>,
+    ) -> Result<(EvidenceBundle, crate::EvidenceSufficiency), WeavatrixError> {
+        let prior = prior.filter(|memory| !memory.is_empty());
+        if prior.is_some() {
+            hints.has_prior_attempts = true;
+        }
         let source_followup = hints.source_followup_or(true);
         let mut gathered = self.collect_targeted(
             repository,
@@ -189,6 +217,7 @@ impl WeavatrixAdapter {
             policy,
             hints,
             source_followup,
+            prior.as_ref(),
         )?;
         let initial = crate::verify::assess_gathered(
             &gathered.bundle,
@@ -210,6 +239,7 @@ impl WeavatrixAdapter {
             policy,
             hints,
             source_followup,
+            prior.as_ref(),
             &initial,
             &mut gathered,
         )?;
@@ -235,6 +265,7 @@ impl WeavatrixAdapter {
         policy: crate::plan::PlanPolicy,
         hints: crate::PlanHints,
         source_followup: bool,
+        prior: Option<&crate::PriorRunMemory>,
     ) -> Result<TargetedEvidence, WeavatrixError> {
         let root = self.canonical_root(repository)?;
         let mut sessions = self
@@ -251,7 +282,7 @@ impl WeavatrixAdapter {
             .into_iter()
             .collect();
         let mut search_hits = Vec::new();
-        for operation in crate::plan::plan_with_hints(task, symbol, budget, policy, hints) {
+        for operation in crate::plan::plan_with_prior(task, symbol, budget, policy, hints, prior) {
             match native_call(engine, operation.tool, operation.arguments.clone()) {
                 Ok(value) => {
                     if let Some(overrun) = budget_overrun(operation.tool, &value) {
@@ -354,6 +385,7 @@ impl WeavatrixAdapter {
         policy: crate::plan::PlanPolicy,
         hints: crate::PlanHints,
         source_followup: bool,
+        prior: Option<&crate::PriorRunMemory>,
         initial: &crate::EvidenceSufficiency,
         gathered: &mut TargetedEvidence,
     ) -> Result<(), WeavatrixError> {
@@ -390,7 +422,7 @@ impl WeavatrixAdapter {
                 rebuild_retry_sources(engine, gathered, task, symbol, hints, budget, policy);
             }
         }
-        for operation in crate::plan::plan_with_hints(task, symbol, budget, policy, hints) {
+        for operation in crate::plan::plan_with_prior(task, symbol, budget, policy, hints, prior) {
             let kind = crate::verify::kind_name(operation.kind);
             if !initial
                 .missing_evidence

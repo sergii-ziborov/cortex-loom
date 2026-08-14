@@ -24,6 +24,8 @@ pub enum TaskIntent {
     StackTrace,
     /// Which tests a change should run.
     TestSelection,
+    /// Prior run failures, rejections, or retries for this work.
+    PriorAttempt,
 }
 
 /// Classify `task` from stable structural cues in the prose.
@@ -41,6 +43,9 @@ pub fn detect(task: &str) -> TaskIntent {
     if git_history_cue(&lower) {
         return TaskIntent::GitHistory;
     }
+    if prior_attempt_cue(&lower) {
+        return TaskIntent::PriorAttempt;
+    }
     // Contract cues win over blast-radius "what breaks" when both appear.
     if api_contract_cue(&lower) {
         return TaskIntent::ApiContract;
@@ -55,6 +60,33 @@ pub fn detect(task: &str) -> TaskIntent {
         return TaskIntent::RuntimeConfig;
     }
     TaskIntent::IdentifierChange
+}
+
+/// Whether the question is about a previous attempt, not a first look.
+#[must_use]
+pub fn asks_for_prior_attempts(task: &str) -> bool {
+    prior_attempt_cue(&task.to_ascii_lowercase())
+}
+
+fn prior_attempt_cue(lower: &str) -> bool {
+    const CUES: &[&str] = &[
+        "already tried",
+        "already failed",
+        "previous attempt",
+        "prior attempt",
+        "last run",
+        "last attempt",
+        "still failing",
+        "still fails",
+        "same error",
+        "same failure",
+        "we already",
+        "tried this",
+        "tried again",
+        "last time",
+        "once more",
+    ];
+    CUES.iter().any(|cue| lower.contains(cue))
 }
 
 /// Whether the task enumerates ("list every mechanism that can…") rather
@@ -318,6 +350,10 @@ mod tests {
         assert_eq!(
             detect("Fix the failing unit test in the graph store"),
             TaskIntent::IdentifierChange
+        );
+        assert_eq!(
+            detect("Still failing compile_context after the last attempt"),
+            TaskIntent::PriorAttempt
         );
     }
 }

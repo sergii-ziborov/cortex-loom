@@ -65,6 +65,8 @@ pub enum EvidenceKind {
     StackTrace,
     /// Static test suites selected by `select_tests`.
     TestSelection,
+    /// Temporal facts from prior Cortex run events via `memory_context`.
+    Memory,
 }
 
 pub(super) fn fragments(

@@ -15,15 +15,15 @@
 use serde_json::Value;
 
 use crate::plan_intent::TaskIntent;
-use crate::{EvidenceKind, PlanHints};
+use crate::{EvidenceKind, PlanHints, PriorRunMemory};
 
 #[path = "plan_operations.rs"]
 mod operations;
 
 use operations::{
     asks_for_change_plan, blast_search_pattern, dependents_op, endpoints_op, git_history_op,
-    modules_op, neighbors_op, search_op, search_pattern_op, select_tests_op, share, stacktrace_op,
-    symbol_op, verify_op,
+    memory_op, modules_op, neighbors_op, search_op, search_pattern_op, select_tests_op, share,
+    stacktrace_op, symbol_op, verify_op,
 };
 
 /// Most identifiers to carry into a search. Beyond this the alternation stops
@@ -62,6 +62,7 @@ pub struct PlanPolicy {
     pub git_history_tokens: u32,
     pub stacktrace_tokens: u32,
     pub test_selection_tokens: u32,
+    pub memory_tokens: u32,
     pub change_plan_tokens: u32,
     /// Pool for bounded `read_source` windows after search hits.
     pub source_tokens: u32,
@@ -83,6 +84,7 @@ impl Default for PlanPolicy {
             git_history_tokens: 800,
             stacktrace_tokens: 1_500,
             test_selection_tokens: 1_200,
+            memory_tokens: 600,
             change_plan_tokens: 6_000,
             source_tokens: 1_300,
             overcommit: 2,
@@ -302,7 +304,20 @@ pub fn plan_with_hints(
     policy: PlanPolicy,
     hints: PlanHints,
 ) -> Vec<PlannedOperation> {
-    let mut operations = plan_all(task, symbol, budget, policy, hints);
+    plan_with_prior(task, symbol, budget, policy, hints, None)
+}
+
+/// As [`plan_with_hints`], including prior-run memory when the caller has it.
+#[must_use]
+pub fn plan_with_prior(
+    task: &str,
+    symbol: Option<&str>,
+    budget: u32,
+    policy: PlanPolicy,
+    hints: PlanHints,
+    prior: Option<&PriorRunMemory>,
+) -> Vec<PlannedOperation> {
+    let mut operations = plan_all(task, symbol, budget, policy, hints, prior);
     let ceiling = budget.saturating_mul(policy.overcommit.max(1));
     let mut committed = 0_u32;
     operations.retain(|operation| {
@@ -330,6 +345,7 @@ fn plan_all(
     budget: u32,
     policy: PlanPolicy,
     hints: PlanHints,
+    prior: Option<&PriorRunMemory>,
 ) -> Vec<PlannedOperation> {
     let intent = hints.intent_or_detect(task);
     let mut identifiers = extract_identifiers(task);
@@ -378,7 +394,16 @@ fn plan_all(
         TaskIntent::TestSelection => {
             operations.push(select_tests_op(policy));
         }
-        TaskIntent::IdentifierChange | TaskIntent::RuntimeConfig => {}
+        TaskIntent::IdentifierChange | TaskIntent::RuntimeConfig | TaskIntent::PriorAttempt => {}
+    }
+    if let Some(prior) = prior.filter(|memory| !memory.is_empty())
+        && let Some(memory) = memory_op(task, prior, policy)
+    {
+        if intent == TaskIntent::PriorAttempt {
+            operations.insert(0, memory);
+        } else {
+            operations.push(memory);
+        }
     }
     if !identifiers.is_empty() {
         if intent == TaskIntent::RuntimeConfig {

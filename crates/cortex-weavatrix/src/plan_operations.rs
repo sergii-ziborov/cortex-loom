@@ -4,6 +4,7 @@ use super::{
     EvidenceKind, MIN_OPERATION_BUDGET, PlanPolicy, PlannedOperation, escape_regex_literal,
     search_pattern,
 };
+use crate::PriorRunMemory;
 
 pub(super) fn search_op(
     id: &'static str,
@@ -164,6 +165,21 @@ pub(super) fn stacktrace_op(task: &str, policy: PlanPolicy) -> PlannedOperation 
         expected_tokens: policy.stacktrace_tokens,
         bounded: false,
     }
+}
+
+pub(super) fn memory_op(
+    task: &str,
+    prior: &PriorRunMemory,
+    policy: PlanPolicy,
+) -> Option<PlannedOperation> {
+    Some(PlannedOperation {
+        id: "WX-MEMORY",
+        tool: "memory_context",
+        kind: EvidenceKind::Memory,
+        arguments: prior.memory_arguments(task, policy.memory_tokens)?,
+        expected_tokens: policy.memory_tokens,
+        bounded: false,
+    })
 }
 
 pub(super) fn select_tests_op(policy: PlanPolicy) -> PlannedOperation {

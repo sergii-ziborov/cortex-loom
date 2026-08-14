@@ -64,6 +64,9 @@ pub fn compile_evidence_bundle(
             relevance: score,
         }
     }));
+    if let Some(index) = mechanism_index(task, &items) {
+        items.insert(1, index);
+    }
     // Fragments come from several Weavatrix operations that budget
     // independently, so the same source lines arrive more than once. Only
     // this layer can see that.
@@ -112,6 +115,84 @@ const fn evidence_policy(kind: EvidenceKind, head: bool) -> (EvidencePriority, E
         | EvidenceKind::SearchHits
         | EvidenceKind::SymbolContext
         | EvidenceKind::TypeExpansion => (EvidencePriority::High, EvidenceState::Verified),
+    }
+}
+
+/// A short index of mechanisms already present in the packet.
+///
+/// Measured on T3: the 9B saw `enabled`, `cfg(feature)`, and
+/// `safe_virtual_path` and still refused to name them. Naming the fragment
+/// recovered those facts through the same model. Only labels mechanisms the
+/// evidence already carries.
+fn mechanism_index(task: &str, items: &[EvidenceItem]) -> Option<EvidenceItem> {
+    let lower = task.to_ascii_lowercase();
+    if !crate::plan_intent::is_broad(task) && !lower.contains("quiet") {
+        return None;
+    }
+    let blob: String = items
+        .iter()
+        .filter(|item| item.id != "TASK")
+        .map(|item| item.content.as_str())
+        .collect::<Vec<_>>()
+        .join("\n")
+        .to_ascii_lowercase();
+    let mut lines = Vec::new();
+    push_mechanism(
+        &mut lines,
+        &blob,
+        &["pub enabled", " enabled:", ".enabled"],
+        "mechanism: enable-flag — field `enabled`",
+    );
+    push_mechanism(
+        &mut lines,
+        &blob,
+        &["max_entry_bytes", "max_expanded_bytes", "max_archive_bytes"],
+        "mechanism: size-limit — max_entry_bytes / max_expanded_bytes / max_archive_bytes",
+    );
+    push_mechanism(
+        &mut lines,
+        &blob,
+        &["max_entries"],
+        "mechanism: entry-count — max_entries",
+    );
+    push_mechanism(
+        &mut lines,
+        &blob,
+        &[
+            "cfg(feature",
+            "feature = \"archives\"",
+            "feature=\"archives\"",
+        ],
+        "mechanism: feature-gate — cfg(feature = \"archives\")",
+    );
+    push_mechanism(
+        &mut lines,
+        &blob,
+        &["safe_virtual_path", "../", "traversal"],
+        "mechanism: path-skip — safe_virtual_path",
+    );
+    push_mechanism(
+        &mut lines,
+        &blob,
+        &["quiet_match", "fn quiet"],
+        "mechanism: quiet-path — quiet_match",
+    );
+    if lines.is_empty() {
+        return None;
+    }
+    Some(EvidenceItem {
+        id: "WX-MECHANISMS".to_owned(),
+        source: "cortex:mechanism_index".to_owned(),
+        content: format!("mechanisms present in this packet:\n{}", lines.join("\n")),
+        priority: EvidencePriority::Critical,
+        state: EvidenceState::Verified,
+        relevance: None,
+    })
+}
+
+fn push_mechanism(lines: &mut Vec<String>, blob: &str, needles: &[&str], label: &str) {
+    if needles.iter().any(|needle| blob.contains(needle)) {
+        lines.push(label.to_owned());
     }
 }
 
@@ -188,6 +269,52 @@ mod tests {
         assert!(
             !compiled.context.requires_upstream,
             "search hits are verified evidence"
+        );
+    }
+
+    #[test]
+    fn a_broad_packet_labels_only_mechanisms_already_present() {
+        let task = "List every mechanism that can silently cause an archive miss.";
+        let bundle = EvidenceBundle {
+            repository: "repo".to_owned(),
+            evidence: vec![
+                fragment(
+                    "WX-DEF",
+                    EvidenceKind::SourceReads,
+                    "pub enabled: bool,\n    pub max_entries: usize,\nfn safe_virtual_path() {}",
+                ),
+                fragment("WX-SEARCH", EvidenceKind::SearchHits, "search matches: 1"),
+            ],
+            warnings: Vec::new(),
+        };
+        let compiled = compile_evidence_bundle(bundle, task, 2_000, None).unwrap();
+        assert_eq!(compiled.context.included_ids[0], "TASK");
+        assert_eq!(compiled.context.included_ids[1], "WX-MECHANISMS");
+        assert!(compiled.context.content.contains("mechanism: enable-flag"));
+        assert!(compiled.context.content.contains("mechanism: entry-count"));
+        assert!(compiled.context.content.contains("mechanism: path-skip"));
+        assert!(!compiled.context.content.contains("mechanism: feature-gate"));
+    }
+
+    #[test]
+    fn pointed_tasks_do_not_grow_a_mechanism_index() {
+        let bundle = EvidenceBundle {
+            repository: "repo".to_owned(),
+            evidence: vec![fragment(
+                "WX-DEF",
+                EvidenceKind::SourceReads,
+                "pub enabled: bool",
+            )],
+            warnings: Vec::new(),
+        };
+        let compiled =
+            compile_evidence_bundle(bundle, "Rename `read_limited`", 1_000, None).unwrap();
+        assert!(
+            !compiled
+                .context
+                .included_ids
+                .iter()
+                .any(|id| id == "WX-MECHANISMS")
         );
     }
 

@@ -28,6 +28,20 @@ function completeness(value) {
   };
 }
 
+// Prefer the compiled packet a correct client reads, not the JSON envelope.
+function modelVisibleText(countedText) {
+  const parsed = parsedJson(countedText);
+  if (
+    parsed
+    && parsed.context
+    && typeof parsed.context.content === 'string'
+    && parsed.context.content.length > 0
+  ) {
+    return parsed.context.content;
+  }
+  return countedText;
+}
+
 function extractPayload(result = {}) {
   const contentText = Array.isArray(result.content)
     ? result.content.filter((block) => block && block.type === 'text').map((block) => block.text || '').join('\n')
@@ -181,4 +195,4 @@ class McpClient {
   }
 }
 
-module.exports = { McpClient, estimateTokens, extractPayload };
+module.exports = { McpClient, estimateTokens, extractPayload, modelVisibleText };

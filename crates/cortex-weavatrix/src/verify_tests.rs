@@ -265,6 +265,45 @@ fn identifier_only_semantic_retry_keeps_its_search_query() {
 }
 
 #[test]
+fn quiet_result_mode_requires_the_quiet_path() {
+    let task =
+        "How does multiline search group matches, and what does quiet result mode do instead?";
+    let thin = EvidenceBundle {
+        repository: "repo".to_owned(),
+        evidence: vec![
+            fragment(
+                "WX-SEARCH",
+                EvidenceKind::SearchHits,
+                "search matches: 1\nsrc/multiline/mod.rs:10: fn finish_block",
+            ),
+            fragment(
+                "WX-DEF",
+                EvidenceKind::SourceReads,
+                "fn finish_block() { if end_line { } }",
+            ),
+        ],
+        warnings: Vec::new(),
+    };
+    let report = assess_compiled(
+        &thin,
+        &["WX-SEARCH".to_owned(), "WX-DEF".to_owned()],
+        task,
+        Some("finish_block"),
+        PlanHints::default(),
+        true,
+        false,
+    );
+    assert!(
+        report
+            .missing_evidence
+            .iter()
+            .any(|item| item == "source_term:quiet_path"),
+        "missing was {:?}",
+        report.missing_evidence
+    );
+}
+
+#[test]
 fn a_broad_silent_miss_packet_is_thin_without_option_limits_and_path_guard() {
     let task = "A regex matches a file on disk but returns nothing when the same file sits inside a .tar.gz. \
          List every mechanism in this crate that can silently cause that.";

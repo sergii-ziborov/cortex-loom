@@ -5,7 +5,7 @@ const path = require('node:path');
 const test = require('node:test');
 
 const { archiveCurrentReport, writeCurrentReport } = require('../lib/harness');
-const { extractPayload } = require('../lib/mcp');
+const { extractPayload, modelVisibleText } = require('../lib/mcp');
 const {
   commandInvocation,
   configuredWeavatrixVersion,
@@ -16,6 +16,17 @@ const {
 const { alternatingOrders } = require('../lib/schedule');
 const { classifyFailure, summarizeRows } = require('../lib/scoreboard');
 const { LIVE_TASKS, gradeContext } = require('../fixtures');
+
+test('a compiled Cortex envelope is consumed as the inner packet', () => {
+  const packet = '## [WX-DEF] definition\npub enabled: bool\n';
+  const envelope = JSON.stringify({
+    repository: 'repo',
+    context: { content: packet, includedIds: ['WX-DEF'] },
+    sufficiency: { sufficient: true },
+  });
+  assert.equal(modelVisibleText(envelope), packet);
+  assert.equal(modelVisibleText('plain grep output'), 'plain grep output');
+});
 
 test('payload accounting counts exactly one client-visible representation', () => {
   const textOnly = extractPayload({ content: [{ type: 'text', text: '{"value":1}' }] });

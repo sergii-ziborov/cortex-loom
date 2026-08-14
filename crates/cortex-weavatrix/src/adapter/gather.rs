@@ -285,6 +285,7 @@ impl WeavatrixAdapter {
                     false,
                 );
             }
+            let preferred = crate::verify::source_priority_patterns(task, symbol, hints);
             append_source_reads(
                 engine,
                 &mut evidence,
@@ -294,7 +295,7 @@ impl WeavatrixAdapter {
                 policy,
                 SourceReadPlan {
                     id_prefix: "WX-SOURCE",
-                    preferred_patterns: &[],
+                    preferred_patterns: &preferred,
                     window: crate::source_followup::SourceWindow::for_task(task),
                 },
             );

@@ -12,7 +12,7 @@ const {
   rustFiles,
 } = require('./lib/harness');
 const { detectEnvironment, ROOT } = require('./lib/manifest');
-const { McpClient, estimateTokens } = require('./lib/mcp');
+const { McpClient, estimateTokens, modelVisibleText } = require('./lib/mcp');
 const { generate } = require('./lib/ollama');
 const { alternatingOrders } = require('./lib/schedule');
 const { summarizeRows } = require('./lib/scoreboard');
@@ -120,13 +120,16 @@ function naiveContext(repository, task) {
 
 async function mcpContext(server, calls) {
   let context = '';
+  let envelope = '';
   let latencyMs = 0;
   let payloadFormat = null;
   let sufficient = null;
   const callRecords = [];
   for (const [tool, args] of calls) {
     const result = await server.call(tool, args);
-    context += `\n===== ${server.definition.name} ${tool} =====\n${result.countedText}`;
+    const visible = modelVisibleText(result.countedText);
+    context += `\n===== ${server.definition.name} ${tool} =====\n${visible}`;
+    envelope += `\n===== ${server.definition.name} ${tool} =====\n${result.countedText}`;
     latencyMs += result.latencyMs;
     payloadFormat = result.format;
     callRecords.push(result);
@@ -138,6 +141,7 @@ async function mcpContext(server, calls) {
   }
   return {
     context,
+    envelope,
     calls: calls.length,
     latencyMs,
     schemaTokens: server.schemaTokens,
@@ -337,7 +341,7 @@ async function run(options = {}) {
               falseConfidence: built.sufficient === true && !contextGrade.taskSuccess,
               failureClass: classification,
               selectedTokens: estimateTokens(built.context),
-              deliveredTokens: estimateTokens(built.context),
+              deliveredTokens: estimateTokens(built.envelope || built.context),
               schemaTokens: built.schemaTokens,
               modelPrefillTokens: model.promptTokens,
               modelGenerationTokens: model.generationTokens,

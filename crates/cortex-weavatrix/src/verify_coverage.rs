@@ -40,7 +40,20 @@ pub(super) fn coverage_requirements(
     requirements.extend(lifecycle_requirements(&lower, symbol, intent, runtime_flag));
     requirements.extend(route_store_requirements(&lower, intent));
     requirements.extend(broad_silence_requirements(&lower));
+    requirements.extend(quiet_mode_requirements(&lower));
     requirements
+}
+
+/// Quiet/result-mode questions need the quiet path, not only `finish_block`.
+fn quiet_mode_requirements(lower: &str) -> Vec<CoverageRequirement> {
+    if !lower.contains("quiet") {
+        return Vec::new();
+    }
+    vec![requirement(
+        "quiet_path",
+        &["quiet_match", "fn quiet"],
+        &["quiet_match", "fn quiet"],
+    )]
 }
 
 /// Enumerating "why did this silently miss" questions need the three

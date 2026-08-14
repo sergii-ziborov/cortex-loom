@@ -5,8 +5,9 @@ use serde_json::json;
 use super::cleanup::prune_incomplete_definition_duplicates;
 use super::evidence::{
     EvidenceBundle, EvidenceKind, SourceReadPlan, append_definition_read, append_source_reads,
-    append_type_expansion_reads, budget_overrun, fragments, native_call, normalize_graph_stats,
+    budget_overrun, fragments, native_call, normalize_graph_stats,
 };
+use super::expand::{append_type_expansion_reads, callee_hits_from_evidence};
 use super::retry::retry_wide_search;
 use super::{WeavatrixAdapter, WeavatrixError};
 
@@ -270,6 +271,9 @@ impl WeavatrixAdapter {
             }
         }
         if source_followup {
+            if crate::plan_intent::is_broad(task) {
+                search_hits.extend(callee_hits_from_evidence(&evidence));
+            }
             if let Some(symbol) = symbol {
                 append_definition_read(
                     engine,
@@ -381,31 +385,8 @@ impl WeavatrixAdapter {
                 budget,
                 policy,
             );
-            if source_followup {
-                let retry_hits = gathered.search_hits[first_retry_hit..].to_vec();
-                if !retry_hits.is_empty() {
-                    let preferred_patterns =
-                        crate::verify::source_priority_patterns(task, symbol, hints);
-                    // The definition read survives the source rebuild: it is
-                    // the one fragment whose absence the retry may exist to
-                    // repair, and dropping it here reintroduced truncation.
-                    gathered.bundle.evidence.retain(|item| {
-                        item.kind != EvidenceKind::SourceReads || item.id.starts_with("WX-DEF")
-                    });
-                    append_source_reads(
-                        engine,
-                        &mut gathered.bundle.evidence,
-                        &mut gathered.bundle.warnings,
-                        &gathered.search_hits,
-                        budget,
-                        policy,
-                        SourceReadPlan {
-                            id_prefix: "WX-RETRY-SOURCE",
-                            preferred_patterns: &preferred_patterns,
-                            window: crate::source_followup::SourceWindow::for_task(task),
-                        },
-                    );
-                }
+            if source_followup && gathered.search_hits.len() > first_retry_hit {
+                rebuild_retry_sources(engine, gathered, task, symbol, hints, budget, policy);
             }
         }
         for operation in crate::plan::plan_with_hints(task, symbol, budget, policy, hints) {
@@ -455,5 +436,45 @@ impl WeavatrixAdapter {
             prune_incomplete_definition_duplicates(&mut gathered.bundle.evidence, symbol);
         }
         Ok(())
+    }
+}
+
+fn rebuild_retry_sources(
+    engine: &mut weavatrix_rust::Weavatrix,
+    gathered: &mut TargetedEvidence,
+    task: &str,
+    symbol: Option<&str>,
+    hints: crate::PlanHints,
+    budget: u32,
+    policy: crate::plan::PlanPolicy,
+) {
+    let preferred_patterns = crate::verify::source_priority_patterns(task, symbol, hints);
+    // The definition read survives the source rebuild: it is the one
+    // fragment whose absence the retry may exist to repair.
+    gathered
+        .bundle
+        .evidence
+        .retain(|item| item.kind != EvidenceKind::SourceReads || item.id.starts_with("WX-DEF"));
+    append_source_reads(
+        engine,
+        &mut gathered.bundle.evidence,
+        &mut gathered.bundle.warnings,
+        &gathered.search_hits,
+        budget,
+        policy,
+        SourceReadPlan {
+            id_prefix: "WX-RETRY-SOURCE",
+            preferred_patterns: &preferred_patterns,
+            window: crate::source_followup::SourceWindow::for_task(task),
+        },
+    );
+    if crate::plan_intent::is_broad(task) {
+        append_type_expansion_reads(
+            engine,
+            &mut gathered.bundle.evidence,
+            &mut gathered.bundle.warnings,
+            task,
+            budget,
+        );
     }
 }

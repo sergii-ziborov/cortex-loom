@@ -263,3 +263,92 @@ fn identifier_only_semantic_retry_keeps_its_search_query() {
     );
     assert_eq!(queries, [identifier]);
 }
+
+#[test]
+fn a_broad_silent_miss_packet_is_thin_without_option_limits_and_path_guard() {
+    let task = "A regex matches a file on disk but returns nothing when the same file sits inside a .tar.gz. \
+         List every mechanism in this crate that can silently cause that.";
+    let thin = EvidenceBundle {
+        repository: "repo".to_owned(),
+        evidence: vec![
+            fragment(
+                "WX-SEARCH",
+                EvidenceKind::SearchHits,
+                "search matches: 1\nsrc/archive/compression.rs:9: fn search_compressed_tar",
+            ),
+            fragment(
+                "WX-DEF",
+                EvidenceKind::SourceReads,
+                "fn search_compressed_tar() { read_limited(options.archives.max_expanded_bytes) }",
+            ),
+        ],
+        warnings: Vec::new(),
+    };
+    let included = ["WX-SEARCH".to_owned(), "WX-DEF".to_owned()];
+    let report = assess_compiled(
+        &thin,
+        &included,
+        task,
+        Some("search_compressed_tar"),
+        PlanHints::default(),
+        true,
+        false,
+    );
+    assert!(!report.sufficient);
+    for term in ["option_enabled", "count_limit", "path_guard"] {
+        assert!(
+            report
+                .missing_evidence
+                .iter()
+                .any(|item| item == &format!("source_term:{term}")),
+            "missing {term} from {:?}",
+            report.missing_evidence
+        );
+    }
+
+    let enough = EvidenceBundle {
+        repository: "repo".to_owned(),
+        evidence: vec![
+            fragment(
+                "WX-SEARCH",
+                EvidenceKind::SearchHits,
+                "search matches: 1\nsrc/archive/compression.rs:9: fn search_compressed_tar",
+            ),
+            fragment(
+                "WX-DEF",
+                EvidenceKind::SourceReads,
+                "fn search_compressed_tar() {}",
+            ),
+            fragment(
+                "WX-TYPE-1",
+                EvidenceKind::TypeExpansion,
+                "pub struct ArchiveOptions {\n    pub enabled: bool,\n    pub max_entries: usize,\n}",
+            ),
+            fragment(
+                "WX-SOURCE-2",
+                EvidenceKind::SourceReads,
+                "fn safe_virtual_path(path: &str) -> Option<&str> { path.contains(\"../\") }",
+            ),
+        ],
+        warnings: Vec::new(),
+    };
+    let filled = assess_compiled(
+        &enough,
+        &[
+            "WX-SEARCH".to_owned(),
+            "WX-DEF".to_owned(),
+            "WX-TYPE-1".to_owned(),
+            "WX-SOURCE-2".to_owned(),
+        ],
+        task,
+        Some("search_compressed_tar"),
+        PlanHints::default(),
+        true,
+        false,
+    );
+    assert!(
+        filled.sufficient,
+        "unexpected missing evidence: {:?}",
+        filled.missing_evidence
+    );
+}

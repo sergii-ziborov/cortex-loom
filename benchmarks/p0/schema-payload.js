@@ -33,7 +33,7 @@ function payloadGrade(client, result, arm) {
 
 function definition(arm, repository, serenaCommit) {
   if (arm.startsWith('weavatrix-')) return {
-    command: 'npx.cmd', args: ['-y', 'weavatrix@1.7.0', 'mcp', '.', '--profile=code'], cwd: repository,
+    command: 'npx.cmd', args: ['-y', 'weavatrix@1.8.0', 'mcp', '.', '--profile=code'], cwd: repository,
     name: 'weavatrix', profile: 'code', format: arm.slice('weavatrix-'.length),
   };
   if (arm === 'cortex-default') return {

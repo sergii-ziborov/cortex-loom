@@ -44,7 +44,7 @@ tower-http = { version = "0.7.0", features = ["fs", "trace"] }
 ureq = { version = "3.4.0", default-features = false }
 weavatrix-edit = "0.1.7"
 weavatrix-refactor-plan = "0.1.1"
-weavatrix-rust = "2.5.1"
+weavatrix-rust = "2.6.0"
 
 [profile.release]
 lto = "thin"

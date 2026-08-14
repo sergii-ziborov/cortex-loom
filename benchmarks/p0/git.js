@@ -144,7 +144,7 @@ async function run(options = {}) {
     suiteVersion: 'git-v2', targetRepository: repository,
     mcp: { protocolVersion: '2025-06-18', transport: 'stdio', representationCounted: 'content-first' },
   });
-  const server = new McpClient({ command: 'npx.cmd', args: ['-y', 'weavatrix@1.7.0', 'mcp', '.', '--profile=code'], cwd: repository, name: 'weavatrix', profile: 'code' });
+  const server = new McpClient({ command: 'npx.cmd', args: ['-y', 'weavatrix@1.8.0', 'mcp', '.', '--profile=code'], cwd: repository, name: 'weavatrix', profile: 'code' });
   const oracles = {
     'recent-history': nativeHistory(repository),
     'source-structural-diff': nativeDiff(repository),

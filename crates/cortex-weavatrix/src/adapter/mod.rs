@@ -1,5 +1,6 @@
 mod cleanup;
 mod evidence;
+mod expand;
 mod gather;
 mod render;
 mod retry;

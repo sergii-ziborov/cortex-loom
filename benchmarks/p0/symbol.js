@@ -133,7 +133,7 @@ async function run(options = {}) {
   const serenaCommit = manifest.serena.value && manifest.serena.value.commit;
   if (!serenaCommit) throw new Error(`cannot resolve current Serena: ${manifest.serena.reason}`);
   const servers = {
-    'weavatrix-mcp': new McpClient({ command: 'npx.cmd', args: ['-y', 'weavatrix@1.7.0', 'mcp', '.', '--profile=code'], cwd: repository, name: 'weavatrix', profile: 'code' }),
+    'weavatrix-mcp': new McpClient({ command: 'npx.cmd', args: ['-y', 'weavatrix@1.8.0', 'mcp', '.', '--profile=code'], cwd: repository, name: 'weavatrix', profile: 'code' }),
     'serena-mcp': new McpClient({
       command: 'uvx',
       args: ['--from', `git+https://github.com/oraios/serena@${serenaCommit}`, 'serena', 'start-mcp-server', '--project', repository, '--context', 'ide-assistant', '--enable-web-dashboard', 'False', '--enable-gui-log-window', 'False'],

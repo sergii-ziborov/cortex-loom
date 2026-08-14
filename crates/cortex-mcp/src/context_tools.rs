@@ -51,7 +51,7 @@ pub(crate) fn register(
         )
         .typed_tool(
             "weavatrix_context_compile",
-            "Plan Weavatrix operations from the task, then compile their evidence into one deterministic, budgeted context packet with stable citation IDs. Name the symbols, files, and constants you care about in `task`: identifiers in the text drive which operations run. Leave `targeted` unset: `targeted=false` selects a retired fixed operation set that is measurably worse on both tokens and recall.",
+            "Plan Weavatrix operations from the task, then compile a cortex-source packet: complete named definitions, bounded read_source on search hits and callee files, one sufficiency retry, then a budgeted compile with stable citation IDs. Name the symbols, files, and constants you care about in `task`. Leave `targeted` unset: `targeted=false` is a retired fixed operation set that is worse on tokens and recall.",
             json!({
                 "type": "object",
                 "properties": {

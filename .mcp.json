@@ -5,7 +5,7 @@
       "command": "npx.cmd",
       "args": [
         "-y",
-        "weavatrix@1.7.1",
+        "weavatrix@1.8.0",
         "mcp",
         ".",
         "--profile=code"

@@ -150,7 +150,7 @@ async function run(options = {}) {
     mcp: { protocolVersion: '2025-06-18', transport: 'stdio', representationCounted: 'content-first' },
   });
   const servers = {
-    'weavatrix-mcp': new McpClient({ command: 'npx.cmd', args: ['-y', 'weavatrix@1.7.0', 'mcp', '.', '--profile=code'], cwd: worktrees['weavatrix-mcp'], name: 'weavatrix', profile: 'code' }),
+    'weavatrix-mcp': new McpClient({ command: 'npx.cmd', args: ['-y', 'weavatrix@1.8.0', 'mcp', '.', '--profile=code'], cwd: worktrees['weavatrix-mcp'], name: 'weavatrix', profile: 'code' }),
     'cortex-mcp': new McpClient({ command: path.join(ROOT, 'target', 'release', 'cortex-mcp.exe'), args: ['--profile', 'context'], cwd: worktrees['cortex-mcp'], name: 'cortex', profile: 'context' }),
   };
   const rows = [];

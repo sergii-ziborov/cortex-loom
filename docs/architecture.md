@@ -4,11 +4,15 @@ Cortex Loom is a control plane, not an autonomous replacement for Codex or Claud
 
 ## Runtime flow
 
-1. Deterministic parsers and repository tools reduce the search space.
-2. Weavatrix supplies revision-bound graph, impact, architecture, and source evidence.
-3. A local inference adapter may classify, extract, or compress only bounded evidence.
-4. A quality gate validates structure, provenance, risk, and budgets.
-5. Codex or Claude receives the compact evidence and remains responsible for ambiguous or high-risk engineering decisions.
+1. A deterministic router sets a risk floor. Local models may only escalate.
+2. An optional sequence contributes one active step and `PlanHints`.
+3. The planner picks Weavatrix operations from the task: search, symbols,
+   callers, modules, endpoints, source windows, git history, stack traces,
+   test selection, and prior-run memory when a previous attempt exists.
+4. Sufficiency allows one targeted retry. A still-thin packet becomes an
+   upstream handoff, never a confident local answer.
+5. Codex or Claude receives the compact evidence and remains responsible
+   for ambiguous or high-risk engineering decisions.
 
 Local output is advisory. No model may publish, deploy, approve a release, apply a refactor, or mutate workflow state solely from self-reported confidence.
 

@@ -24,7 +24,8 @@ export const HELP_TOPICS: HelpTopic[] = [
   {
     id: 'start',
     title: 'Getting started',
-    lede: 'The graph is canonical and lives on the server. The editor is a client: '
+    lede: 'Cortex Loom is the budget and authority layer in front of a coding agent. '
+      + 'The graph is canonical and lives on the server. The editor is a client: '
       + 'nothing is persisted until you save, and a run is created from a saved revision.',
     sections: [
       {
@@ -72,7 +73,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         entries: [
           ['input', 'Entry point that receives the request or task.'],
           ['deterministic', 'Parsers and repository tooling. No model runs, so the result is reproducible.'],
-          ['weavatrix', 'Repository graph, impact, and architecture evidence.'],
+          ['weavatrix', 'Repository graph, impact, git history, stack traces, tests, prior-run memory, and architecture evidence.'],
           ['skill', 'A reusable methodology workflow, typically compiled from SKILL.md.'],
           ['agent_task', 'A unit of work handed to an agent.'],
           ['local_model', 'A bounded local-model step. Its output is advisory and must be reviewed.'],

@@ -304,6 +304,39 @@ fn quiet_result_mode_requires_the_quiet_path() {
 }
 
 #[test]
+fn a_block_join_question_requires_block_and_end_line() {
+    let task = "How does multiline search group matches into a single reported block when a new match joins?";
+    let thin = EvidenceBundle {
+        repository: "repo".to_owned(),
+        evidence: vec![fragment(
+            "WX-DEF",
+            EvidenceKind::SourceReads,
+            "fn finish_block() {}",
+        )],
+        warnings: Vec::new(),
+    };
+    let report = assess_compiled(
+        &thin,
+        &["WX-DEF".to_owned()],
+        task,
+        Some("finish_block"),
+        PlanHints::default(),
+        true,
+        false,
+    );
+    for term in ["block_type", "join_condition"] {
+        assert!(
+            report
+                .missing_evidence
+                .iter()
+                .any(|item| item == &format!("source_term:{term}")),
+            "missing {term} from {:?}",
+            report.missing_evidence
+        );
+    }
+}
+
+#[test]
 fn a_broad_silent_miss_packet_is_thin_without_option_limits_and_path_guard() {
     let task = "A regex matches a file on disk but returns nothing when the same file sits inside a .tar.gz. \
          List every mechanism in this crate that can silently cause that.";

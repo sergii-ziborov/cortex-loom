@@ -126,7 +126,10 @@ const fn evidence_policy(kind: EvidenceKind, head: bool) -> (EvidencePriority, E
 /// evidence already carries.
 fn mechanism_index(task: &str, items: &[EvidenceItem]) -> Option<EvidenceItem> {
     let lower = task.to_ascii_lowercase();
-    if !crate::plan_intent::is_broad(task) && !lower.contains("quiet") {
+    if !crate::plan_intent::is_broad(task)
+        && !lower.contains("quiet")
+        && !is_block_join_task(&lower)
+    {
         return None;
     }
     let blob: String = items
@@ -177,6 +180,18 @@ fn mechanism_index(task: &str, items: &[EvidenceItem]) -> Option<EvidenceItem> {
         &["quiet_match", "fn quiet"],
         "mechanism: quiet-path — quiet_match",
     );
+    push_mechanism(
+        &mut lines,
+        &blob,
+        &["struct block", "type block"],
+        "mechanism: block-type — struct `Block`",
+    );
+    push_mechanism(
+        &mut lines,
+        &blob,
+        &["end_line", "start_line"],
+        "mechanism: join-condition — end_line / start_line; otherwise finish_block",
+    );
     if lines.is_empty() {
         return None;
     }
@@ -188,6 +203,11 @@ fn mechanism_index(task: &str, items: &[EvidenceItem]) -> Option<EvidenceItem> {
         state: EvidenceState::Verified,
         relevance: None,
     })
+}
+
+fn is_block_join_task(lower: &str) -> bool {
+    lower.contains("block")
+        && (lower.contains("join") || lower.contains("group") || lower.contains("multiline"))
 }
 
 fn push_mechanism(lines: &mut Vec<String>, blob: &str, needles: &[&str], label: &str) {
@@ -294,6 +314,34 @@ mod tests {
         assert!(compiled.context.content.contains("mechanism: entry-count"));
         assert!(compiled.context.content.contains("mechanism: path-skip"));
         assert!(!compiled.context.content.contains("mechanism: feature-gate"));
+    }
+
+    #[test]
+    fn a_multiline_packet_labels_block_and_join() {
+        let task = "How does multiline search group matches into a single reported block?";
+        let bundle = EvidenceBundle {
+            repository: "repo".to_owned(),
+            evidence: vec![fragment(
+                "WX-DEF",
+                EvidenceKind::SourceReads,
+                "struct Block { end_line: usize }\nfn finish_block() {}",
+            )],
+            warnings: Vec::new(),
+        };
+        let compiled = compile_evidence_bundle(bundle, task, 2_000, None).unwrap();
+        assert!(
+            compiled
+                .context
+                .content
+                .contains("mechanism: block-type — struct `Block`")
+        );
+        assert!(
+            compiled
+                .context
+                .content
+                .contains("mechanism: join-condition")
+        );
+        assert!(compiled.context.content.contains("end_line"));
     }
 
     #[test]

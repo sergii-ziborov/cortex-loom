@@ -41,7 +41,28 @@ pub(super) fn coverage_requirements(
     requirements.extend(route_store_requirements(&lower, intent));
     requirements.extend(broad_silence_requirements(&lower));
     requirements.extend(quiet_mode_requirements(&lower));
+    requirements.extend(block_join_requirements(&lower));
     requirements
+}
+
+fn block_join_requirements(lower: &str) -> Vec<CoverageRequirement> {
+    if !(lower.contains("block")
+        && (lower.contains("join") || lower.contains("group") || lower.contains("multiline")))
+    {
+        return Vec::new();
+    }
+    vec![
+        requirement(
+            "block_type",
+            &["struct block", "type block"],
+            &["struct Block", r"\bBlock\b"],
+        ),
+        requirement(
+            "join_condition",
+            &["end_line", "start_line"],
+            &["end_line", "start_line"],
+        ),
+    ]
 }
 
 /// Quiet/result-mode questions need the quiet path, not only `finish_block`.

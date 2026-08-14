@@ -18,12 +18,29 @@ pub enum TaskIntent {
     ModuleTopology,
     /// Runtime configuration, environment flags, profiles, and policy gates.
     RuntimeConfig,
+    /// Commit history, churn, blame, or "who introduced this".
+    GitHistory,
+    /// A panic, backtrace, or pasted stack frames to map onto the graph.
+    StackTrace,
+    /// Which tests a change should run.
+    TestSelection,
 }
 
 /// Classify `task` from stable structural cues in the prose.
 #[must_use]
 pub fn detect(task: &str) -> TaskIntent {
     let lower = task.to_ascii_lowercase();
+    // Specific evidence shapes win over structural ones: a pasted panic is
+    // not an API-contract question even if a path contains `/api/`.
+    if stack_trace_cue(&lower) {
+        return TaskIntent::StackTrace;
+    }
+    if test_selection_cue(&lower) {
+        return TaskIntent::TestSelection;
+    }
+    if git_history_cue(&lower) {
+        return TaskIntent::GitHistory;
+    }
     // Contract cues win over blast-radius "what breaks" when both appear.
     if api_contract_cue(&lower) {
         return TaskIntent::ApiContract;
@@ -87,6 +104,68 @@ pub(crate) fn is_creation(task: &str) -> bool {
         .split(|character: char| !character.is_ascii_alphabetic())
         .take(6)
         .any(|word| matches!(word, "implement" | "add" | "create" | "introduce"))
+}
+
+fn stack_trace_cue(lower: &str) -> bool {
+    const CUES: &[&str] = &[
+        "stacktrace",
+        "stack trace",
+        "stack-trace",
+        "backtrace",
+        "back trace",
+        "panicked at",
+        "called `result::unwrap()`",
+        "called `option::unwrap()`",
+    ];
+    CUES.iter().any(|cue| lower.contains(cue))
+        || (lower.contains("thread '") && lower.contains("panicked"))
+        || (lower.contains(".rs:")
+            && (lower.contains(" at ")
+                || lower.contains("at src/")
+                || lower.contains("at crates/")
+                || lower.contains("\tat ")))
+}
+
+fn test_selection_cue(lower: &str) -> bool {
+    const CUES: &[&str] = &[
+        "which tests",
+        "what tests",
+        "select tests",
+        "tests to run",
+        "tests should i run",
+        "tests should we run",
+        "which test suite",
+        "which suites to run",
+        "relevant tests",
+        "what should i test",
+        "what should we test",
+    ];
+    CUES.iter().any(|cue| lower.contains(cue))
+}
+
+fn git_history_cue(lower: &str) -> bool {
+    const CUES: &[&str] = &[
+        "git history",
+        "commit history",
+        "git log",
+        "git blame",
+        "who changed",
+        "who last edited",
+        "who last touched",
+        "who introduced",
+        "who added",
+        "last commit",
+        "recent commits",
+        "co-change",
+        "cochange",
+        "when was this added",
+        "when was this introduced",
+        "when did we add",
+        "when did we introduce",
+    ];
+    CUES.iter().any(|cue| lower.contains(cue))
+        || (lower.contains("churn") && (lower.contains("commit") || lower.contains("file")))
+        || (lower.contains(" blame ") && (lower.contains("line") || lower.contains("file")))
 }
 
 fn blast_radius_cue(lower: &str) -> bool {
@@ -223,6 +302,22 @@ mod tests {
         assert_eq!(
             detect("Which env flag enables ShadowHandle?"),
             TaskIntent::RuntimeConfig
+        );
+        assert_eq!(
+            detect("Who changed `compile_context` last?"),
+            TaskIntent::GitHistory
+        );
+        assert_eq!(
+            detect("Which tests should I run after changing compile_context?"),
+            TaskIntent::TestSelection
+        );
+        assert_eq!(
+            detect("thread 'main' panicked at src/retry.rs:12:1:\nstack backtrace:"),
+            TaskIntent::StackTrace
+        );
+        assert_eq!(
+            detect("Fix the failing unit test in the graph store"),
+            TaskIntent::IdentifierChange
         );
     }
 }

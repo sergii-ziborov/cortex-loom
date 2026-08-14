@@ -114,7 +114,10 @@ const fn evidence_policy(kind: EvidenceKind, head: bool) -> (EvidencePriority, E
         | EvidenceKind::ModuleMap
         | EvidenceKind::SearchHits
         | EvidenceKind::SymbolContext
-        | EvidenceKind::TypeExpansion => (EvidencePriority::High, EvidenceState::Verified),
+        | EvidenceKind::TypeExpansion
+        | EvidenceKind::GitHistory
+        | EvidenceKind::StackTrace
+        | EvidenceKind::TestSelection => (EvidencePriority::High, EvidenceState::Verified),
     }
 }
 

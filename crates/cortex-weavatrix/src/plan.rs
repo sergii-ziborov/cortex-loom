@@ -1,9 +1,10 @@
 //! Deterministic task-aware evidence planning.
 //!
-//! Weavatrix exposes 42 operations. Asking the same four of them for every
+//! Weavatrix exposes 43 operations. Asking the same four of them for every
 //! task is why a compiled packet could describe a repository's structure
 //! without containing a single identifier the task named — measured, not
-//! assumed: see `docs/benchmark.md`.
+//! assumed: see `docs/benchmark.md`. Git history, stack-trace mapping, and
+//! test selection are planned when the question names those shapes.
 //!
 //! This module decides **which** operations to ask for, from the text of the
 //! task alone. It is deterministic and contains no model: identifiers are
@@ -20,8 +21,9 @@ use crate::{EvidenceKind, PlanHints};
 mod operations;
 
 use operations::{
-    asks_for_change_plan, blast_search_pattern, dependents_op, endpoints_op, modules_op,
-    neighbors_op, search_op, search_pattern_op, share, symbol_op, verify_op,
+    asks_for_change_plan, blast_search_pattern, dependents_op, endpoints_op, git_history_op,
+    modules_op, neighbors_op, search_op, search_pattern_op, select_tests_op, share, stacktrace_op,
+    symbol_op, verify_op,
 };
 
 /// Most identifiers to carry into a search. Beyond this the alternation stops
@@ -57,6 +59,9 @@ pub struct PlanPolicy {
     pub modules_tokens: u32,
     pub dependents_tokens: u32,
     pub endpoints_tokens: u32,
+    pub git_history_tokens: u32,
+    pub stacktrace_tokens: u32,
+    pub test_selection_tokens: u32,
     pub change_plan_tokens: u32,
     /// Pool for bounded `read_source` windows after search hits.
     pub source_tokens: u32,
@@ -75,6 +80,9 @@ impl Default for PlanPolicy {
             modules_tokens: 100,
             dependents_tokens: 2_500,
             endpoints_tokens: 400,
+            git_history_tokens: 800,
+            stacktrace_tokens: 1_500,
+            test_selection_tokens: 1_200,
             change_plan_tokens: 6_000,
             source_tokens: 1_300,
             overcommit: 2,
@@ -91,6 +99,7 @@ impl Default for PlanPolicy {
 /// operation, not a silent overrun.
 pub const BUDGET_HONOURING: &[&str] = &[
     "context_bundle",
+    "git_history",
     "query_graph",
     "read_source",
     "search_code",
@@ -360,6 +369,15 @@ fn plan_all(
         TaskIntent::ModuleTopology => {
             operations.push(modules_op(policy));
         }
+        TaskIntent::GitHistory => {
+            operations.push(git_history_op(policy));
+        }
+        TaskIntent::StackTrace => {
+            operations.push(stacktrace_op(task, policy));
+        }
+        TaskIntent::TestSelection => {
+            operations.push(select_tests_op(policy));
+        }
         TaskIntent::IdentifierChange | TaskIntent::RuntimeConfig => {}
     }
     if !identifiers.is_empty() {
@@ -402,7 +420,7 @@ fn plan_all(
     // Blast-radius questions already have dependents; symbol source is
     // secondary and often too large to keep under a 4k budget.
     if let Some(symbol) = symbol
-        && intent != TaskIntent::BlastRadius
+        && !skip_secondary_graph(intent)
     {
         operations.push(symbol_op(symbol, structural, policy));
     }
@@ -410,7 +428,7 @@ fn plan_all(
         operations.push(modules_op(policy));
     }
     if let Some(symbol) = symbol
-        && intent != TaskIntent::BlastRadius
+        && !skip_secondary_graph(intent)
     {
         operations.push(dependents_op(symbol, policy));
     }
@@ -418,6 +436,18 @@ fn plan_all(
         operations.push(verify_op(task, policy));
     }
     operations
+}
+
+/// These intents already asked the operation that answers the question.
+/// A 4k budget cannot also carry `context_bundle` / extra dependents.
+const fn skip_secondary_graph(intent: TaskIntent) -> bool {
+    matches!(
+        intent,
+        TaskIntent::BlastRadius
+            | TaskIntent::GitHistory
+            | TaskIntent::StackTrace
+            | TaskIntent::TestSelection
+    )
 }
 
 #[cfg(test)]

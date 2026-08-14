@@ -50,8 +50,11 @@ fn parse_intent(value: &str) -> Result<IntentHint, String> {
         "api_contract" | "api" => Ok(IntentHint::ApiContract),
         "module_topology" | "module" => Ok(IntentHint::ModuleTopology),
         "runtime_config" | "config" => Ok(IntentHint::RuntimeConfig),
+        "git_history" | "git" | "history" => Ok(IntentHint::GitHistory),
+        "stack_trace" | "stacktrace" | "backtrace" => Ok(IntentHint::StackTrace),
+        "test_selection" | "tests" | "select_tests" => Ok(IntentHint::TestSelection),
         other => Err(format!(
-            "skill context-intent `{other}` is unsupported; expected identifier_change, blast_radius, api_contract, module_topology, or runtime_config"
+            "skill context-intent `{other}` is unsupported; expected identifier_change, blast_radius, api_contract, module_topology, runtime_config, git_history, stack_trace, or test_selection"
         )),
     }
 }

@@ -424,3 +424,49 @@ fn a_broad_silent_miss_packet_is_thin_without_option_limits_and_path_guard() {
         filled.missing_evidence
     );
 }
+
+#[test]
+fn git_stack_and_test_intents_require_their_native_kinds() {
+    let empty = EvidenceBundle {
+        repository: "repo".to_owned(),
+        evidence: Vec::new(),
+        warnings: Vec::new(),
+    };
+    let git = assess_compiled(
+        &empty,
+        &[],
+        "Who changed this file last?",
+        None,
+        PlanHints::default(),
+        false,
+        false,
+    );
+    assert!(git.required_evidence.contains(&"git_history".to_owned()));
+    assert!(git.missing_evidence.contains(&"git_history".to_owned()));
+
+    let stack = assess_compiled(
+        &empty,
+        &[],
+        "thread 'main' panicked at src/retry.rs:12:1",
+        None,
+        PlanHints::default(),
+        false,
+        false,
+    );
+    assert!(stack.required_evidence.contains(&"stack_trace".to_owned()));
+
+    let tests = assess_compiled(
+        &empty,
+        &[],
+        "Which tests should I run after this change?",
+        None,
+        PlanHints::default(),
+        false,
+        false,
+    );
+    assert!(
+        tests
+            .required_evidence
+            .contains(&"test_selection".to_owned())
+    );
+}

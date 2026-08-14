@@ -17,6 +17,9 @@ pub enum IntentHint {
     ApiContract,
     ModuleTopology,
     RuntimeConfig,
+    GitHistory,
+    StackTrace,
+    TestSelection,
 }
 
 impl From<IntentHint> for TaskIntent {
@@ -27,6 +30,9 @@ impl From<IntentHint> for TaskIntent {
             IntentHint::ApiContract => Self::ApiContract,
             IntentHint::ModuleTopology => Self::ModuleTopology,
             IntentHint::RuntimeConfig => Self::RuntimeConfig,
+            IntentHint::GitHistory => Self::GitHistory,
+            IntentHint::StackTrace => Self::StackTrace,
+            IntentHint::TestSelection => Self::TestSelection,
         }
     }
 }

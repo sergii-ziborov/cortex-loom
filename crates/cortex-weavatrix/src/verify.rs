@@ -133,6 +133,9 @@ fn assess(
         }
         TaskIntent::ApiContract => required_kinds.push(EvidenceKind::Endpoints),
         TaskIntent::ModuleTopology => required_kinds.push(EvidenceKind::ModuleMap),
+        TaskIntent::GitHistory => required_kinds.push(EvidenceKind::GitHistory),
+        TaskIntent::StackTrace => required_kinds.push(EvidenceKind::StackTrace),
+        TaskIntent::TestSelection => required_kinds.push(EvidenceKind::TestSelection),
         TaskIntent::IdentifierChange | TaskIntent::RuntimeConfig | TaskIntent::BlastRadius => {}
     }
     if has_identifiers {
@@ -311,6 +314,9 @@ pub(crate) const fn kind_name(kind: EvidenceKind) -> &'static str {
         EvidenceKind::Endpoints => "endpoints",
         EvidenceKind::SourceReads => "source_reads",
         EvidenceKind::TypeExpansion => "type_expansion",
+        EvidenceKind::GitHistory => "git_history",
+        EvidenceKind::StackTrace => "stack_trace",
+        EvidenceKind::TestSelection => "test_selection",
     }
 }
 

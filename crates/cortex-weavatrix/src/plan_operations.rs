@@ -135,6 +135,52 @@ pub(super) fn endpoints_op(policy: PlanPolicy) -> PlannedOperation {
     }
 }
 
+pub(super) fn git_history_op(policy: PlanPolicy) -> PlannedOperation {
+    PlannedOperation {
+        id: "WX-GIT",
+        tool: "git_history",
+        kind: EvidenceKind::GitHistory,
+        arguments: json!({
+            "max_commits": 24,
+            "months": 36,
+            "first_parent": true,
+            "include_analytics": true,
+            "token_budget": policy.git_history_tokens,
+        }),
+        expected_tokens: policy.git_history_tokens,
+        bounded: true,
+    }
+}
+
+pub(super) fn stacktrace_op(task: &str, policy: PlanPolicy) -> PlannedOperation {
+    PlannedOperation {
+        id: "WX-STACK",
+        tool: "map_stacktrace",
+        kind: EvidenceKind::StackTrace,
+        arguments: json!({
+            "text": task,
+            "max_frames": 40,
+        }),
+        expected_tokens: policy.stacktrace_tokens,
+        bounded: false,
+    }
+}
+
+pub(super) fn select_tests_op(policy: PlanPolicy) -> PlannedOperation {
+    PlannedOperation {
+        id: "WX-TESTS",
+        tool: "select_tests",
+        kind: EvidenceKind::TestSelection,
+        arguments: json!({
+            "max_tests": 24,
+            "depth": 3,
+            "max_nodes": 200,
+        }),
+        expected_tokens: policy.test_selection_tokens,
+        bounded: false,
+    }
+}
+
 pub(super) fn verify_op(task: &str, policy: PlanPolicy) -> PlannedOperation {
     PlannedOperation {
         id: "WX-VERIFY",

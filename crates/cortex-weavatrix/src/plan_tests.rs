@@ -283,3 +283,69 @@ fn a_tiny_budget_still_produces_usable_operation_budgets() {
         assert!(budget > 0, "{} received a zero budget", operation.tool);
     }
 }
+
+#[test]
+fn git_history_intent_asks_for_history_first() {
+    let operations = plan(
+        "Who changed `compile_context` last?",
+        Some("compile_context"),
+        4_000,
+    );
+    let tools: Vec<&str> = operations.iter().map(|operation| operation.tool).collect();
+    assert_eq!(
+        tools.first().copied(),
+        Some("git_history"),
+        "history questions must keep git_history under a 4k budget, got {tools:?}"
+    );
+    assert!(tools.contains(&"search_code"));
+    assert!(
+        !tools.contains(&"context_bundle"),
+        "symbol source is secondary on a history question"
+    );
+    let history = operations
+        .iter()
+        .find(|operation| operation.tool == "git_history")
+        .expect("git_history planned");
+    assert!(history.bounded);
+    assert_eq!(history.kind, EvidenceKind::GitHistory);
+    assert_eq!(history.arguments["include_analytics"], true);
+}
+
+#[test]
+fn stack_trace_intent_maps_the_task_text() {
+    let task = "thread 'main' panicked at src/retry.rs:12:1:\nstack backtrace:";
+    let operations = plan(task, None, 4_000);
+    let tools: Vec<&str> = operations.iter().map(|operation| operation.tool).collect();
+    assert_eq!(tools.first().copied(), Some("map_stacktrace"));
+    let mapped = operations
+        .iter()
+        .find(|operation| operation.tool == "map_stacktrace")
+        .expect("map_stacktrace planned");
+    assert_eq!(mapped.kind, EvidenceKind::StackTrace);
+    assert_eq!(mapped.arguments["text"], task);
+    assert!(
+        !tools.contains(&"list_endpoints"),
+        "a panic is not an API-contract question"
+    );
+}
+
+#[test]
+fn test_selection_intent_asks_for_select_tests_first() {
+    let operations = plan(
+        "Which tests should I run after changing compile_context?",
+        Some("compile_context"),
+        4_000,
+    );
+    let tools: Vec<&str> = operations.iter().map(|operation| operation.tool).collect();
+    assert_eq!(tools.first().copied(), Some("select_tests"));
+    assert!(
+        !tools.contains(&"context_bundle"),
+        "select_tests already walks dependents of the change"
+    );
+    let selected = operations
+        .iter()
+        .find(|operation| operation.tool == "select_tests")
+        .expect("select_tests planned");
+    assert_eq!(selected.kind, EvidenceKind::TestSelection);
+    assert_eq!(selected.arguments["max_tests"], 24);
+}

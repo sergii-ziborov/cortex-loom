@@ -59,6 +59,12 @@ pub enum EvidenceKind {
     /// expansion could tip the compile into a fail-closed refusal. Breadth
     /// is best-effort; the budget may drop it.
     TypeExpansion,
+    /// Bounded Git history, churn, or co-change from `git_history`.
+    GitHistory,
+    /// Frames mapped onto files and symbols by `map_stacktrace`.
+    StackTrace,
+    /// Static test suites selected by `select_tests`.
+    TestSelection,
 }
 
 pub(super) fn fragments(

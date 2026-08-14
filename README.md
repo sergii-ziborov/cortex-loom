@@ -12,6 +12,15 @@ compiler, fail-closed routing, and an MCP / HTTP / browser surface over
 the same contracts. It is not a second indexer, not an autonomous coder,
 and not a Superpowers fork.
 
+<p align="center">
+  <img src="docs/images/studio-canvas.png" alt="Cortex Loom studio: typed process graph with Weavatrix, local-model, and upstream-agent nodes" width="920" />
+</p>
+
+<p align="center">
+  <img src="docs/images/studio-sequences.png" alt="Sequence Studio with seven Cortex-native templates" width="450" />
+  <img src="docs/images/studio-docs.png" alt="In-app Help and design documentation" width="450" />
+</p>
+
 ```text
 task  →  route (risk floor)
       →  one active sequence step (optional)

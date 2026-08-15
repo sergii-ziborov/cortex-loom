@@ -12,6 +12,8 @@ struct CreateRunRequest {
     id: String,
     graph_id: String,
     graph_revision: u64,
+    repository_id: Option<String>,
+    snapshot_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -68,7 +70,15 @@ async fn create_run(
             current: graph.revision,
         });
     }
-    Ok(Json(state.store.runs().create(&request.id, &graph)?))
+    let created = state.store.runs().create(&request.id, &graph)?;
+    if request.repository_id.is_none() && request.snapshot_id.is_none() {
+        return Ok(Json(created));
+    }
+    Ok(Json(state.store.runs().bind_workspace(
+        &request.id,
+        request.repository_id.as_deref(),
+        request.snapshot_id.as_deref(),
+    )?))
 }
 
 async fn list_runs(

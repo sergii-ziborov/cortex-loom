@@ -99,7 +99,9 @@ struct WeavatrixContextArgs {
     task: String,
     symbol: Option<String>,
     max_tokens: u32,
-    /// Optional run attribution for quality-equivalent token accounting.
+    /// Optional run attribution. Prior-run memory loads only when this is a
+    /// completed (not Running) run; wording like "previous attempt" never
+    /// searches other runs.
     run_id: Option<String>,
     /// Optional active skill graph. Its bounded frontmatter `PlanHints` guide
     /// gathering without coupling the planner to the skill compiler.

@@ -53,15 +53,24 @@ impl RunStore {
     }
 
     pub fn get(&self, id: &str) -> Result<Option<RunDocument>, StoreError> {
-        let document = self
+        let row = self
             .lock()?
-            .query_row("SELECT document FROM runs WHERE id = ?1", [id], |row| {
-                row.get::<_, String>(0)
-            })
+            .query_row(
+                "SELECT document, repository_id, snapshot_id FROM runs WHERE id = ?1",
+                [id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                    ))
+                },
+            )
             .optional()?;
-        document
-            .map(|value| serde_json::from_str(&value).map_err(StoreError::from))
-            .transpose()
+        row.map(|(document, repository_id, snapshot_id)| {
+            decode_run(&document, repository_id, snapshot_id)
+        })
+        .transpose()
     }
 
     pub fn get_graph(&self, id: &str) -> Result<Option<GraphDocument>, StoreError> {
@@ -85,25 +94,49 @@ impl RunStore {
     ) -> Result<Vec<RunDocument>, StoreError> {
         let limit = i64::try_from(limit.clamp(1, 100)).unwrap_or(100);
         let connection = self.lock()?;
-        let documents = if let Some(graph_id) = graph_id {
+        let rows = if let Some(graph_id) = graph_id {
             let mut statement = connection.prepare(
-                "SELECT document FROM runs
+                "SELECT document, repository_id, snapshot_id FROM runs
                  WHERE graph_id = ?1 ORDER BY updated_at DESC, id ASC LIMIT ?2",
             )?;
             statement
-                .query_map(params![graph_id, limit], |row| row.get::<_, String>(0))?
+                .query_map(params![graph_id, limit], decode_run_row)?
                 .collect::<Result<Vec<_>, _>>()?
         } else {
-            let mut statement = connection
-                .prepare("SELECT document FROM runs ORDER BY updated_at DESC, id ASC LIMIT ?1")?;
+            let mut statement = connection.prepare(
+                "SELECT document, repository_id, snapshot_id FROM runs
+                 ORDER BY updated_at DESC, id ASC LIMIT ?1",
+            )?;
             statement
-                .query_map([limit], |row| row.get::<_, String>(0))?
+                .query_map([limit], decode_run_row)?
                 .collect::<Result<Vec<_>, _>>()?
         };
-        documents
-            .into_iter()
-            .map(|value| serde_json::from_str(&value).map_err(StoreError::from))
+        rows.into_iter()
+            .map(|(document, repository_id, snapshot_id)| {
+                decode_run(&document, repository_id, snapshot_id)
+            })
             .collect()
+    }
+
+    /// Record workspace identity for later prior-run matching.
+    ///
+    /// These fields live on the run row, not in the replayed document, so a
+    /// bind cannot break `verify_replay`.
+    pub fn bind_workspace(
+        &self,
+        id: &str,
+        repository_id: Option<&str>,
+        snapshot_id: Option<&str>,
+    ) -> Result<RunDocument, StoreError> {
+        let changed = self.lock()?.execute(
+            "UPDATE runs SET repository_id = ?1, snapshot_id = ?2 WHERE id = ?3",
+            params![repository_id, snapshot_id, id],
+        )?;
+        if changed != 1 {
+            return Err(StoreError::RunNotFound(id.to_owned()));
+        }
+        self.get(id)?
+            .ok_or_else(|| StoreError::RunNotFound(id.to_owned()))
     }
 
     pub fn apply(&self, id: &str, command: &RunCommand) -> Result<RunDocument, StoreError> {
@@ -163,6 +196,32 @@ impl RunStore {
             .collect()
     }
 
+    /// Newest events first from storage, then reversed to chronological order.
+    ///
+    /// `events()` walks from the start of the stream. Prior-run memory needs
+    /// the tail: a long run's first 80 events are usually `Created` and
+    /// `NodeStarted`, not the failure that matters.
+    pub fn recent_events(&self, id: &str, limit: usize) -> Result<Vec<RunEvent>, StoreError> {
+        if self.get(id)?.is_none() {
+            return Err(StoreError::RunNotFound(id.to_owned()));
+        }
+        let limit = i64::try_from(limit.clamp(1, 500)).unwrap_or(500);
+        let connection = self.lock()?;
+        let mut statement = connection.prepare(
+            "SELECT event FROM run_events
+             WHERE run_id = ?1 ORDER BY sequence DESC LIMIT ?2",
+        )?;
+        let events = statement
+            .query_map(params![id, limit], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut parsed = events
+            .into_iter()
+            .map(|value| serde_json::from_str(&value).map_err(StoreError::from))
+            .collect::<Result<Vec<RunEvent>, _>>()?;
+        parsed.reverse();
+        Ok(parsed)
+    }
+
     pub fn verify_replay(&self, id: &str) -> Result<ReplayVerification, StoreError> {
         let connection = self.lock()?;
         let stored = connection
@@ -199,6 +258,23 @@ impl RunStore {
     }
 }
 
+fn decode_run_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<(String, Option<String>, Option<String>)> {
+    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+}
+
+fn decode_run(
+    document: &str,
+    repository_id: Option<String>,
+    snapshot_id: Option<String>,
+) -> Result<RunDocument, StoreError> {
+    let mut run: RunDocument = serde_json::from_str(document)?;
+    run.repository_id = repository_id;
+    run.snapshot_id = snapshot_id;
+    Ok(run)
+}
+
 fn insert_event(connection: &Connection, run_id: &str, event: &RunEvent) -> Result<(), StoreError> {
     connection.execute(
         "INSERT INTO run_events (run_id, sequence, event, recorded_at)
@@ -214,201 +290,5 @@ fn insert_event(connection: &Connection, run_id: &str, event: &RunEvent) -> Resu
 }
 
 #[cfg(test)]
-mod tests {
-    use std::path::PathBuf;
-    use std::sync::{Arc, Barrier};
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    use cortex_domain::default_control_plane;
-    use cortex_run::{NodeRunStatus, RunCommand};
-
-    use super::*;
-    use crate::GraphStore;
-
-    #[test]
-    fn run_snapshot_and_events_survive_reload() {
-        let graphs = GraphStore::open_in_memory().expect("store");
-        let graph = graphs
-            .seed_if_missing(&default_control_plane())
-            .expect("seed");
-        let runs = graphs.runs();
-        let created = runs.create("run-1", &graph).expect("create run");
-        let started = runs
-            .apply(
-                "run-1",
-                &RunCommand::StartNode {
-                    expected_revision: created.revision,
-                    node_id: "request".to_owned(),
-                    executor: None,
-                },
-            )
-            .expect("start node");
-
-        let loaded = runs.get("run-1").expect("load").expect("run");
-        assert_eq!(loaded, started);
-        assert_eq!(loaded.nodes[0].status, NodeRunStatus::Running);
-        assert_eq!(
-            runs.get_graph("run-1")
-                .expect("load graph")
-                .expect("graph")
-                .revision,
-            graph.revision
-        );
-        let events = runs.events("run-1", 0, 10).expect("events");
-        assert_eq!(events.len(), 2);
-        assert_eq!(events[1].sequence, 2);
-    }
-
-    #[test]
-    fn stale_run_update_keeps_snapshot_unchanged() {
-        let graphs = GraphStore::open_in_memory().expect("store");
-        let graph = graphs
-            .seed_if_missing(&default_control_plane())
-            .expect("seed");
-        let runs = graphs.runs();
-        runs.create("run-1", &graph).expect("create run");
-        let error = runs
-            .apply(
-                "run-1",
-                &RunCommand::StartNode {
-                    expected_revision: 0,
-                    node_id: "request".to_owned(),
-                    executor: None,
-                },
-            )
-            .expect_err("stale command");
-        assert!(matches!(error, StoreError::Run(_)));
-        assert_eq!(runs.events("run-1", 0, 10).expect("events").len(), 1);
-    }
-
-    #[test]
-    fn concurrent_connections_yield_one_transition_and_one_conflict() {
-        let path = temporary_database();
-        let first = GraphStore::open(&path).expect("first store");
-        let graph = first
-            .seed_if_missing(&default_control_plane())
-            .expect("seed");
-        first.runs().create("run-1", &graph).expect("create run");
-        let second = GraphStore::open(&path).expect("second store");
-        let barrier = Arc::new(Barrier::new(2));
-
-        let first_task = spawn_start(first.runs(), Arc::clone(&barrier));
-        let second_task = spawn_start(second.runs(), Arc::clone(&barrier));
-        let results = [
-            first_task.join().expect("first task"),
-            second_task.join().expect("second task"),
-        ];
-        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
-        assert_eq!(
-            results
-                .iter()
-                .filter(|result| matches!(
-                    result,
-                    Err(StoreError::Run(cortex_run::RunError::RevisionConflict {
-                        expected: 1,
-                        current: 2
-                    }))
-                ))
-                .count(),
-            1
-        );
-        assert_eq!(
-            first.runs().events("run-1", 0, 10).expect("events").len(),
-            2
-        );
-        drop(first);
-        drop(second);
-        let _ = std::fs::remove_file(path);
-    }
-
-    #[test]
-    fn replay_verifies_the_persisted_snapshot() {
-        let graphs = GraphStore::open_in_memory().expect("store");
-        let graph = graphs
-            .seed_if_missing(&default_control_plane())
-            .expect("seed");
-        let runs = graphs.runs();
-        let created = runs.create("run-1", &graph).expect("create run");
-        runs.apply(
-            "run-1",
-            &RunCommand::StartNode {
-                expected_revision: created.revision,
-                node_id: "request".to_owned(),
-                executor: None,
-            },
-        )
-        .expect("start node");
-        let verification = runs.verify_replay("run-1").expect("verify replay");
-        assert!(verification.matches_persisted);
-        assert_eq!(verification.event_count, 2);
-    }
-
-    #[test]
-    fn replay_rejects_an_event_sequence_gap() {
-        let graphs = GraphStore::open_in_memory().expect("store");
-        let graph = graphs
-            .seed_if_missing(&default_control_plane())
-            .expect("seed");
-        let runs = graphs.runs();
-        let created = runs.create("run-1", &graph).expect("create run");
-        let started = runs
-            .apply(
-                "run-1",
-                &RunCommand::StartNode {
-                    expected_revision: created.revision,
-                    node_id: "request".to_owned(),
-                    executor: None,
-                },
-            )
-            .expect("start node");
-        runs.apply(
-            "run-1",
-            &RunCommand::Cancel {
-                expected_revision: started.revision,
-                reason: "stop".to_owned(),
-            },
-        )
-        .expect("cancel");
-        runs.lock()
-            .expect("lock")
-            .execute(
-                "DELETE FROM run_events WHERE run_id = ?1 AND sequence = 2",
-                ["run-1"],
-            )
-            .expect("delete event");
-        assert!(matches!(
-            runs.verify_replay("run-1"),
-            Err(StoreError::Run(cortex_run::RunError::ReplayMismatch {
-                sequence: 3,
-                ..
-            }))
-        ));
-    }
-
-    fn spawn_start(
-        runs: RunStore,
-        barrier: Arc<Barrier>,
-    ) -> std::thread::JoinHandle<Result<RunDocument, StoreError>> {
-        std::thread::spawn(move || {
-            barrier.wait();
-            runs.apply(
-                "run-1",
-                &RunCommand::StartNode {
-                    expected_revision: 1,
-                    node_id: "request".to_owned(),
-                    executor: None,
-                },
-            )
-        })
-    }
-
-    fn temporary_database() -> PathBuf {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |duration| duration.as_nanos());
-        std::env::temp_dir().join(format!(
-            "cortex-loom-run-test-{}-{nonce}.db",
-            std::process::id()
-        ))
-    }
-}
+#[path = "run_store_tests.rs"]
+mod tests;

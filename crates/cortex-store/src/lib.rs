@@ -1,4 +1,4 @@
-﻿use std::fmt::{Display, Formatter};
+use std::fmt::{Display, Formatter};
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -200,17 +200,7 @@ impl GraphStore {
                note TEXT
              );",
         )?;
-        ensure_column(&connection, "usage_samples", "run_id", "run_id TEXT")?;
-        // Renamed from `saved_tokens`: the value is omitted-evidence volume,
-        // not a measured saving. Older databases keep the stale column; the
-        // new one starts empty rather than pretending the old numbers meant
-        // something they did not.
-        ensure_column(
-            &connection,
-            "usage_samples",
-            "omitted_tokens",
-            "omitted_tokens INTEGER",
-        )?;
+        migrate_columns(&connection)?;
         Ok(Self {
             connection: Arc::new(Mutex::new(connection)),
         })
@@ -376,7 +366,30 @@ fn sqlite_integer(value: u64, field: &'static str) -> Result<i64, StoreError> {
     i64::try_from(value).map_err(|_| StoreError::IntegerOutOfRange { field, value })
 }
 
-/// Additive migration for databases created before a column existed.
+/// Additive migrations for databases created before a column existed.
+fn migrate_columns(connection: &Connection) -> Result<(), StoreError> {
+    ensure_column(connection, "usage_samples", "run_id", "run_id TEXT")?;
+    // Renamed from `saved_tokens`: the value is omitted-evidence volume,
+    // not a measured saving. Older databases keep the stale column; the
+    // new one starts empty rather than pretending the old numbers meant
+    // something they did not.
+    ensure_column(
+        connection,
+        "usage_samples",
+        "omitted_tokens",
+        "omitted_tokens INTEGER",
+    )?;
+    ensure_column(
+        connection,
+        "usage_samples",
+        "token_accounting",
+        "token_accounting TEXT",
+    )?;
+    ensure_column(connection, "runs", "repository_id", "repository_id TEXT")?;
+    ensure_column(connection, "runs", "snapshot_id", "snapshot_id TEXT")?;
+    Ok(())
+}
+
 fn ensure_column(
     connection: &Connection,
     table: &str,

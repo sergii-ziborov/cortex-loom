@@ -14,6 +14,7 @@ fn route_sample(target: &str) -> UsageSample {
         omitted_tokens: None,
         requires_upstream: None,
         latency_ms: None,
+        token_accounting: None,
     }
 }
 
@@ -30,6 +31,7 @@ fn compile_sample(raw: u32, selected: u32, latency: u64) -> UsageSample {
         omitted_tokens: Some(raw.saturating_sub(selected)),
         requires_upstream: Some(true),
         latency_ms: Some(latency),
+        token_accounting: None,
     }
 }
 
@@ -206,6 +208,22 @@ fn quality_summary_credits_only_clean_succeeded_runs() {
         .unwrap();
     assert_eq!(ghost_row.status, None, "missing runs are never creditable");
     assert!(!ghost_row.quality_equivalent);
+}
+
+#[test]
+fn token_accounting_round_trips() {
+    let store = GraphStore::open_in_memory().unwrap().usage();
+    let mut sample = compile_sample(100, 40, 3);
+    sample.token_accounting = Some(
+        r#"{"counterId":"conservative","tokenizerRevision":"v1","budgetOmittedTokens":60,"dedupSavedTokens":4}"#
+            .to_owned(),
+    );
+    store.insert(&sample).unwrap();
+    let rows = store.list(Some(UsageOperation::ContextCompile), 1).unwrap();
+    let blob = rows[0].sample.token_accounting.as_deref().unwrap();
+    assert!(blob.contains("conservative"));
+    assert!(blob.contains("budgetOmittedTokens"));
+    assert!(blob.contains("dedupSavedTokens"));
 }
 
 #[test]

@@ -17,6 +17,12 @@ pub struct RunDocument {
     pub evidence: Vec<EvidenceSubmission>,
     pub created_at: i64,
     pub updated_at: i64,
+    /// Workspace identity for later prior-run matching. Not replayed: the
+    /// store keeps these on the run row and overlays them on read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

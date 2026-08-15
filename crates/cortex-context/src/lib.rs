@@ -1,6 +1,12 @@
 #![doc = include_str!("../README.md")]
 
 pub mod ranking;
+mod tokens;
+
+pub use tokens::{
+    CharDiv4Counter, ChatMessage, ConservativeCounter, RUNTIME_COUNTER, TokenBreakdown,
+    TokenCounter, estimate_tokens,
+};
 
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
@@ -119,6 +125,9 @@ pub struct ContextPacket {
     /// Estimated tokens those repeated lines would have cost.
     #[serde(default)]
     pub deduplicated_estimated_tokens: u32,
+    /// Split accounting for the counter that produced the numbers above.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_breakdown: Option<TokenBreakdown>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -179,12 +188,16 @@ impl std::error::Error for ContextError {}
 
 /// Select verified evidence by explicit priority without asking a model to decide what matters.
 pub fn compile_context(request: &ContextRequest) -> Result<ContextPacket, ContextError> {
+    compile_context_with(request, &RUNTIME_COUNTER)
+}
+
+/// Same compile, with an explicit counter. Benches that need the historical
+/// four-character unit pass [`CharDiv4Counter`].
+pub fn compile_context_with(
+    request: &ContextRequest,
+    counter: &dyn TokenCounter,
+) -> Result<ContextPacket, ContextError> {
     validate(request)?;
-    let raw_estimated_tokens = request
-        .items
-        .iter()
-        .map(|item| estimate_tokens(&render_item(item, &item.content)))
-        .fold(0_u32, u32::saturating_add);
     let mut ordered: Vec<_> = request.items.iter().enumerate().collect();
     ordered.sort_by(|(left_index, left), (right_index, right)| {
         let state = u8::from(left.state != EvidenceState::Contradictory)
@@ -205,37 +218,55 @@ pub fn compile_context(request: &ContextRequest) -> Result<ContextPacket, Contex
     let mut content = String::new();
     let mut included_ids = Vec::new();
     let mut omitted_ids = Vec::new();
-    let mut selected_estimated_tokens = 0_u32;
     let mut seen = HashSet::new();
     let mut deduplicated_lines = 0_u32;
-    let mut deduplicated_chars = 0_usize;
+    let mut breakdown = TokenBreakdown::for_counter(counter);
     for (_, item) in &ordered {
-        let (body, removed_lines, removed_chars) = if request.deduplicate {
+        let full = render_item(item, &item.content);
+        let candidate = counter.count(&full);
+        breakdown.candidate_tokens = breakdown.candidate_tokens.saturating_add(candidate);
+        let (body, removed_lines, _) = if request.deduplicate {
             deduplicate_body(&item.content, &seen)
         } else {
             (item.content.clone(), 0, 0)
         };
         let rendered = render_item(item, &body);
-        let tokens = estimate_tokens(&rendered);
-        if selected_estimated_tokens.saturating_add(tokens) <= request.max_tokens {
+        let delivered = counter.count(&rendered);
+        if breakdown.delivered_tokens.saturating_add(delivered) <= request.max_tokens {
             content.push_str(&rendered);
             included_ids.push(item.id.clone());
-            selected_estimated_tokens = selected_estimated_tokens.saturating_add(tokens);
+            breakdown.selected_before_dedup_tokens = breakdown
+                .selected_before_dedup_tokens
+                .saturating_add(candidate);
+            breakdown.delivered_tokens = breakdown.delivered_tokens.saturating_add(delivered);
+            breakdown.rendering_overhead_tokens = breakdown
+                .rendering_overhead_tokens
+                .saturating_add(delivered.saturating_sub(counter.count(body.trim())));
             if request.deduplicate {
                 record_substantial_lines(&item.content, &mut seen);
                 deduplicated_lines = deduplicated_lines.saturating_add(removed_lines);
-                deduplicated_chars = deduplicated_chars.saturating_add(removed_chars);
             }
         } else if item.priority == EvidencePriority::Critical {
             return Err(ContextError::CriticalItemExceedsBudget {
                 id: item.id.clone(),
-                tokens,
+                tokens: delivered,
                 budget: request.max_tokens,
             });
         } else {
             omitted_ids.push(item.id.clone());
+            breakdown.budget_omitted_tokens =
+                breakdown.budget_omitted_tokens.saturating_add(candidate);
         }
     }
+    breakdown.dedup_saved_tokens = breakdown
+        .selected_before_dedup_tokens
+        .saturating_sub(breakdown.delivered_tokens);
+    breakdown.estimated_tokens = breakdown.candidate_tokens;
+    breakdown.wire_tokens = breakdown.delivered_tokens;
+    breakdown.evidence_tokens = breakdown.selected_before_dedup_tokens;
+    breakdown.instruction_tokens = breakdown.rendering_overhead_tokens;
+    breakdown.schema_tokens = 0;
+    breakdown.output_tokens = 0;
 
     let requires_upstream = request
         .items
@@ -245,20 +276,14 @@ pub fn compile_context(request: &ContextRequest) -> Result<ContextPacket, Contex
         content: content.trim_end().to_owned(),
         included_ids,
         omitted_ids,
-        raw_estimated_tokens,
-        selected_estimated_tokens,
-        omitted_estimated_tokens: raw_estimated_tokens.saturating_sub(selected_estimated_tokens),
+        raw_estimated_tokens: breakdown.candidate_tokens,
+        selected_estimated_tokens: breakdown.delivered_tokens,
+        omitted_estimated_tokens: breakdown.budget_omitted_tokens,
         requires_upstream,
         deduplicated_lines,
-        deduplicated_estimated_tokens: u32::try_from(deduplicated_chars.div_ceil(4))
-            .unwrap_or(u32::MAX),
+        deduplicated_estimated_tokens: breakdown.dedup_saved_tokens,
+        token_breakdown: Some(breakdown),
     })
-}
-
-#[must_use]
-pub fn estimate_tokens(value: &str) -> u32 {
-    let tokens = value.chars().count().div_ceil(4).max(1);
-    u32::try_from(tokens).unwrap_or(u32::MAX)
 }
 
 fn validate(request: &ContextRequest) -> Result<(), ContextError> {

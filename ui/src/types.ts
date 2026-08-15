@@ -227,6 +227,8 @@ export interface RunDocument {
   evidence: EvidenceSubmission[]
   createdAt: number
   updatedAt: number
+  repositoryId?: string
+  snapshotId?: string
 }
 
 export interface RunSummary {

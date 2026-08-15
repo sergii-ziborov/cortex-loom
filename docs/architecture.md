@@ -8,7 +8,9 @@ Cortex Loom is a control plane, not an autonomous replacement for Codex or Claud
 2. An optional sequence contributes one active step and `PlanHints`.
 3. The planner picks Weavatrix operations from the task: search, symbols,
    callers, modules, endpoints, source windows, git history, stack traces,
-   test selection, and prior-run memory when a previous attempt exists.
+   test selection, and prior-run memory only when an explicit completed
+   `runId` is supplied. Wording such as "previous attempt" never searches
+   other Failed, Cancelled, or Running runs.
 4. Sufficiency allows one targeted retry. A still-thin packet becomes an
    upstream handoff, never a confident local answer.
 5. Codex or Claude receives the compact evidence and remains responsible
@@ -27,7 +29,7 @@ Generated Markdown is a view; the typed, versioned graph is canonical.
 ## Modules
 
 - `cortex-domain`: transport-independent graph schema and invariants.
-- `cortex-context`: deterministic evidence prioritization, bounded packets, and token-savings accounting.
+- `cortex-context`: deterministic evidence prioritization, bounded packets, a named `TokenCounter`, and token accounting that splits budget omissions from dedup savings.
 - `cortex-run`: transport-independent run snapshots, evidence and decision audit, bounded attempts, deterministic edge transitions, and replay.
 - `cortex-store`: SQLite persistence, optimistic revisions, and history.
 - `cortex-skills`: Markdown skill import and canonical readable export.

@@ -430,7 +430,9 @@ mod tests {
             ("WX-VERIFY-2".to_owned(), 0.8),
         ]);
         // Budget fits TASK plus one plan part: the more relevant part wins.
-        let compiled = compile_evidence_bundle(bundle, "task", 70, Some(&scores)).unwrap();
+        // 130 is calibrated to the conservative runtime counter; char/4
+        // used to fit the same pair in 70.
+        let compiled = compile_evidence_bundle(bundle, "task", 130, Some(&scores)).unwrap();
         assert_eq!(compiled.context.included_ids, ["TASK", "WX-VERIFY-2"]);
         assert_eq!(compiled.context.omitted_ids, ["WX-VERIFY-1"]);
         assert!(compiled.context.requires_upstream, "fail-closed untouched");

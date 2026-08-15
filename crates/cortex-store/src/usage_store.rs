@@ -65,6 +65,9 @@ pub struct UsageSample {
     pub omitted_tokens: Option<u32>,
     pub requires_upstream: Option<bool>,
     pub latency_ms: Option<u64>,
+    /// Split runtime accounting. Absent on older rows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_accounting: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -174,8 +177,9 @@ impl UsageStore {
         connection.execute(
             "INSERT INTO usage_samples
              (created_at, operation, run_id, target, model_tier, task_class, budget_tokens,
-              raw_tokens, selected_tokens, omitted_tokens, requires_upstream, latency_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+              raw_tokens, selected_tokens, omitted_tokens, requires_upstream, latency_ms,
+              token_accounting)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 unix_timestamp(),
                 sample.operation.as_str(),
@@ -191,6 +195,7 @@ impl UsageStore {
                 sample
                     .latency_ms
                     .map(|value| i64::try_from(value).unwrap_or(i64::MAX)),
+                sample.token_accounting,
             ],
         )?;
         Ok(connection.last_insert_rowid())
@@ -394,7 +399,7 @@ impl UsageStore {
         let mut statement = connection.prepare(
             "SELECT id, created_at, operation, run_id, target, model_tier, task_class,
                     budget_tokens, raw_tokens, selected_tokens, omitted_tokens,
-                    requires_upstream, latency_ms
+                    requires_upstream, latency_ms, token_accounting
              FROM usage_samples
              WHERE (?1 IS NULL OR operation = ?1)
              ORDER BY id DESC LIMIT ?2",
@@ -417,6 +422,7 @@ impl UsageStore {
                         row.get::<_, Option<i64>>(10)?,
                         row.get::<_, Option<bool>>(11)?,
                         row.get::<_, Option<i64>>(12)?,
+                        row.get::<_, Option<String>>(13)?,
                     ))
                 },
             )?
@@ -442,6 +448,7 @@ impl UsageStore {
                         omitted_tokens: as_u32(row.10),
                         requires_upstream: row.11,
                         latency_ms: row.12.and_then(|value| u64::try_from(value).ok()),
+                        token_accounting: row.13,
                     },
                 })
             })

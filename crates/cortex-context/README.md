@@ -63,6 +63,18 @@ assert!(!packet.requires_upstream);
 assert_eq!(packet.deduplicated_lines, 0, "nothing overlapped here");
 ```
 
+## Token budgets
+
+`compile_context` uses a conservative counter so Cyrillic, CJK, and
+punctuation cannot sneak a packet past the remaining context window.
+`estimate_tokens` and `CharDiv4Counter` stay as the comparative
+four-character unit for benches. A `TokenBreakdown` splits
+`budgetOmittedTokens` from `dedupSavedTokens`; those are different
+kinds of economy and must not be added together as "saved".
+
+Vendor tokenizers implement [`TokenCounter`]. Until one is wired for
+the active model, runtime compile keeps the conservative fallback.
+
 ## Ranking
 
 The [`ranking`] module holds pure, deterministic retrieval primitives with

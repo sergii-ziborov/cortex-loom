@@ -71,6 +71,8 @@ pub fn create_run(
         evidence: Vec::new(),
         created_at: now,
         updated_at: now,
+        repository_id: None,
+        snapshot_id: None,
     };
     let event = event(&run, RunEventKind::Created, None, None, now);
     Ok((run, event))

@@ -16,6 +16,7 @@ categories = ["algorithms", "text-processing"]
 publish = true
 
 [dependencies]
+blazingly-json.workspace = true
 serde.workspace = true
 
 [lints]

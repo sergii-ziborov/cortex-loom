@@ -12,6 +12,7 @@ cortex-context = { path = "../cortex-context" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+unicode-normalization = "0.1.24"
 weavatrix-edit.workspace = true
 weavatrix-refactor-plan.workspace = true
 weavatrix-rust.workspace = true

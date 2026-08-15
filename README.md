@@ -69,9 +69,12 @@ refactor.
 ## Measured trials
 
 Full tables, stamps, and caveats: [docs/benchmark.md](docs/benchmark.md).
-Token counts use a four-characters estimate unless marked as a live
-session. Recall means declared literals were present in evidence, not
-that a model answered correctly.
+Comparative bench numbers use a four-character unit. Runtime compile
+uses a conservative counter (`conservative/v1`) that over-counts
+Cyrillic, CJK, and punctuation so a packet is refused before a model
+is. Omitted items and deduplicated lines are reported separately.
+Recall means declared literals were present in evidence, not that a
+model answered correctly.
 
 ### Retrieval — can the packet carry the facts?
 

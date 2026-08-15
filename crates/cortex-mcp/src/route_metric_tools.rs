@@ -98,6 +98,7 @@ pub(crate) fn register(
                         omitted_tokens: None,
                         requires_upstream: None,
                         latency_ms: routed.latency_ms,
+                        token_accounting: None,
                     },
                 );
                 ToolReply::text(decision)

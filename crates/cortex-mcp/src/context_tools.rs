@@ -59,7 +59,11 @@ pub(crate) fn register(
                     "task": {"type": "string", "maxLength": 16384},
                     "symbol": {"type": "string", "maxLength": 4096},
                     "maxTokens": {"type": "integer", "minimum": 1, "maximum": 100_000},
-                    "runId": {"type": "string", "maxLength": 256},
+                    "runId": {
+                        "type": "string",
+                        "maxLength": 256,
+                        "description": "Completed prior run to attribute usage and load high-signal memory from. Absent or Running loads no prior memory."
+                    },
                     "skillId": {"type": "string", "maxLength": 256, "description": "Optional active skill graph whose context-intent, source-followup, and skip-change-plan frontmatter guide evidence gathering."},
                     "targeted": {"type": "boolean", "default": true}
                 },
@@ -87,7 +91,6 @@ pub(crate) fn register(
                 let prior = crate::context_memory::load_prior(
                     &context_state.store,
                     arguments.run_id.as_deref(),
-                    &arguments.task,
                 );
                 let (prepared, gather_report) = if arguments.targeted {
                     match context_state
@@ -202,6 +205,11 @@ pub(crate) fn register(
                                     u64::try_from(started.elapsed().as_millis())
                                         .unwrap_or(u64::MAX),
                                 ),
+                                token_accounting: packet
+                                    .context
+                                    .token_breakdown
+                                    .as_ref()
+                                    .and_then(|breakdown| serde_json::to_string(breakdown).ok()),
                             },
                         );
                         if let (Some(shadow), Some(evidence)) =

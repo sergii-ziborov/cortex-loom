@@ -5,6 +5,8 @@
 //! invalidations, retries, and cancellations become facts.
 
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
+use unicode_normalization::UnicodeNormalization;
 use weavatrix_rust::memory::{
     AgentId, ContextRequest, EntityId, EventId, EventMetadata, Evidence, FactId, MemoryEvent,
     MemoryFact, MemoryNode, SessionId, StoredEvent, StreamId, Timestamp,
@@ -39,16 +41,18 @@ pub struct PriorRunMemory {
 }
 
 impl PriorRunMemory {
-    /// Keep only high-signal events, oldest first, hard-capped.
+    /// Keep the newest high-signal events, then restore chronological order.
     #[must_use]
     pub fn from_parts(events: Vec<PriorRunEvent>) -> Self {
         let mut kept: Vec<PriorRunEvent> = events.into_iter().filter(is_high_signal).collect();
         kept.sort_by(|left, right| {
-            left.recorded_at
-                .cmp(&right.recorded_at)
-                .then(left.sequence.cmp(&right.sequence))
+            right
+                .recorded_at
+                .cmp(&left.recorded_at)
+                .then(right.sequence.cmp(&left.sequence))
         });
         kept.truncate(MAX_EVENTS);
+        kept.reverse();
         Self { events: kept }
     }
 
@@ -72,7 +76,7 @@ impl PriorRunMemory {
             .max()
             .unwrap_or_else(|| Timestamp::from_unix_micros(1));
         let known_at = Timestamp::from_unix_micros(known_at.as_unix_micros().saturating_add(1));
-        let seed = EntityId::new(stable_id("task", task)).ok()?;
+        let seed = EntityId::new(task_fingerprint(task)).ok()?;
         let request = ContextRequest::new(
             vec![seed],
             known_at,
@@ -96,26 +100,28 @@ fn stored_events(
     task: &str,
 ) -> Result<Vec<StoredEvent<MemoryEvent>>, String> {
     let agent = AgentId::new("agent:cortex-run").map_err(|error| error.to_string())?;
-    let task_id = EntityId::new(stable_id("task", task)).map_err(|error| error.to_string())?;
+    let task_id = EntityId::new(task_fingerprint(task)).map_err(|error| error.to_string())?;
     let mut stored = Vec::new();
     let mut position = 0_u64;
     stored.push(stored_event(
         position,
         "bootstrap",
-        0,
         Timestamp::from_unix_micros(1),
         &agent,
         MemoryEvent::NodeUpserted {
             node: MemoryNode::new(task_id.clone(), "task", truncate(task, 160))
                 .map_err(|error| error.to_string())?,
         },
+        None,
+        None,
     )?);
+    let current_task_event = stored[0].metadata.id.clone();
     position += 1;
     for event in &memory.events {
         let at = Timestamp::from_unix_micros(event.recorded_at.saturating_mul(1_000_000).max(2));
-        let attempt = EntityId::new(stable_id(
+        let attempt = EntityId::new(hashed_id(
             "attempt",
-            &format!("{}-{}", event.run_id, event.sequence),
+            &format!("{}:{}", event.run_id, event.sequence),
         ))
         .map_err(|error| error.to_string())?;
         let label = event
@@ -135,31 +141,38 @@ fn stored_events(
         stored.push(stored_event(
             position,
             &event.run_id,
-            event.sequence,
             at,
             &agent,
             MemoryEvent::NodeUpserted {
                 node: MemoryNode::new(attempt.clone(), event.kind.as_str(), truncate(&label, 160))
                     .map_err(|error| error.to_string())?,
             },
+            Some(current_task_event.clone()),
+            None,
         )?);
+        let attempt_event = stored
+            .last()
+            .expect("attempt event just pushed")
+            .metadata
+            .id
+            .clone();
         position += 1;
         let evidence = Evidence::new("run_event", format!("run:{}", event.run_id))
             .map_err(|error| error.to_string())?
             .with_locator(format!("seq:{}", event.sequence));
         let fact = MemoryFact::new(
-            FactId::new(stable_id(
+            FactId::new(hashed_id(
                 "fact",
-                &format!("{}-{}", event.run_id, event.sequence),
+                &format!("follows:{}:{}", event.run_id, event.sequence),
             ))
             .map_err(|error| error.to_string())?,
             task_id.clone(),
-            event.kind.as_str(),
+            "follows_attempt",
             attempt,
             at,
             at,
             agent.clone(),
-            SessionId::new(stable_id("session", &event.run_id))
+            SessionId::new(hashed_id("session", &event.run_id))
                 .map_err(|error| error.to_string())?,
             evidence,
         )
@@ -167,10 +180,11 @@ fn stored_events(
         stored.push(stored_event(
             position,
             &event.run_id,
-            event.sequence,
             at,
             &agent,
             MemoryEvent::FactRecorded { fact },
+            Some(current_task_event.clone()),
+            Some(attempt_event),
         )?);
         position += 1;
     }
@@ -180,17 +194,18 @@ fn stored_events(
 fn stored_event(
     position: u64,
     run_id: &str,
-    _sequence: u64,
     at: Timestamp,
     agent: &AgentId,
     payload: MemoryEvent,
+    correlation_id: Option<EventId>,
+    causation_id: Option<EventId>,
 ) -> Result<StoredEvent<MemoryEvent>, String> {
     let event_type = payload.event_type().to_owned();
     Ok(StoredEvent {
         metadata: EventMetadata {
-            id: EventId::new(stable_id("event", &format!("{run_id}-{position}")))
+            id: EventId::new(hashed_id("event", &format!("{run_id}-{position}")))
                 .map_err(|error| error.to_string())?,
-            stream_id: StreamId::new(stable_id("stream", run_id))
+            stream_id: StreamId::new(hashed_id("stream", run_id))
                 .map_err(|error| error.to_string())?,
             stream_version: position.saturating_add(1),
             global_position: position.saturating_add(1),
@@ -198,29 +213,34 @@ fn stored_event(
             occurred_at: at,
             recorded_at: at,
             agent_id: agent.clone(),
-            session_id: SessionId::new(stable_id("session", run_id))
+            session_id: SessionId::new(hashed_id("session", run_id))
                 .map_err(|error| error.to_string())?,
-            correlation_id: None,
-            causation_id: None,
+            correlation_id,
+            causation_id,
         },
         payload,
     })
 }
 
-fn stable_id(prefix: &str, raw: &str) -> String {
-    let mut body = String::new();
-    for character in raw.chars() {
-        if character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.') {
-            body.push(character);
-        } else if character.is_whitespace() && !body.ends_with('-') {
-            body.push('-');
-        }
-    }
-    let body = body.trim_matches('-');
-    let body = if body.is_empty() { "item" } else { body };
-    let mut id = format!("{prefix}:{body}");
-    id.truncate(96);
-    id.trim_end_matches(['-', ':']).to_owned()
+fn task_fingerprint(task: &str) -> String {
+    hashed_id("task", &normalize_text(task))
+}
+
+fn hashed_id(prefix: &str, raw: &str) -> String {
+    let digest = Sha256::digest(normalize_text(raw).as_bytes());
+    format!("{prefix}:{digest:x}")
+        .chars()
+        .take(prefix.len() + 1 + 16)
+        .collect()
+}
+
+fn normalize_text(value: &str) -> String {
+    value
+        .nfkc()
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn truncate(value: &str, max: usize) -> String {
@@ -259,7 +279,7 @@ mod tests {
     }
 
     #[test]
-    fn memory_arguments_seed_the_task_and_record_the_failure() {
+    fn memory_arguments_link_the_current_task_without_rewriting_the_failure() {
         let memory = PriorRunMemory::from_parts(vec![failed()]);
         let arguments = memory
             .memory_arguments("still failing compile_context", 600)
@@ -267,9 +287,41 @@ mod tests {
         let events = arguments["events"].as_array().expect("events");
         assert!(events.len() >= 3);
         let blob = arguments.to_string();
-        assert!(blob.contains("node_failed"));
-        assert!(blob.contains("compile_context") || blob.contains("compile-context"));
+        assert!(blob.contains("follows_attempt"));
         assert!(blob.contains("evidence gate rejected"));
+        assert!(!blob.contains("\"relation\":\"node_failed\""));
+        assert!(
+            blob.contains("causation_id"),
+            "facts must keep a causal link to the prior attempt event"
+        );
         assert_eq!(arguments["request"]["token_budget"], 600);
+    }
+
+    #[test]
+    fn russian_wordings_do_not_collapse_to_the_same_task_id() {
+        assert_ne!(
+            task_fingerprint("предыдущая попытка молча пропустила архив"),
+            task_fingerprint("ещё раз проверь этот ран")
+        );
+        assert_eq!(
+            task_fingerprint("  compile_context  "),
+            task_fingerprint("compile_context")
+        );
+    }
+
+    #[test]
+    fn from_parts_keeps_the_newest_high_signal_events() {
+        let mut events = Vec::new();
+        for sequence in 1..=40 {
+            events.push(PriorRunEvent {
+                sequence,
+                recorded_at: 1_700_000_000 + i64::try_from(sequence).unwrap_or(i64::MAX),
+                ..failed()
+            });
+        }
+        let memory = PriorRunMemory::from_parts(events);
+        assert_eq!(memory.events.len(), 32);
+        assert_eq!(memory.events.first().map(|event| event.sequence), Some(9));
+        assert_eq!(memory.events.last().map(|event| event.sequence), Some(40));
     }
 }

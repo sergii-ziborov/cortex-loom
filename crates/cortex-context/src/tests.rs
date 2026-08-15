@@ -21,7 +21,7 @@ fn selects_priority_order_and_reports_token_savings() {
         max_tokens: 10,
         deduplicate: true,
     };
-    let packet = compile_context(&request).unwrap();
+    let packet = compile_context_with(&request, &CharDiv4Counter).unwrap();
     assert_eq!(packet.included_ids, ["high"]);
     assert_eq!(packet.omitted_ids, ["low"]);
     assert!(packet.omitted_estimated_tokens > 0);
@@ -40,7 +40,7 @@ fn contradictory_evidence_is_first_and_forces_upstream_review() {
         max_tokens: 100,
         deduplicate: true,
     };
-    let packet = compile_context(&request).unwrap();
+    let packet = compile_context_with(&request, &CharDiv4Counter).unwrap();
     assert_eq!(packet.included_ids[0], "conflict");
     assert!(packet.requires_upstream);
 }
@@ -75,7 +75,7 @@ fn relevance_reorders_only_within_a_priority_band() {
         max_tokens: 30,
         deduplicate: true,
     };
-    let packet = compile_context(&request).unwrap();
+    let packet = compile_context_with(&request, &CharDiv4Counter).unwrap();
     assert_eq!(packet.included_ids, ["late"]);
     assert_eq!(packet.omitted_ids, ["early"]);
 
@@ -88,7 +88,7 @@ fn relevance_reorders_only_within_a_priority_band() {
         max_tokens: 30,
         deduplicate: true,
     };
-    let packet = compile_context(&request).unwrap();
+    let packet = compile_context_with(&request, &CharDiv4Counter).unwrap();
     assert_eq!(packet.included_ids, ["high"]);
 
     // Unscored items keep submission order after scored ones.
@@ -145,6 +145,17 @@ fn overlapping_evidence_is_sent_once() {
         packet.content.contains("another distinct line of context"),
         "the rest of the lower-priority item is untouched"
     );
+    let breakdown = packet.token_breakdown.expect("runtime counter");
+    assert_eq!(breakdown.counter_id, "conservative");
+    assert_eq!(breakdown.budget_omitted_tokens, 0);
+    assert!(breakdown.dedup_saved_tokens > 0);
+    assert_eq!(packet.omitted_estimated_tokens, 0);
+    assert_eq!(
+        packet.omitted_estimated_tokens
+            + packet.deduplicated_estimated_tokens
+            + packet.selected_estimated_tokens,
+        packet.raw_estimated_tokens
+    );
 }
 
 #[test]
@@ -160,11 +171,14 @@ fn omitted_evidence_cannot_deduplicate_an_included_citation() {
         &format!("{shared}\nsmall source window"),
         EvidencePriority::High,
     );
-    let packet = compile_context(&ContextRequest {
-        items: vec![oversized, source],
-        max_tokens: 50,
-        deduplicate: true,
-    })
+    let packet = compile_context_with(
+        &ContextRequest {
+            items: vec![oversized, source],
+            max_tokens: 50,
+            deduplicate: true,
+        },
+        &CharDiv4Counter,
+    )
     .unwrap();
     assert_eq!(packet.omitted_ids, ["search"]);
     assert_eq!(packet.included_ids, ["source"]);

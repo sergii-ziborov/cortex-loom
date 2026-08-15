@@ -28,6 +28,23 @@ pub enum TaskIntent {
     PriorAttempt,
 }
 
+impl TaskIntent {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::IdentifierChange => "identifier_change",
+            Self::BlastRadius => "blast_radius",
+            Self::ApiContract => "api_contract",
+            Self::ModuleTopology => "module_topology",
+            Self::RuntimeConfig => "runtime_config",
+            Self::GitHistory => "git_history",
+            Self::StackTrace => "stack_trace",
+            Self::TestSelection => "test_selection",
+            Self::PriorAttempt => "prior_attempt",
+        }
+    }
+}
+
 /// Classify `task` from stable structural cues in the prose.
 #[must_use]
 pub fn detect(task: &str) -> TaskIntent {

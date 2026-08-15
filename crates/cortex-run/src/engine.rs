@@ -18,7 +18,7 @@ use crate::{
 #[path = "engine_event.rs"]
 mod engine_event;
 
-use engine_event::{Applied, event};
+use engine_event::{Applied, apply_oracle, event, validate_command_context};
 
 pub fn create_run(
     graph: &GraphDocument,
@@ -73,6 +73,7 @@ pub fn create_run(
         updated_at: now,
         repository_id: None,
         snapshot_id: None,
+        oracle: None,
     };
     let event = event(&run, RunEventKind::Created, None, None, now);
     Ok((run, event))
@@ -211,6 +212,23 @@ fn dispatch_command(
             ..
         } => apply_retry(run, graph, retry_node_id, reason),
         RunCommand::Cancel { reason, .. } => apply_cancel(run, reason),
+        RunCommand::AttestOracle {
+            kind,
+            passed,
+            artifact_hash,
+            baseline_hash,
+            attested_by,
+            reason,
+            ..
+        } => Ok(apply_oracle(
+            run,
+            kind,
+            *passed,
+            artifact_hash.as_deref(),
+            baseline_hash.as_deref(),
+            attested_by,
+            reason,
+        )),
     }
 }
 
@@ -290,26 +308,6 @@ fn validate_new_run(graph: &GraphDocument, id: &str) -> Result<(), RunError> {
     }
     ensure_acyclic_flow(graph)?;
     validate_retry_nodes(graph)
-}
-
-fn validate_command_context(
-    run: &RunDocument,
-    graph: &GraphDocument,
-    command: &RunCommand,
-) -> Result<(), RunError> {
-    if run.graph_id != graph.id || run.graph_revision != graph.revision {
-        return Err(RunError::GraphMismatch);
-    }
-    if command.expected_revision() != run.revision {
-        return Err(RunError::RevisionConflict {
-            expected: command.expected_revision(),
-            current: run.revision,
-        });
-    }
-    if run.status != RunStatus::Running {
-        return Err(RunError::RunFinished(run.status));
-    }
-    Ok(())
 }
 
 fn start_node(run: &mut RunDocument, graph: &GraphDocument, node_id: &str) -> Result<(), RunError> {

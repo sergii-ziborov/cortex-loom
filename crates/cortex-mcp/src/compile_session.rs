@@ -45,21 +45,56 @@ pub(crate) fn compile_weavatrix(
     let mut semantic_note = None;
     let relevance = score(state, arguments, &mut bundle, &mut semantic_note);
     let mut packet = cortex_weavatrix::compile_evidence_bundle(
-        bundle,
+        bundle.clone(),
         &arguments.task,
         arguments.max_tokens,
         relevance.as_ref(),
     )
     .map_err(|error| error.to_string())?;
-    packet.semantic_ranking = semantic_note;
+    packet.semantic_ranking = semantic_note.clone();
     apply_sufficiency(
         &mut packet,
         &verification,
         arguments,
         hints,
         source_followup,
-        retry,
+        retry.clone(),
     );
+    if let Some(report) = packet.sufficiency.as_ref() {
+        let mut certificate = report.certificate.clone();
+        certificate.packet_id.clone_from(&packet.context.packet_id);
+        certificate
+            .snapshot_id
+            .clone_from(&packet.context.snapshot_id);
+        let mut layered = cortex_weavatrix::compile_evidence_bundle_layered(
+            bundle,
+            &arguments.task,
+            arguments.max_tokens,
+            relevance.as_ref(),
+            Some(&certificate),
+        )
+        .map_err(|error| error.to_string())?;
+        layered.semantic_ranking = semantic_note;
+        apply_sufficiency(
+            &mut layered,
+            &verification,
+            arguments,
+            hints,
+            source_followup,
+            retry,
+        );
+        if let Some(final_report) = layered.sufficiency.as_mut() {
+            final_report
+                .certificate
+                .packet_id
+                .clone_from(&layered.context.packet_id);
+            final_report
+                .certificate
+                .snapshot_id
+                .clone_from(&layered.context.snapshot_id);
+        }
+        packet = layered;
+    }
     record_compile(state, arguments, &packet, started);
     observe_shadow(state, arguments, shadow_evidence, &packet);
     Ok(packet)

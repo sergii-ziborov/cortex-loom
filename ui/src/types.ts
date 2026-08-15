@@ -313,7 +313,9 @@ export interface RunQuality {
   status: string | null
   retried: boolean
   rejected: boolean
+  cleanRun: boolean
   qualityEquivalent: boolean
+  oracleKind?: string | null
   compileCalls: number
   selectedTokens: number
   omittedTokens: number
@@ -324,6 +326,8 @@ export interface RunQuality {
 
 export interface QualitySummary {
   attributedRuns: number
+  cleanRuns: number
+  cleanRunOmittedTokens: number
   qualityEquivalentRuns: number
   qualityEquivalentOmittedTokens: number
   unprovenOmittedTokens: number

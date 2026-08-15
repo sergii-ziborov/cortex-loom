@@ -1,6 +1,7 @@
 mod cleanup;
 mod evidence;
 mod expand;
+mod facet_loop;
 mod gather;
 mod locator;
 mod render;

@@ -34,7 +34,10 @@ can inspect and test:
   an envelope flag.
 - **IDs are revision-stable.** `packetId` is `pk_<hash>`, citations are
   `ev_<hash>`, and `snapshotId` plus per-item `blobHash` detect a stale
-  packet after the file changes.
+  packet after the file change.
+- **Coverage is a certificate.** `CoverageCertificate` lists required
+  facets, the citations that close each one, missing facets, and
+  contradictions. A boolean `sufficient` is derived from that ledger.
 
 ```rust
 use cortex_context::{

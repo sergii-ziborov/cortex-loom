@@ -1,7 +1,9 @@
 mod adapter;
+mod certificate;
 mod context;
 mod fold;
 mod hints;
+mod layers;
 pub mod plan;
 mod plan_intent;
 mod refactor_preview;
@@ -14,7 +16,9 @@ pub use adapter::{
     EvidenceBundle, EvidenceFragment, EvidenceKind, WeavatrixAdapter, WeavatrixConfig,
     WeavatrixError,
 };
-pub use context::{CompiledEvidenceBundle, compile_evidence_bundle};
+pub use context::{
+    CompiledEvidenceBundle, compile_evidence_bundle, compile_evidence_bundle_layered,
+};
 pub use fold::{
     DEFAULT_SOURCE_GLOB, fold_text, search_glob, segment_identifier, window_covers_span,
 };

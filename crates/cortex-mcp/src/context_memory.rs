@@ -41,7 +41,8 @@ fn from_run_event(event: RunEvent) -> Option<PriorRunEvent> {
         | RunEventKind::EvidenceSubmitted
         | RunEventKind::LeaseClaimed
         | RunEventKind::LeaseReleased
-        | RunEventKind::HumanApproved => return None,
+        | RunEventKind::HumanApproved
+        | RunEventKind::OracleAttested => return None,
     };
     Some(PriorRunEvent {
         run_id: if event.run_id.is_empty() {

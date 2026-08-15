@@ -75,6 +75,9 @@ The protocol-independent crates do not depend on MCP, HTTP, or the UI. `cortex-m
 - Local-model graph policies must be non-mutating and require upstream review.
 - High-risk graph policies may target only an upstream agent or human.
 - Weavatrix evidence is returned as individually citable fragments. Transport splits share a `groupId` so a long definition stays one logical atom. Citation ids are content-addressed (`ev_<hash>`), not positional `WX-SOURCE-1`. Packets carry `packetId` (`pk_<hash>`) and `snapshotId` (`git:<commit>+dirty:<digest>`); each locator has path, start/end, and `blobHash`. A later expand reports `stale: true` when the tree no longer matches.
+- A compiled packet has three layers: L0 decision map (`WX-MAP`: intent, targets, snapshot, required/satisfied/missing facets), L1 verified answer-bearing atoms, and L2 `EXPAND` handles for missing facets. Raw `graph_stats` dumps stay Low and do not occupy L1.
+- Completeness is a `CoverageCertificate`, not a boolean: required facets, the citation ids that close each one, missing facets, contradictions, and the snapshot. `sufficient` is derived; a critical missing facet still escalates.
+- Gather expands missing facets one at a time under a hard token floor, without repeating an operation. No new evidence ends the loop; a still-open critical facet escalates.
 - Packet headings show trust and derivation (`EXACT SOURCE`, `UNVERIFIED PLAN`, `CONTRADICTORY — group C7`). A model must not have to read the JSON envelope to see that a change plan is unverified.
 - Dedup only collapses a line when source span, content, snapshot, blob, trust, and derivation all match; otherwise it keeps a provenance pointer (`same source span as [id]`). Contradictory text cannot erase verified text.
 - Criticality is a required facet (complete definition, caller signature), not every `SourceReads` window. Surrounding comments are normal and may be omitted.

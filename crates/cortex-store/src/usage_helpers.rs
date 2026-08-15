@@ -1,6 +1,6 @@
 use cortex_run::RunStatus;
 
-pub(super) const fn status_name(status: RunStatus) -> &'static str {
+pub(crate) const fn status_name(status: RunStatus) -> &'static str {
     match status {
         RunStatus::Running => "running",
         RunStatus::Succeeded => "succeeded",

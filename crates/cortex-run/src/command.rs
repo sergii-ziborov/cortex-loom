@@ -81,6 +81,17 @@ pub enum RunCommand {
         expected_revision: u64,
         reason: String,
     },
+    AttestOracle {
+        expected_revision: u64,
+        kind: String,
+        passed: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        artifact_hash: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        baseline_hash: Option<String>,
+        attested_by: String,
+        reason: String,
+    },
 }
 
 impl RunCommand {
@@ -112,6 +123,9 @@ impl RunCommand {
                 expected_revision, ..
             }
             | Self::Cancel {
+                expected_revision, ..
+            }
+            | Self::AttestOracle {
                 expected_revision, ..
             } => *expected_revision,
         }

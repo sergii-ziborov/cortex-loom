@@ -8,6 +8,9 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
+use cortex_context::CoverageCertificate;
+
+use crate::certificate::{certificate_from, required_facets, tracked};
 use crate::plan::extract_identifiers;
 use crate::plan_intent::TaskIntent;
 use crate::{EvidenceBundle, EvidenceKind, PlanHints};
@@ -25,6 +28,9 @@ pub struct EvidenceSufficiency {
     pub required_evidence: Vec<String>,
     pub present_evidence: Vec<String>,
     pub missing_evidence: Vec<String>,
+    /// Facet ledger: what was required, which citations closed it, what is still open.
+    #[serde(default)]
+    pub certificate: CoverageCertificate,
 }
 
 #[derive(Default)]
@@ -52,8 +58,10 @@ pub(crate) fn assess_gathered(
 ) -> EvidenceSufficiency {
     let mut profile = profile(bundle.evidence.iter());
     profile.search_hits = search_hits;
+    let tracked: Vec<_> = bundle.evidence.iter().map(tracked).collect();
     assess(
         &profile,
+        &tracked,
         task,
         symbol,
         hints,
@@ -85,8 +93,10 @@ pub fn assess_compiled(
         .filter(|item| item.kind == EvidenceKind::SearchHits)
         .filter(|item| search_fragment_has_hits(&item.content))
         .count();
+    let tracked: Vec<_> = selected.iter().copied().map(tracked).collect();
     assess(
         &profile,
+        &tracked,
         task,
         symbol,
         hints,
@@ -130,6 +140,7 @@ fn profile<'a>(evidence: impl Iterator<Item = &'a crate::EvidenceFragment>) -> E
 
 fn assess(
     profile: &EvidenceProfile,
+    fragments: &[crate::certificate::TrackedFragment<'_>],
     task: &str,
     symbol: Option<&str>,
     hints: PlanHints,
@@ -217,12 +228,20 @@ fn assess(
     present.dedup();
     missing.sort();
     missing.dedup();
+    let definition_complete = symbol.is_some_and(|name| definition_group_complete(profile, name));
+    let mut certificate = certificate_from(
+        fragments,
+        required_facets(task, symbol, hints, source_followup),
+        definition_complete,
+    );
+    certificate.expansions_performed = u32::from(retry_performed);
     EvidenceSufficiency {
-        sufficient: missing.is_empty(),
+        sufficient: missing.is_empty() && certificate.critical_missing().is_empty(),
         retry_performed,
         required_evidence: required,
         present_evidence: present,
         missing_evidence: missing,
+        certificate,
     }
 }
 

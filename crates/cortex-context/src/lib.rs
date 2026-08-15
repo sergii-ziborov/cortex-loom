@@ -1,9 +1,16 @@
 #![doc = include_str!("../README.md")]
 
+mod certificate;
 mod evidence;
 pub mod ranking;
 mod tokens;
 
+pub use certificate::{
+    ContradictionGroup, CoverageCertificate, FACET_CALLERS, FACET_CONFIG, FACET_DEFAULTS,
+    FACET_DEFINITION, FACET_ERRORS, FACET_EXPANSION_ORDER, FACET_GIT, FACET_GUARDS, FACET_MEMORY,
+    FACET_PUBLIC_API, FACET_SIGNATURES, FACET_TESTS, is_critical_facet, render_decision_map,
+    render_expansions,
+};
 pub use evidence::{
     EvidenceDerivation, EvidenceFacet, EvidenceItem, EvidenceLocator, EvidencePriority,
     EvidenceState, blob_id, evidence_id, packet_id, snapshot_is_stale,

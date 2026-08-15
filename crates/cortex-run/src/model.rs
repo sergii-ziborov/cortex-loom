@@ -23,6 +23,25 @@ pub struct RunDocument {
     pub repository_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snapshot_id: Option<String>,
+    /// External oracle that can credit the run as quality-equivalent.
+    /// Absent means the run can be a clean run, never quality-equivalent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oracle: Option<OracleAttestation>,
+}
+
+/// What actually proved the final artifact. Not a run status.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct OracleAttestation {
+    /// `hidden_tests`, `ci`, `review`, or `acceptance`.
+    pub kind: String,
+    pub passed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub baseline_hash: Option<String>,
+    pub attested_by: String,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -200,6 +219,7 @@ pub enum RunEventKind {
     HumanApproved,
     HumanRejected,
     RetryTriggered,
+    OracleAttested,
     Cancelled,
 }
 

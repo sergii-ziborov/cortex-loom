@@ -234,6 +234,57 @@ fn relevance_scores_reorder_fragments_but_task_stays_first() {
 }
 
 #[test]
+fn a_certificate_becomes_a_decision_map_and_expand_handles() {
+    let bundle = EvidenceBundle {
+        repository: "repo".to_owned(),
+        evidence: vec![fragment(
+            "ev_def",
+            EvidenceKind::SourceReads,
+            "pub struct ArchiveOptions { pub enabled: bool }",
+        )],
+        warnings: Vec::new(),
+        snapshot_id: Some("git:abc+dirty:0".to_owned()),
+    };
+    let mut certificate = cortex_context::CoverageCertificate {
+        required: vec![
+            cortex_context::FACET_DEFINITION.to_owned(),
+            cortex_context::FACET_CALLERS.to_owned(),
+        ],
+        missing: vec![cortex_context::FACET_CALLERS.to_owned()],
+        sufficient: false,
+        ..cortex_context::CoverageCertificate::default()
+    };
+    certificate.satisfied.insert(
+        cortex_context::FACET_DEFINITION.to_owned(),
+        vec!["ev_def".to_owned()],
+    );
+    let compiled = compile_evidence_bundle_layered(
+        bundle,
+        "Rename ArchiveOptions",
+        2_000,
+        None,
+        Some(&certificate),
+    )
+    .unwrap();
+    assert_eq!(compiled.context.included_ids[0], "TASK");
+    assert_eq!(compiled.context.included_ids[1], "WX-MAP");
+    assert!(compiled.context.content.contains("## [WX-MAP]"));
+    assert!(
+        compiled
+            .context
+            .content
+            .contains("intent: identifier_change")
+    );
+    assert!(compiled.context.content.contains("EXPAND callers"));
+    assert!(
+        compiled
+            .context
+            .included_ids
+            .contains(&"WX-EXPAND".to_owned())
+    );
+}
+
+#[test]
 fn compiled_packet_carries_the_bundle_snapshot() {
     let mut fragment = fragment("WX-SOURCE", EvidenceKind::SourceReads, "fn helper() {}");
     fragment.locator.snapshot_id = Some("git:deadbeef+dirty:0".to_owned());

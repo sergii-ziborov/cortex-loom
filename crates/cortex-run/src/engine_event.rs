@@ -1,4 +1,6 @@
-use super::{RunCommand, RunDocument, RunEvent, RunEventKind};
+use cortex_domain::GraphDocument;
+
+use super::{RunCommand, RunDocument, RunError, RunEvent, RunEventKind, RunStatus};
 
 pub(super) struct Applied {
     pub(super) kind: RunEventKind,
@@ -35,6 +37,55 @@ pub(super) fn event(
         detail: applied.detail,
         run_status: run.status,
         recorded_at: now,
+    }
+}
+
+pub(super) fn validate_command_context(
+    run: &RunDocument,
+    graph: &GraphDocument,
+    command: &RunCommand,
+) -> Result<(), RunError> {
+    if run.graph_id != graph.id || run.graph_revision != graph.revision {
+        return Err(RunError::GraphMismatch);
+    }
+    if command.expected_revision() != run.revision {
+        return Err(RunError::RevisionConflict {
+            expected: command.expected_revision(),
+            current: run.revision,
+        });
+    }
+    if run.status != RunStatus::Running && !matches!(command, RunCommand::AttestOracle { .. }) {
+        return Err(RunError::RunFinished(run.status));
+    }
+    if matches!(command, RunCommand::AttestOracle { .. }) && run.status == RunStatus::Cancelled {
+        return Err(RunError::RunFinished(run.status));
+    }
+    Ok(())
+}
+
+pub(super) fn apply_oracle(
+    run: &mut RunDocument,
+    kind: &str,
+    passed: bool,
+    artifact_hash: Option<&str>,
+    baseline_hash: Option<&str>,
+    attested_by: &str,
+    reason: &str,
+) -> Applied {
+    run.oracle = Some(crate::OracleAttestation {
+        kind: kind.to_owned(),
+        passed,
+        artifact_hash: artifact_hash.map(ToOwned::to_owned),
+        baseline_hash: baseline_hash.map(ToOwned::to_owned),
+        attested_by: attested_by.to_owned(),
+        reason: reason.to_owned(),
+    });
+    Applied {
+        kind: RunEventKind::OracleAttested,
+        node_id: None,
+        edge_ids: Vec::new(),
+        evidence_ids: Vec::new(),
+        detail: Some(reason.to_owned()),
     }
 }
 

@@ -16,7 +16,8 @@ pub use error::RunError;
 pub use model::{
     EdgeRunState, EdgeRunStatus, EvidenceInvalidation, EvidenceSubmission, ExecutorIdentity,
     ExecutorKind, HumanDecision, HumanDecisionRecord, NodeLeaseState, NodeOutcome, NodeRunState,
-    NodeRunStatus, ReplayVerification, RunDocument, RunEvent, RunEventKind, RunStatus,
+    NodeRunStatus, OracleAttestation, ReplayVerification, RunDocument, RunEvent, RunEventKind,
+    RunStatus,
 };
 pub use replay::replay_events;
 

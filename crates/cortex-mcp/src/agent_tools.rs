@@ -69,7 +69,7 @@ pub(crate) fn register(
                     "packetId": {"type": "string", "maxLength": 64},
                     "facet": {
                         "type": "string",
-                        "enum": ["complete_definition", "callers", "tests", "git_history", "source"]
+                        "enum": ["complete_definition", "callers", "public_api_effect", "tests", "git_history", "source"]
                     }
                 },
                 "required": ["packetId", "facet"],
@@ -143,6 +143,7 @@ fn prepare(state: &CortexMcpState, arguments: PrepareArgs) -> ToolReply {
         "maxTokens": max_tokens,
         "context": compiled.context,
         "coverage": compiled.sufficiency,
+        "certificate": compiled.sufficiency.as_ref().map(|report| &report.certificate),
         "missingFacets": missing,
         "expansionHandles": handles,
         "warnings": compiled.warnings,
@@ -176,6 +177,7 @@ fn expand(state: &CortexMcpState, arguments: &ExpandArgs) -> ToolReply {
             "facet": arguments.facet,
             "context": packet.context,
             "coverage": packet.sufficiency,
+            "certificate": packet.sufficiency.as_ref().map(|report| &report.certificate),
             "warnings": packet.warnings,
         })),
         Err(error) => ToolReply::error(error),
@@ -195,6 +197,8 @@ fn facet_name(missing: &str) -> &str {
         "complete_definition"
     } else if missing.contains("dependent") || missing.contains("caller") {
         "callers"
+    } else if missing.contains("endpoint") || missing.contains("public_api") {
+        "public_api_effect"
     } else if missing.contains("test") {
         "tests"
     } else if missing.contains("git") || missing.contains("history") {
@@ -218,6 +222,13 @@ fn facet_request(task: &str, symbols: &[String], facet: &str) -> (String, PlanHi
             format!("who calls {named} and what breaks if it changes. {task}"),
             PlanHints {
                 intent: Some(IntentHint::BlastRadius),
+                ..PlanHints::default()
+            },
+        ),
+        "public_api_effect" => (
+            format!("what public API or HTTP contract {named} participates in. {task}"),
+            PlanHints {
+                intent: Some(IntentHint::ApiContract),
                 ..PlanHints::default()
             },
         ),

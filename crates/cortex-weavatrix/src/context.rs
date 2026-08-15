@@ -37,6 +37,19 @@ pub fn compile_evidence_bundle(
     max_tokens: u32,
     relevance: Option<&HashMap<String, f64>>,
 ) -> Result<CompiledEvidenceBundle, ContextError> {
+    compile_evidence_bundle_layered(bundle, task, max_tokens, relevance, None)
+}
+
+/// Same compile, with an L0 decision map and L2 expansion handles when a
+/// coverage certificate is supplied.
+#[allow(clippy::implicit_hasher)]
+pub fn compile_evidence_bundle_layered(
+    bundle: EvidenceBundle,
+    task: &str,
+    max_tokens: u32,
+    relevance: Option<&HashMap<String, f64>>,
+    certificate: Option<&cortex_context::CoverageCertificate>,
+) -> Result<CompiledEvidenceBundle, ContextError> {
     let EvidenceBundle {
         repository,
         evidence,
@@ -80,6 +93,20 @@ pub fn compile_evidence_bundle(
         item.locator = (!locator.is_empty()).then_some(locator);
         item
     }));
+    if let Some(certificate) = certificate {
+        items.insert(
+            1,
+            crate::layers::decision_map_item(
+                &repository,
+                task,
+                snapshot_id.as_deref(),
+                certificate,
+            ),
+        );
+        if let Some(expands) = crate::layers::expansion_item(certificate) {
+            items.push(expands);
+        }
+    }
     if let Some(index) = mechanism_index(task, &items) {
         items.insert(1, index);
     }
@@ -130,7 +157,7 @@ const fn evidence_policy(
         (_, EvidenceFacet::References, _) | (EvidenceKind::SourceReads, _, true) => {
             (EvidencePriority::High, EvidenceState::Verified)
         }
-        (EvidenceKind::GraphStats, _, _) => (EvidencePriority::Normal, EvidenceState::Verified),
+        (EvidenceKind::GraphStats, _, _) => (EvidencePriority::Low, EvidenceState::Verified),
         (
             EvidenceKind::Dependents
             | EvidenceKind::Endpoints

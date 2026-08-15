@@ -111,7 +111,11 @@ export function TelemetryPanel({ onClose }: TelemetryPanelProps) {
                   value={`${thousands(usage.upstreamInputTokensTotal)} / ${thousands(usage.upstreamOutputTokensTotal)}`}
                 />
                 <Metric
-                  label="Creditable (clean runs)"
+                  label="Clean-run omissions"
+                  value={thousands(quality.cleanRunOmittedTokens)}
+                />
+                <Metric
+                  label="Quality-equivalent (oracle)"
                   value={thousands(quality.qualityEquivalentOmittedTokens)}
                 />
                 <Metric label="Unproven" value={thousands(quality.unprovenOmittedTokens)} />

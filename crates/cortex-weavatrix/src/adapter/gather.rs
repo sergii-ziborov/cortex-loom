@@ -222,7 +222,7 @@ impl WeavatrixAdapter {
             source_followup,
             prior.as_ref(),
         )?;
-        let initial = crate::verify::assess_gathered(
+        let mut report = crate::verify::assess_gathered(
             &gathered.bundle,
             task,
             symbol,
@@ -231,31 +231,59 @@ impl WeavatrixAdapter {
             gathered.search_hits.len(),
             false,
         );
-        if initial.sufficient {
-            return Ok((gathered.bundle, initial));
+        let mut tried = Vec::new();
+        let mut expansions = 0_u32;
+        let mut last_added = true;
+        while !report.sufficient
+            && super::facet_loop::should_expand(
+                &report.certificate,
+                super::facet_loop::remaining_tokens(&gathered.bundle, budget),
+                expansions,
+                last_added,
+                &report.missing_evidence,
+            )
+        {
+            let Some(key) =
+                super::facet_loop::next_gather_expansion(&report.missing_evidence, &tried)
+                    .or_else(|| report.certificate.next_expansion().map(ToOwned::to_owned))
+            else {
+                break;
+            };
+            if tried.iter().any(|seen| seen == &key) {
+                break;
+            }
+            tried.push(key.clone());
+            let before = gathered.bundle.evidence.len();
+            let mut focused = report.clone();
+            focused.missing_evidence =
+                super::facet_loop::expansion_targets(&key, &report.missing_evidence);
+            self.retry_targeted(
+                repository,
+                task,
+                symbol,
+                budget,
+                policy,
+                hints,
+                source_followup,
+                prior.as_ref(),
+                &focused,
+                &mut gathered,
+            )?;
+            last_added = gathered.bundle.evidence.len() > before;
+            expansions = expansions.saturating_add(1);
+            report = crate::verify::assess_gathered(
+                &gathered.bundle,
+                task,
+                symbol,
+                hints,
+                source_followup,
+                gathered.search_hits.len(),
+                true,
+            );
         }
-        self.retry_targeted(
-            repository,
-            task,
-            symbol,
-            budget,
-            policy,
-            hints,
-            source_followup,
-            prior.as_ref(),
-            &initial,
-            &mut gathered,
-        )?;
-        let final_report = crate::verify::assess_gathered(
-            &gathered.bundle,
-            task,
-            symbol,
-            hints,
-            source_followup,
-            gathered.search_hits.len(),
-            true,
-        );
-        Ok((gathered.bundle, final_report))
+        report.retry_performed = expansions > 0;
+        report.certificate.expansions_performed = expansions;
+        Ok((gathered.bundle, report))
     }
 
     #[allow(clippy::too_many_arguments)]

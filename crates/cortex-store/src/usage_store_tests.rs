@@ -187,16 +187,19 @@ fn quality_summary_credits_only_clean_succeeded_runs() {
 
     let quality = usage.quality_summary().unwrap();
     assert_eq!(quality.attributed_runs, 3);
-    assert_eq!(quality.quality_equivalent_runs, 1);
-    assert_eq!(quality.quality_equivalent_omitted_tokens, 12_000);
-    assert_eq!(quality.unproven_omitted_tokens, 6_000 + 50);
+    assert_eq!(quality.clean_runs, 1);
+    assert_eq!(quality.clean_run_omitted_tokens, 12_000);
+    assert_eq!(quality.quality_equivalent_runs, 0);
+    assert_eq!(quality.quality_equivalent_omitted_tokens, 0);
+    assert_eq!(quality.unproven_omitted_tokens, 12_000 + 6_000 + 50);
     assert_eq!(quality.unattributed_samples, 1);
     let clean_row = quality
         .runs
         .iter()
         .find(|row| row.run_id == "clean")
         .unwrap();
-    assert!(clean_row.quality_equivalent && !clean_row.retried && !clean_row.rejected);
+    assert!(clean_row.clean_run && !clean_row.quality_equivalent);
+    assert!(!clean_row.retried && !clean_row.rejected);
     assert_eq!(clean_row.compile_calls, 2);
     assert_eq!(clean_row.upstream_reports, 1);
     assert_eq!(clean_row.upstream_input_tokens, 20_000);
@@ -208,6 +211,112 @@ fn quality_summary_credits_only_clean_succeeded_runs() {
         .unwrap();
     assert_eq!(ghost_row.status, None, "missing runs are never creditable");
     assert!(!ghost_row.quality_equivalent);
+    assert!(!ghost_row.clean_run);
+}
+
+#[test]
+fn quality_equivalent_requires_a_passing_oracle_and_artifact_hash() {
+    use cortex_domain::default_control_plane;
+    use cortex_run::RunCommand;
+
+    let graph_store = GraphStore::open_in_memory().unwrap();
+    let seeded = graph_store
+        .seed_if_missing(&default_control_plane())
+        .unwrap();
+    let runs = graph_store.runs();
+    let mut clean = runs.create("oracle", &seeded).unwrap();
+    for node in [
+        "request",
+        "scan",
+        "weavatrix",
+        "skill",
+        "local",
+        "gate",
+        "upstream",
+        "result",
+    ] {
+        clean = runs
+            .apply(
+                "oracle",
+                &RunCommand::StartNode {
+                    expected_revision: clean.revision,
+                    node_id: node.to_owned(),
+                    executor: None,
+                },
+            )
+            .unwrap();
+        let requires_evidence = seeded
+            .nodes
+            .iter()
+            .find(|candidate| candidate.id == node)
+            .and_then(|candidate| candidate.execution.as_ref())
+            .is_some_and(|policy| policy.require_evidence);
+        let evidence_ids = if requires_evidence {
+            let id = format!("{node}-evidence");
+            clean = runs
+                .apply(
+                    "oracle",
+                    &RunCommand::SubmitEvidence {
+                        expected_revision: clean.revision,
+                        node_id: node.to_owned(),
+                        evidence_id: id.clone(),
+                        submitted_by: "test".to_owned(),
+                        source: "graph".to_owned(),
+                        locator: format!("node:{node}"),
+                        digest: None,
+                        summary: "Bounded evidence for the walk".to_owned(),
+                        executor: None,
+                    },
+                )
+                .unwrap();
+            vec![id]
+        } else {
+            Vec::new()
+        };
+        clean = runs
+            .apply(
+                "oracle",
+                &RunCommand::CompleteNode {
+                    expected_revision: clean.revision,
+                    node_id: node.to_owned(),
+                    outcome: cortex_run::NodeOutcome::Succeeded,
+                    selected_edge_ids: Vec::new(),
+                    evidence_ids,
+                    detail: None,
+                    executor: None,
+                },
+            )
+            .unwrap();
+    }
+    clean = runs
+        .apply(
+            "oracle",
+            &RunCommand::AttestOracle {
+                expected_revision: clean.revision,
+                kind: "hidden_tests".to_owned(),
+                passed: true,
+                artifact_hash: Some("sha256:abc".to_owned()),
+                baseline_hash: None,
+                attested_by: "bench".to_owned(),
+                reason: "hidden suite passed".to_owned(),
+            },
+        )
+        .unwrap();
+    assert!(clean.oracle.is_some_and(|oracle| oracle.passed));
+
+    let usage = graph_store.usage();
+    usage.insert(&attributed("oracle", 4_000, 1_000)).unwrap();
+    let quality = usage.quality_summary().unwrap();
+    assert_eq!(quality.clean_runs, 1);
+    assert_eq!(quality.quality_equivalent_runs, 1);
+    assert_eq!(quality.quality_equivalent_omitted_tokens, 3_000);
+    let row = quality
+        .runs
+        .iter()
+        .find(|row| row.run_id == "oracle")
+        .unwrap();
+    assert!(row.clean_run && row.quality_equivalent);
+    assert_eq!(row.oracle_kind.as_deref(), Some("hidden_tests"));
 }
 
 #[test]

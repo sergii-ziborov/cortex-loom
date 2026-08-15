@@ -52,7 +52,11 @@ The protocol-independent crates do not depend on MCP, HTTP, or the UI. `cortex-m
 ## Safety boundaries
 
 - Stable MCP `2025-11-25` is the compatibility baseline; newer revisions are negotiated, not assumed.
-- The Streamable HTTP transport shares the stdio tool registry and runtime limits: each HTTP session is one in-process MCP loop, sessions are bounded and idle-expired, non-loopback origins are rejected, and the server initiates no streams. Bind beyond loopback only behind an authenticating proxy.
+- The Streamable HTTP transport shares the stdio tool registry and runtime limits: each HTTP session is one in-process MCP loop, sessions are bounded and idle-expired, non-loopback origins are rejected, and the server initiates no streams. Bind is loopback-only unless `--allow-remote` is set; remote still requires a TLS reverse proxy, authentication, and a workspace allowlist (`--workspace` or `CORTEX_WORKSPACE_ALLOWLIST`). Remote sessions are audited.
+- Packet evidence is a data-only `<evidence>` envelope with CDATA. Source text is not Markdown headings and must not be treated as instructions.
+- Weavatrix sessions are per-repository. The map lock only looks up a slot; agents on different repos do not block each other. Idle slots evict under an LRU cap and a 30-minute TTL. Embeddings cache by content hash.
+- The optional local classifier runs only on lexical ambiguity, mixed-script tasks, detector disagreement, or a floor below `upstream_strong`. An already-obvious high-risk route does not pay for an 8B call.
+- Fine-tune rows live in `corpora/train` and `corpora/dev`. Gold lives in `crates/cortex-eval/fixtures/` and `eval/public`. `eval/private` is unused by heuristics. The writer refuses exact-hash, repository, and gold-family leakage.
 - All frames, queues, tool runtimes, model contexts, graph sizes, and response sizes are bounded.
 - Refactor planning intelligence is not claimed locally: an upstream coding agent authors the exact plan, then native Rust parsing, path confinement, hash checks, and `weavatrix-edit` render a read-only preview. Apply, confirmation tokens, rollback, worktrees, and process spawning are absent.
 - Graph writes require the current revision; stale clients receive a conflict instead of overwriting newer state.

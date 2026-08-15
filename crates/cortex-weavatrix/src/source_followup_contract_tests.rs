@@ -51,20 +51,15 @@ fn semantic_retry_source_windows_cover_the_missing_contract() {
             "missing contract terms for {task}: required={required:?}; report={report:?}; warnings={:?}; source={source}",
             bundle.warnings,
         );
-        let compiled = crate::compile_evidence_bundle(bundle.clone(), task, 4_000, None)
+        let compiled = crate::compile_evidence_bundle(bundle.clone(), task, 5_000, None)
             .expect("contract source compiles");
         let selected_evidence = compiled
             .context
             .content
-            .split("\n## ")
-            .filter(|section| {
-                !section
-                    .trim_start()
-                    .trim_start_matches("## ")
-                    .starts_with("[TASK]")
-            })
+            .split("<evidence ")
+            .filter(|section| !section.contains("id=\"TASK\""))
             .collect::<Vec<_>>()
-            .join("\n## ");
+            .join("<evidence ");
         assert!(
             required.iter().all(|term| selected_evidence.contains(term)),
             "compiler dropped contract terms for {task}: required={required:?}; included={:?}; omitted={:?}",

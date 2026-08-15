@@ -375,9 +375,14 @@ fn retrieval_metrics_and_gate_work_on_scripted_embeddings() {
     use crate::runner::{EmbeddingProfile, run_embedding_profile};
     use crate::verdict::judge_retrieval;
 
-    assert!((cosine_similarity(&[1.0, 0.0], &[1.0, 0.0]) - 1.0).abs() < 1e-9);
-    assert!(cosine_similarity(&[1.0, 0.0], &[0.0, 1.0]).abs() < 1e-9);
-    let ranking = rank_by_similarity(&[1.0, 0.0], &[vec![0.0, 1.0], vec![1.0, 0.1]]);
+    assert!((cosine_similarity(&[1.0, 0.0], &[1.0, 0.0], None).unwrap() - 1.0).abs() < 1e-9);
+    assert!(
+        cosine_similarity(&[1.0, 0.0], &[0.0, 1.0], None)
+            .unwrap()
+            .abs()
+            < 1e-9
+    );
+    let ranking = rank_by_similarity(&[1.0, 0.0], &[vec![0.0, 1.0], vec![1.0, 0.1]]).unwrap();
     assert_eq!(ranking, [1, 0]);
     let ranked = ["a", "b", "c"];
     let relevant = vec!["b".to_owned()];

@@ -41,6 +41,7 @@ fn test_state() -> CortexMcpState {
         semantic: None,
         llm_router: None,
         packets: std::sync::Arc::new(crate::packet_store::PacketStore::default()),
+        workspaces: crate::workspace::WorkspacePolicy::unrestricted(),
     }
 }
 

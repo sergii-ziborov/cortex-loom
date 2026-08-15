@@ -69,7 +69,10 @@ refactor.
   validated and rendered in memory. Nothing is applied.
 - **Calibration, not vibes** — `cortex-eval` never pulls a model.
   `gatePassed` is a historical flag. Semantic ordering requires a matching
-  calibration artifact, not that boolean.
+  calibration artifact, not that boolean. Fine-tune rows live in
+  `corpora/train` and `corpora/dev`; gold stays in `eval/public` and
+  `crates/cortex-eval/fixtures/`. A leakage check refuses exact-hash and
+  gold-family overlap.
 
 ## Measured trials
 
@@ -254,8 +257,9 @@ cargo test --workspace
 | `cortex-llm` / `cortex-ollama` / `cortex-shadow` | gated local inference |
 
 Four crates are dual-licensed **MIT OR Apache-2.0** (`cortex-domain`,
-`cortex-context`, `cortex-router`, `cortex-skills`). Everything else in
-this repository is currently unlicensed.
+`cortex-context`, `cortex-router`, `cortex-skills`). Root `LICENSE-*`
+files apply **only** to those crates. Everything else is unlicensed —
+see [docs/licensing.md](docs/licensing.md).
 
 Ecosystem: Weavatrix understands the repo, [Weavatrix
 Loom](https://github.com/sergii-ziborov/weavatrix-loom) composes

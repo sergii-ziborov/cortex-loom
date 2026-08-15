@@ -17,7 +17,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use axum::Router;
 use axum::body::Bytes;
@@ -41,7 +41,7 @@ const SUPPORTED_PROTOCOL_HEADERS: &[&str] =
 
 /// Serve the Streamable HTTP transport on `address` until the process exits.
 pub fn serve_http(state: crate::CortexMcpState, address: SocketAddr) -> io::Result<()> {
-    serve_http_with(state, address, crate::ServerProfile::Full)
+    serve_http_with(state, address, crate::ServerProfile::Full, false)
 }
 
 /// Serve one profile over Streamable HTTP.
@@ -49,8 +49,16 @@ pub fn serve_http_with(
     state: crate::CortexMcpState,
     address: SocketAddr,
     profile: crate::ServerProfile,
+    allow_remote: bool,
 ) -> io::Result<()> {
+    crate::bind::check_bind(address, allow_remote)
+        .map_err(|error| io::Error::new(io::ErrorKind::PermissionDenied, error))?;
     let server = Arc::new(crate::build_server_with(state, profile));
+    if allow_remote && !address.ip().is_loopback() {
+        eprintln!(
+            "cortex-mcp: remote bind {address}; require TLS, authentication, and a workspace allowlist"
+        );
+    }
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
@@ -58,15 +66,16 @@ pub fn serve_http_with(
     runtime.block_on(async move {
         let listener = tokio::net::TcpListener::bind(address).await?;
         println!("Cortex Loom MCP (streamable http): http://{address}/mcp");
-        axum::serve(listener, app(server)).await
+        axum::serve(listener, app(server, allow_remote)).await
     })
 }
 
-fn app(server: Arc<ConcurrentMcpServer>) -> Router {
+fn app(server: Arc<ConcurrentMcpServer>, allow_remote: bool) -> Router {
     let shared = Arc::new(HttpState {
         server,
         sessions: Mutex::new(HashMap::new()),
         counter: AtomicU64::new(0),
+        allow_remote,
     });
     Router::new()
         .route("/mcp", any(endpoint))
@@ -78,6 +87,7 @@ struct HttpState {
     server: Arc<ConcurrentMcpServer>,
     sessions: Mutex<HashMap<String, Arc<Session>>>,
     counter: AtomicU64,
+    allow_remote: bool,
 }
 
 struct Session {
@@ -218,6 +228,9 @@ fn create_session(state: &Arc<HttpState>) -> Result<(String, Arc<Session>), Resp
         ));
     }
     let id = session_id(state.counter.fetch_add(1, Ordering::Relaxed));
+    if state.allow_remote {
+        eprintln!("cortex-mcp: remote session {id} created");
+    }
     let (stdin_tx, stdin_rx) = sync_channel::<Vec<u8>>(STDIN_QUEUE);
     let (stdout_tx, stdout_rx) = sync_channel::<Vec<u8>>(STDIN_QUEUE);
 
@@ -345,15 +358,27 @@ fn problem(status: StatusCode, message: &str) -> Response {
         .into_response()
 }
 
-/// Non-guessable session id from process-local entropy sources.
+/// Non-guessable session id from OS-seeded `RandomState` plus pid/time.
 fn session_id(counter: u64) -> String {
+    use std::collections::hash_map::RandomState;
+    use std::hash::{BuildHasher, Hasher};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let mut hasher = Sha256::new();
+    let random = RandomState::new();
+    let mut sip = random.build_hasher();
+    sip.write_u64(counter);
+    hasher.update(sip.finish().to_le_bytes());
+    hasher.update(
+        random
+            .hash_one(counter.wrapping_mul(0x9e37_79b9))
+            .to_le_bytes(),
+    );
+    hasher.update(counter.to_le_bytes());
+    hasher.update(std::process::id().to_le_bytes());
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |duration| duration.as_nanos());
-    let mut hasher = Sha256::new();
     hasher.update(nanos.to_le_bytes());
-    hasher.update(counter.to_le_bytes());
-    hasher.update(std::process::id().to_le_bytes());
     let digest = hasher.finalize();
     let mut rendered = String::with_capacity(32);
     for byte in digest.iter().take(16) {

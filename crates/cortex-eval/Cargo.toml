@@ -17,6 +17,7 @@ cortex-ollama = { path = "../cortex-ollama" }
 cortex-router = { path = "../cortex-router" }
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 ureq.workspace = true
 
 [lints]

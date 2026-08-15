@@ -162,6 +162,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
     };
     let listener = tokio::net::TcpListener::bind(settings.address).await?;
+    if settings.allow_remote && !settings.address.ip().is_loopback() {
+        eprintln!(
+            "warning: bound to {} without built-in auth; require a TLS reverse proxy",
+            settings.address
+        );
+    }
     println!("Cortex Loom UI: http://{}", settings.address);
     println!(
         "UI assets: {}",
@@ -376,11 +382,12 @@ struct Settings {
     /// True when the operator explicitly chose a directory; embedded assets
     /// are then bypassed.
     explicit_ui_directory: bool,
+    allow_remote: bool,
 }
 
 impl Settings {
     fn from_args() -> Result<Self, Box<dyn std::error::Error>> {
-        let mut address = env::var("CORTEX_LOOM_ADDRESS")
+        let mut address: SocketAddr = env::var("CORTEX_LOOM_ADDRESS")
             .unwrap_or_else(|_| DEFAULT_ADDRESS.to_owned())
             .parse()?;
         let mut database =
@@ -388,10 +395,16 @@ impl Settings {
         let env_ui_directory = env::var_os("CORTEX_LOOM_UI_DIR").map(PathBuf::from);
         let mut explicit_ui_directory = env_ui_directory.is_some();
         let mut ui_directory = env_ui_directory.unwrap_or_else(|| PathBuf::from("ui/dist"));
+        let mut allow_remote = env::var("CORTEX_ALLOW_REMOTE").ok().as_deref() == Some("1");
+        let mut workspaces = Vec::new();
         let mut arguments = env::args().skip(1);
         while let Some(argument) = arguments.next() {
             match argument.as_str() {
                 "--bind" => address = next_value(&mut arguments, "--bind")?.parse()?,
+                "--allow-remote" => allow_remote = true,
+                "--workspace" => {
+                    workspaces.push(PathBuf::from(next_value(&mut arguments, "--workspace")?));
+                }
                 "--db" => database = PathBuf::from(next_value(&mut arguments, "--db")?),
                 "--ui-dir" => {
                     ui_directory = PathBuf::from(next_value(&mut arguments, "--ui-dir")?);
@@ -400,11 +413,30 @@ impl Settings {
                 other => return Err(format!("unknown argument: {other}").into()),
             }
         }
+        if !address.ip().is_loopback() && !allow_remote {
+            return Err(format!(
+                "refusing to bind {address}: not loopback. Pass --allow-remote and put TLS \
+                 plus authentication in front of the listener"
+            )
+            .into());
+        }
+        if allow_remote && !address.ip().is_loopback() {
+            let env_roots = env::var("CORTEX_WORKSPACE_ALLOWLIST").unwrap_or_default();
+            let has_env = env_roots
+                .split([';', '|'])
+                .any(|part| !part.trim().is_empty());
+            if workspaces.is_empty() && !has_env {
+                return Err(
+                    "remote bind requires --workspace PATH or CORTEX_WORKSPACE_ALLOWLIST".into(),
+                );
+            }
+        }
         Ok(Self {
             address,
             database,
             ui_directory,
             explicit_ui_directory,
+            allow_remote,
         })
     }
 }

@@ -11,8 +11,9 @@ use std::sync::Mutex;
 
 use cortex_llm::{ClassifyRequest, LlmProvider, OpenAiProvider, ProfileRegistry, Role, Runtime};
 use cortex_router::{
-    Classification, ModelTier, RoutingDecision, RoutingRequest, classify, parse_model_tier,
-    policy_tier, route_with_classification, tier_rank,
+    Classification, ModelTier, RoutingDecision, RoutingRequest, TaskClass, classify,
+    detector_disagreement, mixed_script, parse_model_tier, policy_tier, route_with_classification,
+    tier_rank,
 };
 
 /// Instruction aligned with the calibrated eval prompt: closed tiers, hard
@@ -100,9 +101,18 @@ impl LlmRouter {
     }
 
     /// Lexical floor first; model may only escalate. Failures keep lexical.
+    /// The classifier is skipped when the lexical floor is already
+    /// `upstream_strong` and the request is not mixed-script or ambiguous.
     #[must_use]
     pub fn decide(&self, request: &RoutingRequest) -> RoutedWork {
         let lexical = classify(&request.task);
+        if !classifier_worth_calling(&request.task, lexical) {
+            return RoutedWork {
+                decision: route_with_classification(request, lexical),
+                latency_ms: None,
+                classifier_profile: None,
+            };
+        }
         match self.ask_tier(&request.task) {
             Ok((llm_tier, latency_ms)) => {
                 let lexical_tier = policy_tier(lexical.class);
@@ -151,6 +161,22 @@ fn load_registry(path: &Path) -> Result<ProfileRegistry, String> {
     serde_json::from_str(&text).map_err(|error| format!("invalid {}: {error}", path.display()))
 }
 
+/// When the lexical policy is already at the ceiling, an 8B classifier
+/// cannot save tokens — it can only add latency.
+#[must_use]
+pub fn classifier_worth_calling(task: &str, lexical: Classification) -> bool {
+    if matches!(lexical.class, TaskClass::Ambiguous) {
+        return true;
+    }
+    if mixed_script(task) {
+        return true;
+    }
+    if detector_disagreement(task) {
+        return true;
+    }
+    policy_tier(lexical.class) != ModelTier::UpstreamStrong
+}
+
 /// Pure merge used by tests and documentation of the under-call floor.
 #[must_use]
 pub fn merge_tiers(lexical: Classification, llm: Option<ModelTier>) -> Classification {
@@ -173,6 +199,26 @@ mod tests {
     fn inactive_without_the_env_flag() {
         let config = LlmRouteConfig::from_lookup(|_| None);
         assert!(!config.is_active());
+    }
+
+    #[test]
+    fn obvious_upstream_does_not_call_the_classifier() {
+        let lexical = classify("Tag the version bump for the milestone");
+        assert!(!super::classifier_worth_calling(
+            "Tag the version bump for the milestone",
+            lexical
+        ));
+        let mixed = classify("Переименуй ArchiveOptions и bump the tag");
+        assert!(super::classifier_worth_calling(
+            "Переименуй ArchiveOptions и bump the tag",
+            mixed
+        ));
+        let mixed_detectors = "summarize the repository graph and extract fields";
+        assert!(cortex_router::detector_disagreement(mixed_detectors));
+        assert!(super::classifier_worth_calling(
+            mixed_detectors,
+            classify(mixed_detectors)
+        ));
     }
 
     #[test]

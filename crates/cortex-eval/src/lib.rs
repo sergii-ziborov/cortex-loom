@@ -14,8 +14,14 @@ use serde::Serialize;
 pub mod backend;
 pub mod comparators;
 pub mod corpus;
+mod corpus_micro;
 pub mod fixtures;
+pub mod holdout;
+pub mod leakage;
 pub mod metrics;
+mod micro_cases;
+pub mod micro_train;
+mod micro_vocab;
 pub mod openai_backend;
 mod profile_suites;
 pub mod prompts;
@@ -63,5 +69,7 @@ impl Display for EvalError {
 
 impl std::error::Error for EvalError {}
 
+#[cfg(test)]
+mod micro_tests;
 #[cfg(test)]
 mod tests;

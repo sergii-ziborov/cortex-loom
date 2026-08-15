@@ -24,11 +24,9 @@ impl WeavatrixAdapter {
         symbol: Option<&str>,
     ) -> Result<EvidenceBundle, WeavatrixError> {
         let root = self.canonical_root(repository)?;
-        let mut sessions = self
-            .engines
-            .lock()
-            .map_err(|_| WeavatrixError::LockPoisoned)?;
-        let engine = Self::session(&mut sessions, &root)?;
+        let slot = self.lock_engine(&root)?;
+        let mut engine = slot.lock().map_err(|_| WeavatrixError::LockPoisoned)?;
+        let engine = &mut *engine;
         let refreshed = engine.refresh_if_stale().map_err(|error| {
             WeavatrixError::Engine(format!("Weavatrix refresh failed: {error}"))
         })?;
@@ -299,11 +297,9 @@ impl WeavatrixAdapter {
         prior: Option<&crate::PriorRunMemory>,
     ) -> Result<TargetedEvidence, WeavatrixError> {
         let root = self.canonical_root(repository)?;
-        let mut sessions = self
-            .engines
-            .lock()
-            .map_err(|_| WeavatrixError::LockPoisoned)?;
-        let engine = Self::session(&mut sessions, &root)?;
+        let slot = self.lock_engine(&root)?;
+        let mut engine = slot.lock().map_err(|_| WeavatrixError::LockPoisoned)?;
+        let engine = &mut *engine;
         let refreshed = engine.refresh_if_stale().map_err(|error| {
             WeavatrixError::Engine(format!("Weavatrix refresh failed: {error}"))
         })?;

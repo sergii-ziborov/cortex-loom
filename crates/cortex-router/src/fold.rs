@@ -18,6 +18,24 @@ pub fn fold_text(value: &str) -> String {
         .join(" ")
 }
 
+/// True when the task mixes Latin letters with another script.
+#[must_use]
+pub fn mixed_script(value: &str) -> bool {
+    let mut latin = false;
+    let mut other = false;
+    for ch in value.chars() {
+        if ch.is_ascii_alphabetic() {
+            latin = true;
+        } else if ch.is_alphabetic() {
+            other = true;
+        }
+        if latin && other {
+            return true;
+        }
+    }
+    false
+}
+
 /// Fold, then keep letters/digits and turn everything else into spaces so
 /// phrase matching can use word boundaries.
 #[must_use]

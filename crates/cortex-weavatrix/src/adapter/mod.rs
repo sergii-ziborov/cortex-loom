@@ -6,17 +6,15 @@ mod gather;
 mod locator;
 mod render;
 mod retry;
+mod session_pool;
 mod source_reads;
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
-use weavatrix_rust::Weavatrix;
 
 pub use evidence::{EvidenceBundle, EvidenceFragment, EvidenceKind};
 pub(crate) use render::SEARCH_HEADER;
@@ -44,7 +42,7 @@ impl std::error::Error for WeavatrixError {}
 
 #[derive(Clone)]
 pub struct WeavatrixAdapter {
-    engines: Arc<Mutex<HashMap<PathBuf, Weavatrix>>>,
+    engines: session_pool::SessionPool,
 }
 
 impl WeavatrixConfig {
@@ -63,7 +61,7 @@ impl WeavatrixAdapter {
     #[must_use]
     pub fn new(_config: WeavatrixConfig) -> Self {
         Self {
-            engines: Arc::new(Mutex::new(HashMap::new())),
+            engines: session_pool::SessionPool::new(),
         }
     }
 
@@ -92,18 +90,10 @@ impl WeavatrixAdapter {
         })
     }
 
-    fn session<'a>(
-        sessions: &'a mut HashMap<PathBuf, Weavatrix>,
+    pub(super) fn lock_engine(
+        &self,
         root: &Path,
-    ) -> Result<&'a mut Weavatrix, WeavatrixError> {
-        if !sessions.contains_key(root) {
-            let engine = Weavatrix::open(root).map_err(|error| {
-                WeavatrixError::Engine(format!("Weavatrix graph build failed: {error}"))
-            })?;
-            sessions.insert(root.to_path_buf(), engine);
-        }
-        sessions.get_mut(root).ok_or_else(|| {
-            WeavatrixError::Engine("native Weavatrix session was not retained".to_owned())
-        })
+    ) -> Result<std::sync::Arc<std::sync::Mutex<weavatrix_rust::Weavatrix>>, WeavatrixError> {
+        self.engines.slot(root)
     }
 }

@@ -25,34 +25,137 @@ const GRAPH_TOP_M: usize = 3;
 /// overtake unrelated mid-ranked documents but never its benefactor.
 const GRAPH_RANK_PENALTY: f64 = 1.5;
 
+/// Why a cosine comparison cannot be trusted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RankingError {
+    EmptyVector,
+    EmptyCorpus,
+    DimensionMismatch { left: usize, right: usize },
+    ExpectedDimension { expected: usize, actual: usize },
+    DigestMismatch,
+    NonFinite,
+    Unnormalized,
+}
+
+impl std::fmt::Display for RankingError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EmptyVector => formatter.write_str("embedding vector is empty"),
+            Self::EmptyCorpus => formatter.write_str("embedding corpus is empty"),
+            Self::DimensionMismatch { left, right } => {
+                write!(formatter, "embedding dimensions differ: {left} vs {right}")
+            }
+            Self::ExpectedDimension { expected, actual } => {
+                write!(
+                    formatter,
+                    "embedding dimension {actual} does not match model digest ({expected})"
+                )
+            }
+            Self::DigestMismatch => formatter.write_str("embedding model digest does not match"),
+            Self::NonFinite => formatter.write_str("embedding contains NaN or Infinity"),
+            Self::Unnormalized => formatter.write_str("embedding is not unit-length"),
+        }
+    }
+}
+
+impl std::error::Error for RankingError {}
+
+/// Identity a caller must present before mixing two embedding vectors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CosineSpec<'a> {
+    pub expected_dim: Option<usize>,
+    pub model_digest: Option<&'a str>,
+    pub observed_digest: Option<&'a str>,
+    pub require_unit: bool,
+}
+
 /// Cosine similarity computed in f64; zero vectors compare as 0.
-#[must_use]
-pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
+///
+/// # Errors
+///
+/// Empty, unequal, non-finite, digest-mismatched, or (when requested)
+/// unnormalized vectors. `expected_dim` is the model digest's advertised width.
+pub fn cosine_similarity(
+    a: &[f32],
+    b: &[f32],
+    expected_dim: Option<usize>,
+) -> Result<f64, RankingError> {
+    cosine_checked(
+        a,
+        b,
+        &CosineSpec {
+            expected_dim,
+            model_digest: None,
+            observed_digest: None,
+            require_unit: false,
+        },
+    )
+}
+
+/// Same as [`cosine_similarity`], with digest and unit-norm checks.
+pub fn cosine_checked(a: &[f32], b: &[f32], spec: &CosineSpec<'_>) -> Result<f64, RankingError> {
+    if a.is_empty() || b.is_empty() {
+        return Err(RankingError::EmptyVector);
+    }
+    if a.len() != b.len() {
+        return Err(RankingError::DimensionMismatch {
+            left: a.len(),
+            right: b.len(),
+        });
+    }
+    if let Some(expected) = spec.expected_dim
+        && a.len() != expected
+    {
+        return Err(RankingError::ExpectedDimension {
+            expected,
+            actual: a.len(),
+        });
+    }
+    if let (Some(expected), Some(observed)) = (spec.model_digest, spec.observed_digest)
+        && expected != observed
+    {
+        return Err(RankingError::DigestMismatch);
+    }
     let mut dot = 0.0_f64;
     let mut norm_a = 0.0_f64;
     let mut norm_b = 0.0_f64;
     for (x, y) in a.iter().zip(b.iter()) {
+        if !x.is_finite() || !y.is_finite() {
+            return Err(RankingError::NonFinite);
+        }
         dot += f64::from(*x) * f64::from(*y);
         norm_a += f64::from(*x) * f64::from(*x);
         norm_b += f64::from(*y) * f64::from(*y);
     }
+    if spec.require_unit {
+        let len_a = norm_a.sqrt();
+        let len_b = norm_b.sqrt();
+        if (len_a - 1.0).abs() > 1e-3 || (len_b - 1.0).abs() > 1e-3 {
+            return Err(RankingError::Unnormalized);
+        }
+    }
     if norm_a == 0.0 || norm_b == 0.0 {
-        0.0
+        Ok(0.0)
     } else {
-        dot / (norm_a.sqrt() * norm_b.sqrt())
+        Ok(dot / (norm_a.sqrt() * norm_b.sqrt()))
     }
 }
 
 /// Corpus indices ranked by descending similarity; ties break by index for
 /// determinism.
-#[must_use]
-pub fn rank_by_similarity(query: &[f32], corpus: &[Vec<f32>]) -> Vec<usize> {
-    rank_by_scores(
-        &corpus
-            .iter()
-            .map(|vector| cosine_similarity(query, vector))
-            .collect::<Vec<_>>(),
-    )
+///
+/// # Errors
+///
+/// Any pair that [`cosine_similarity`] rejects.
+pub fn rank_by_similarity(query: &[f32], corpus: &[Vec<f32>]) -> Result<Vec<usize>, RankingError> {
+    if corpus.is_empty() {
+        return Err(RankingError::EmptyCorpus);
+    }
+    let mut scores = Vec::with_capacity(corpus.len());
+    for vector in corpus {
+        scores.push(cosine_similarity(query, vector, None)?);
+    }
+    Ok(rank_by_scores(&scores))
 }
 
 /// Lowercased alphanumeric tokens.
@@ -273,7 +376,6 @@ fn source_file(source: &str) -> Option<&str> {
 /// The `hybrid_graph` pipeline: cosine + BM25 RRF, then structural boost.
 ///
 /// Eval and production must call this with the same adjacency extractor.
-#[must_use]
 pub fn rank_hybrid_graph(
     query: &[f32],
     corpus: &[Vec<f32>],
@@ -281,14 +383,14 @@ pub fn rank_hybrid_graph(
     query_text: &str,
     corpus_ids: &[&str],
     related: &[Vec<String>],
-) -> Vec<usize> {
-    let embedding = rank_by_similarity(query, corpus);
+) -> Result<Vec<usize>, RankingError> {
+    let embedding = rank_by_similarity(query, corpus)?;
     let lexical = Bm25Index::build(corpus_texts).rank(query_text);
     let fused = rrf_fuse(
         &[embedding.as_slice(), lexical.as_slice()],
         corpus_texts.len(),
     );
-    graph_boost(&fused, &build_adjacency(corpus_ids, related))
+    Ok(graph_boost(&fused, &build_adjacency(corpus_ids, related)))
 }
 
 fn rank_by_scores(scores: &[f64]) -> Vec<usize> {
@@ -307,101 +409,5 @@ fn to_f64(value: usize) -> f64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn bm25_prefers_term_overlap_and_is_deterministic() {
-        let corpus = vec![
-            "the routing policy decides the upstream target".to_owned(),
-            "graph persistence with optimistic revisions".to_owned(),
-            "routing guards and routing reasons".to_owned(),
-        ];
-        let index = Bm25Index::build(&corpus);
-        let ranking = index.rank("routing policy");
-        assert_eq!(ranking[0], 0, "both query terms match document 0");
-        assert_eq!(ranking, index.rank("routing policy"), "deterministic");
-        assert!(index.score(&tokenize("unrelated words"), 1).abs() < 1e-12);
-    }
-
-    #[test]
-    fn rrf_fusion_is_deterministic_and_rewards_the_shared_leader() {
-        // Doc 1 leads both rankings and must lead the fusion.
-        let first = vec![1, 0, 2];
-        let second = vec![1, 2, 0];
-        let fused = rrf_fuse(&[&first, &second], 3);
-        assert_eq!(fused[0], 1);
-        assert_eq!(fused, rrf_fuse(&[&first, &second], 3), "deterministic");
-        // Harmonic convexity: ranks (1,3) beat ranks (2,2); the tie between
-        // doc 0 and doc 2 breaks by index.
-        let left = [0, 1, 2];
-        let right = [2, 1, 0];
-        let convex = rrf_fuse(&[&left, &right], 3);
-        assert_eq!(convex, [0, 2, 1]);
-    }
-
-    #[test]
-    fn graph_boost_lifts_a_neighbor_without_overtaking_the_benefactor() {
-        // Fused order: 0, 1, 2, 3. Doc 3 is related to doc 0 (rank 1): with
-        // the 1.5 rank penalty it lands between ranks 2 and 3 — past the
-        // unrelated doc 2, never past doc 0.
-        let fused = vec![0, 1, 2, 3];
-        let ids = ["a", "b", "c", "d"];
-        let related = vec![vec!["a".to_owned(), "d".to_owned()]];
-        let adjacency = build_adjacency(&ids, &related);
-        let boosted = graph_boost(&fused, &adjacency);
-        assert_eq!(boosted, [0, 1, 3, 2]);
-    }
-
-    #[test]
-    fn evidence_adjacency_uses_files_not_just_split_prefixes() {
-        let items = [
-            EvidenceLink {
-                id: "WX-SYMBOL",
-                source: "src/options/types.rs:41",
-                content: "enabled",
-            },
-            EvidenceLink {
-                id: "WX-SOURCE",
-                source: "src/options/types.rs:80",
-                content: "impl",
-            },
-            EvidenceLink {
-                id: "WX-VERIFY-1",
-                source: "weavatrix:change_plan",
-                content: "plan",
-            },
-            EvidenceLink {
-                id: "WX-VERIFY-2",
-                source: "weavatrix:change_plan",
-                content: "tail",
-            },
-        ];
-        let pairs = evidence_adjacency(&items);
-        assert!(
-            pairs
-                .iter()
-                .any(|pair| pair.contains(&"WX-SYMBOL".to_owned())
-                    && pair.contains(&"WX-SOURCE".to_owned()))
-        );
-        assert!(
-            pairs
-                .iter()
-                .any(|pair| pair.contains(&"WX-VERIFY-1".to_owned())
-                    && pair.contains(&"WX-VERIFY-2".to_owned()))
-        );
-    }
-
-    #[test]
-    fn adjacency_is_symmetric_and_ignores_unknown_ids() {
-        let ids = ["a", "b"];
-        let related = vec![
-            vec!["a".to_owned(), "b".to_owned()],
-            vec!["a".to_owned(), "ghost".to_owned()],
-        ];
-        let adjacency = build_adjacency(&ids, &related);
-        assert!(adjacency[&0].contains(&1));
-        assert!(adjacency[&1].contains(&0));
-        assert_eq!(adjacency[&0].len(), 1);
-    }
-}
+#[path = "ranking_tests.rs"]
+mod tests;

@@ -6,9 +6,9 @@ mod lexicon;
 
 use serde::{Deserialize, Serialize};
 
-pub use classifier::classify;
+pub use classifier::{classify, detector_disagreement};
 pub use cortex_domain::{ExecutionTarget, RiskLevel};
-pub use fold::{fold_text, fold_words};
+pub use fold::{fold_text, fold_words, mixed_script};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]

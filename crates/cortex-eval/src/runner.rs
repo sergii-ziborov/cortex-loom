@@ -230,6 +230,7 @@ impl EmbeddingReport {
 /// embedding, hybrid (embedding + BM25 fused by reciprocal rank), and hybrid
 /// with a structural graph boost. Each mode is judged against the
 /// semantic-selection gate. Absent models are skipped without pulling.
+#[allow(clippy::too_many_lines)]
 pub fn run_embedding_profile(
     backend: &dyn EvalBackend,
     profile: &EmbeddingProfile,
@@ -299,7 +300,11 @@ pub fn run_embedding_profile(
     let bm25 = Bm25Index::build(&corpus_texts);
     let mut mode_samples: BTreeMap<RetrievalMode, Vec<RetrievalSample>> = BTreeMap::new();
     for (query, vector) in queries.iter().zip(&query_vectors) {
-        let embedding_ranking = rank_by_similarity(vector, &corpus_vectors);
+        let Ok(embedding_ranking) = rank_by_similarity(vector, &corpus_vectors) else {
+            report.error = Some("embedding vectors failed cosine checks".to_owned());
+            report.latency = latency_stats(&latencies);
+            return report;
+        };
         let lexical_ranking = bm25.rank(&query.text);
         let hybrid_ranking = rrf_fuse(
             &[embedding_ranking.as_slice(), lexical_ranking.as_slice()],
@@ -307,14 +312,18 @@ pub fn run_embedding_profile(
         );
         // Same function production calls; adjacency here is the declared
         // fixture pairs that the historical gate measured.
-        let graph_ranking = rank_hybrid_graph(
+        let Ok(graph_ranking) = rank_hybrid_graph(
             vector,
             &corpus_vectors,
             &corpus_texts,
             &query.text,
             &corpus_ids,
             &fixtures.related,
-        );
+        ) else {
+            report.error = Some("hybrid ranking failed cosine checks".to_owned());
+            report.latency = latency_stats(&latencies);
+            return report;
+        };
         for (mode, ranking) in [
             (RetrievalMode::Embedding, &embedding_ranking),
             (RetrievalMode::Hybrid, &hybrid_ranking),

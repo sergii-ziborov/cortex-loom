@@ -58,11 +58,9 @@ impl WeavatrixAdapter {
             initial.missing_evidence.join(", ")
         ));
         let root = self.canonical_root(repository)?;
-        let mut sessions = self
-            .engines
-            .lock()
-            .map_err(|_| WeavatrixError::LockPoisoned)?;
-        let engine = Self::session(&mut sessions, &root)?;
+        let slot = self.lock_engine(&root)?;
+        let mut engine = slot.lock().map_err(|_| WeavatrixError::LockPoisoned)?;
+        let engine = &mut *engine;
         Self::retry_definition(engine, symbol, budget, initial, gathered);
         let needs_search_retry = initial
             .missing_evidence

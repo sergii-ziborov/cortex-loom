@@ -24,6 +24,7 @@ pub(crate) fn compile_weavatrix(
     state: &CortexMcpState,
     arguments: &CompileArgs,
 ) -> Result<CompiledEvidenceBundle, String> {
+    state.workspaces.check(&arguments.repository)?;
     let hints = resolve_hints(state, arguments)?;
     let source_followup = hints.source_followup_or(true);
     let prior = crate::context_memory::load_prior(&state.store, arguments.run_id.as_deref());

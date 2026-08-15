@@ -34,7 +34,7 @@ fn a_split_symbol_bundle_no_longer_refuses_a_small_budget() {
         warnings: Vec::new(),
         ..EvidenceBundle::default()
     };
-    let compiled = compile_evidence_bundle(bundle, "task", 100, None).unwrap();
+    let compiled = compile_evidence_bundle(bundle, "task", 130, None).unwrap();
     assert_eq!(compiled.context.included_ids, ["TASK", "WX-SYMBOL-1"]);
     assert_eq!(
         compiled.context.omitted_ids,
@@ -186,7 +186,7 @@ fn source_windows_are_omitted_instead_of_blocking_compile() {
         warnings: Vec::new(),
         ..EvidenceBundle::default()
     };
-    let compiled = compile_evidence_bundle(bundle, "task", 40, None).unwrap();
+    let compiled = compile_evidence_bundle(bundle, "task", 80, None).unwrap();
     assert_eq!(compiled.context.included_ids, ["TASK"]);
     assert!(!compiled.context.omitted_ids.is_empty());
 }
@@ -204,7 +204,7 @@ fn symbol_context_cannot_disappear_under_a_small_budget() {
         ..EvidenceBundle::default()
     };
     assert!(matches!(
-        compile_evidence_bundle(bundle, "task", 20, None),
+        compile_evidence_bundle(bundle, "task", 80, None),
         Err(ContextError::CriticalItemExceedsBudget { id, .. }) if id == "WX-SYMBOL"
     ));
 }
@@ -225,9 +225,7 @@ fn relevance_scores_reorder_fragments_but_task_stays_first() {
         ("WX-VERIFY-2".to_owned(), 0.8),
     ]);
     // Budget fits TASK plus one plan part: the more relevant part wins.
-    // 130 is calibrated to the conservative runtime counter; char/4
-    // used to fit the same pair in 70.
-    let compiled = compile_evidence_bundle(bundle, "task", 130, Some(&scores)).unwrap();
+    let compiled = compile_evidence_bundle(bundle, "task", 220, Some(&scores)).unwrap();
     assert_eq!(compiled.context.included_ids, ["TASK", "WX-VERIFY-2"]);
     assert_eq!(compiled.context.omitted_ids, ["WX-VERIFY-1"]);
     assert!(compiled.context.requires_upstream, "fail-closed untouched");
@@ -268,7 +266,7 @@ fn a_certificate_becomes_a_decision_map_and_expand_handles() {
     .unwrap();
     assert_eq!(compiled.context.included_ids[0], "TASK");
     assert_eq!(compiled.context.included_ids[1], "WX-MAP");
-    assert!(compiled.context.content.contains("## [WX-MAP]"));
+    assert!(compiled.context.content.contains("id=\"WX-MAP\""));
     assert!(
         compiled
             .context

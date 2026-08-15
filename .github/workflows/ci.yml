@@ -1,0 +1,75 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.89.0
+          components: rustfmt, clippy
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --workspace --offline
+      - name: Fixture leakage
+        run: cargo test --offline -p cortex-eval generated_train_does_not_leak_eval_gold
+      - name: Leave-one-out folds
+        run: cargo test --offline -p cortex-eval leave_one
+      - name: License policy
+        run: python scripts/check-licenses.py
+        shell: bash
+      - name: MCP surface
+        run: cargo test --offline -p cortex-mcp
+      - name: Benchmark smoke
+        run: cargo test --offline -p cortex-bench
+      - name: Publish smoke artifacts
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-smoke
+          if-no-files-found: ignore
+          path: |
+            docs/benchmark.md
+            corpora/manifest.json
+            eval/public/README.md
+
+  ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: UI build
+        run: npm --prefix ui ci && npm --prefix ui run build
+
+  audit:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: cargo-deny
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses
+        continue-on-error: true
+      - name: cargo-audit
+        run: cargo install cargo-audit --locked && cargo audit
+        continue-on-error: true

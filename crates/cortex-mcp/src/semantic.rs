@@ -7,6 +7,9 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+
+use sha2::{Digest, Sha256};
 
 use cortex_context::ranking::{
     ADJACENCY_KIND, EvidenceLink, RANKING_FIXTURE_SET, RANKING_VERSION, evidence_adjacency,
@@ -18,6 +21,7 @@ use cortex_llm::{
 };
 
 const MAX_EMBED_CHARS: usize = 6_000;
+const MAX_EMBED_CACHE: usize = 256;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SemanticConfig {
@@ -60,6 +64,7 @@ impl SemanticConfig {
 pub struct SemanticScorer {
     provider: OpenAiProvider,
     provenance: String,
+    cache: Mutex<HashMap<String, Vec<f32>>>,
 }
 
 impl SemanticScorer {
@@ -92,6 +97,7 @@ impl SemanticScorer {
         Ok(Some(Self {
             provider,
             provenance,
+            cache: Mutex::new(HashMap::new()),
         }))
     }
 
@@ -116,19 +122,72 @@ impl SemanticScorer {
         let mut inputs = Vec::with_capacity(texts.len() + 1);
         inputs.push(task.chars().take(MAX_EMBED_CHARS).collect());
         inputs.extend(texts.iter().cloned());
-        let vectors = self
-            .provider
-            .embed(&EmbedRequest { inputs })
-            .map_err(|error| error.to_string())?
-            .value;
+        let vectors = self.embed_cached(&inputs)?;
         let (query, corpus) = vectors
             .split_first()
             .ok_or_else(|| "embed returned no vectors".to_owned())?;
         let ids: Vec<&str> = fragments.iter().map(|item| item.id).collect();
         let related = evidence_adjacency(fragments);
-        let ranking = rank_hybrid_graph(query, corpus, &texts, task, &ids, &related);
+        let ranking = rank_hybrid_graph(query, corpus, &texts, task, &ids, &related)
+            .map_err(|error| error.to_string())?;
         Ok(scores_from_ranking(&ids, &ranking))
     }
+
+    fn embed_cached(&self, inputs: &[String]) -> Result<Vec<Vec<f32>>, String> {
+        let keys: Vec<String> = inputs.iter().map(|text| content_hash(text)).collect();
+        let mut missing = Vec::new();
+        {
+            let cache = self
+                .cache
+                .lock()
+                .map_err(|_| "embedding cache lock poisoned".to_owned())?;
+            for (key, text) in keys.iter().zip(inputs.iter()) {
+                if !cache.contains_key(key) {
+                    missing.push((key.clone(), text.clone()));
+                }
+            }
+        }
+        if !missing.is_empty() {
+            let fresh = self
+                .provider
+                .embed(&EmbedRequest {
+                    inputs: missing.iter().map(|(_, text)| text.clone()).collect(),
+                })
+                .map_err(|error| error.to_string())?
+                .value;
+            if fresh.len() != missing.len() {
+                return Err("embed returned the wrong number of vectors".to_owned());
+            }
+            let mut cache = self
+                .cache
+                .lock()
+                .map_err(|_| "embedding cache lock poisoned".to_owned())?;
+            for ((key, _), vector) in missing.into_iter().zip(fresh) {
+                if cache.len() >= MAX_EMBED_CACHE
+                    && let Some(oldest) = cache.keys().next().cloned()
+                {
+                    cache.remove(&oldest);
+                }
+                cache.insert(key, vector);
+            }
+        }
+        let cache = self
+            .cache
+            .lock()
+            .map_err(|_| "embedding cache lock poisoned".to_owned())?;
+        keys.into_iter()
+            .map(|key| {
+                cache
+                    .get(&key)
+                    .cloned()
+                    .ok_or_else(|| "embedding cache miss after fill".to_owned())
+            })
+            .collect()
+    }
+}
+
+fn content_hash(text: &str) -> String {
+    format!("{:x}", Sha256::digest(text.as_bytes()))
 }
 
 fn resolve_ref(profiles_path: &Path, reference: &str) -> PathBuf {

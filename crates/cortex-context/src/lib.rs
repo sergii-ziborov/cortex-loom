@@ -320,12 +320,24 @@ fn validate(request: &ContextRequest) -> Result<(), ContextError> {
 
 fn render_item(item: &EvidenceItem, body: &str) -> String {
     format!(
-        "## [{}] {}\n{}\n{}\n\n",
-        item.id,
-        item.heading_label(),
-        item.source,
-        body.trim()
+        "<evidence id=\"{}\" trust=\"{}\" source=\"{}\">\n<![CDATA[{}]]>\n</evidence>\n\n",
+        xml_escape(&item.id),
+        xml_escape(&item.heading_label()),
+        xml_escape(&item.source),
+        cdata_escape(body.trim())
     )
+}
+
+fn xml_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+fn cdata_escape(value: &str) -> String {
+    value.replace("]]>", "]]]]><![CDATA[>")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

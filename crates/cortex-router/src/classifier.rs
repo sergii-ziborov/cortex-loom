@@ -105,3 +105,28 @@ fn is_ambiguous(normalized: &str) -> bool {
             "fix it" | "do it" | "handle this" | "make it better" | "update this" | "change this"
         )
 }
+
+/// True when two or more deterministic lexicon families fire on the same task.
+#[must_use]
+pub fn detector_disagreement(task: &str) -> bool {
+    let normalized = fold_words(task);
+    let families: &[&[&str]] = &[
+        REPOSITORY,
+        DETERMINISTIC,
+        EXTRACTION,
+        COMPRESSION,
+        ADVISORY,
+        AUTH,
+        SECURITY,
+        CONCURRENCY,
+        MIGRATION,
+        RELEASE,
+        DEPLOYMENT,
+        PUBLICATION,
+    ];
+    families
+        .iter()
+        .filter(|phrases| has_phrase(&normalized, phrases))
+        .count()
+        >= 2
+}

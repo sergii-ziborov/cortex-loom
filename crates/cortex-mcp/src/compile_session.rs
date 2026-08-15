@@ -167,7 +167,7 @@ fn score(
                 content: fragment.content.as_str(),
             })
             .collect();
-        match scorer.score(&arguments.task, &fragments) {
+        match scorer.score(&arguments.task, &fragments, bundle.snapshot_id.as_deref()) {
             Ok(scores) => {
                 *semantic_note = Some(scorer.provenance());
                 Some(scores)

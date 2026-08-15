@@ -206,7 +206,7 @@ fn recommendations(state: &CortexMcpState, task: &str) -> serde_json::Value {
                 content,
             })
             .collect();
-        match scorer.score(task, &fragments) {
+        match scorer.score(task, &fragments, None) {
             Ok(scores) => {
                 rerank_candidates(&mut candidates, &scores);
                 semantic_ranking = Some(scorer.provenance());

@@ -26,7 +26,7 @@ contradictory, or stale. Compression is a consequence, not the product.
 | `usage_report` out of the agent workflow | done |
 | Routing + sequence hint inside `prepare` | done |
 | Adaptive budget (not a fixed 4 000) | done (`auto` default; pins remain) |
-| Embeddings and digests cached by revision | partial (content-hash cache; not revision-keyed) |
+| Embeddings and digests cached by revision | done (`snapshot:content-hash`) |
 
 ## Stage 3 — beyond the Rust benches
 

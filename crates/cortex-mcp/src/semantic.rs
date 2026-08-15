@@ -107,10 +107,13 @@ impl SemanticScorer {
     }
 
     /// Score fragments with the same `hybrid_graph` pipeline the eval gate uses.
+    /// Embeddings are cached by `(snapshot, content hash)` so a clean
+    /// revision does not re-embed unchanged fragments.
     pub fn score(
         &self,
         task: &str,
         fragments: &[EvidenceLink<'_>],
+        snapshot: Option<&str>,
     ) -> Result<HashMap<String, f64>, String> {
         if fragments.is_empty() {
             return Ok(HashMap::new());
@@ -122,7 +125,7 @@ impl SemanticScorer {
         let mut inputs = Vec::with_capacity(texts.len() + 1);
         inputs.push(task.chars().take(MAX_EMBED_CHARS).collect());
         inputs.extend(texts.iter().cloned());
-        let vectors = self.embed_cached(&inputs)?;
+        let vectors = self.embed_cached(&inputs, snapshot.unwrap_or("unknown"))?;
         let (query, corpus) = vectors
             .split_first()
             .ok_or_else(|| "embed returned no vectors".to_owned())?;
@@ -133,8 +136,11 @@ impl SemanticScorer {
         Ok(scores_from_ranking(&ids, &ranking))
     }
 
-    fn embed_cached(&self, inputs: &[String]) -> Result<Vec<Vec<f32>>, String> {
-        let keys: Vec<String> = inputs.iter().map(|text| content_hash(text)).collect();
+    fn embed_cached(&self, inputs: &[String], snapshot: &str) -> Result<Vec<Vec<f32>>, String> {
+        let keys: Vec<String> = inputs
+            .iter()
+            .map(|text| format!("{snapshot}:{}", content_hash(text)))
+            .collect();
         let mut missing = Vec::new();
         {
             let cache = self

@@ -1,0 +1,31 @@
+{
+  "schema": "cortex-external-repos.v1",
+  "note": "Catalog only. Do not clone these at build time. A release run names a commit per repo.",
+  "repositories": [
+    {"id": "tokio", "url": "https://github.com/tokio-rs/tokio", "languages": ["rs"]},
+    {"id": "serde", "url": "https://github.com/serde-rs/serde", "languages": ["rs"]},
+    {"id": "ripgrep", "url": "https://github.com/BurntSushi/ripgrep", "languages": ["rs"]},
+    {"id": "clap", "url": "https://github.com/clap-rs/clap", "languages": ["rs"]},
+    {"id": "axum", "url": "https://github.com/tokio-rs/axum", "languages": ["rs"]},
+    {"id": "typescript", "url": "https://github.com/microsoft/TypeScript", "languages": ["ts"]},
+    {"id": "vscode", "url": "https://github.com/microsoft/vscode", "languages": ["ts", "js"]},
+    {"id": "react", "url": "https://github.com/facebook/react", "languages": ["ts", "js"]},
+    {"id": "nextjs", "url": "https://github.com/vercel/next.js", "languages": ["ts", "js"]},
+    {"id": "prettier", "url": "https://github.com/prettier/prettier", "languages": ["js", "ts"]},
+    {"id": "eslint", "url": "https://github.com/eslint/eslint", "languages": ["js"]},
+    {"id": "cpython", "url": "https://github.com/python/cpython", "languages": ["py"]},
+    {"id": "django", "url": "https://github.com/django/django", "languages": ["py"]},
+    {"id": "flask", "url": "https://github.com/pallets/flask", "languages": ["py"]},
+    {"id": "requests", "url": "https://github.com/psf/requests", "languages": ["py"]},
+    {"id": "go", "url": "https://github.com/golang/go", "languages": ["go"]},
+    {"id": "kubernetes", "url": "https://github.com/kubernetes/kubernetes", "languages": ["go"]},
+    {"id": "cobra", "url": "https://github.com/spf13/cobra", "languages": ["go"]},
+    {"id": "gin", "url": "https://github.com/gin-gonic/gin", "languages": ["go"]},
+    {"id": "spring-boot", "url": "https://github.com/spring-projects/spring-boot", "languages": ["java"]},
+    {"id": "guava", "url": "https://github.com/google/guava", "languages": ["java"]},
+    {"id": "junit5", "url": "https://github.com/junit-team/junit5", "languages": ["java"]},
+    {"id": "aspnetcore", "url": "https://github.com/dotnet/aspnetcore", "languages": ["cs"]},
+    {"id": "runtime", "url": "https://github.com/dotnet/runtime", "languages": ["cs"]},
+    {"id": "weavatrix", "url": "https://github.com/sergii-ziborov/weavatrix", "languages": ["rs"]}
+  ]
+}

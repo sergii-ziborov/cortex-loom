@@ -29,10 +29,11 @@
 //! tokens per satisfied fact, not raw token count.
 
 mod external_skills;
+pub mod lang_tasks;
 pub mod manifest;
 pub mod naive;
-pub mod lang_tasks;
 pub mod probe_tasks;
+pub mod release;
 pub mod report;
 pub mod schedule;
 pub mod scoreboard;

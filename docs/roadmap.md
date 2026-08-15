@@ -30,13 +30,15 @@ contradictory, or stale. Compression is a consequence, not the product.
 
 ## Stage 3 — beyond the Rust benches
 
-Unicode/mixed-language intent and a revision-cached language inventory
-are in. AST definition spans, TS/JS/Python/Go/Java suites, no global
-`ui/` downrank, external repositories, and hidden issue/PR tasks follow.
+Unicode/mixed-language intent, language inventory, graph-span
+definitions, TS/JS/Python/Go/Java fixtures, and task-aware ui/test
+ranking are in. External repos are catalogued; hidden issue/PR oracles
+are reserved.
 
 ## Stage 4 — prove the work is better
 
 Release evaluation must compare native, native + files, raw Weavatrix,
 Cortex, and Serena/LSP on identical models, prompts, commits, oracles,
-and retry budgets. See [evaluation.md](evaluation.md). The harness does
-not yet run that comparison.
+and retry budgets. See [evaluation.md](evaluation.md). The contract
+lives in `cortex-bench` `release.rs`. Serena is unavailable unless
+`CORTEX_SERENA_ROOT` is set.

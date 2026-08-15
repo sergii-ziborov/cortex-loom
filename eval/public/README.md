@@ -17,3 +17,7 @@ must name the held-out axis. Training on generated `corpora/train` rows of
 the same *family* is allowed; training on the gold rows is not.
 
 The private suite under `eval/private/` is not used when writing heuristics.
+
+External repositories for a later cross-repo gate are catalogued in
+`external-repos.json`. Hidden issue/PR oracles live under
+`eval/private/issues/` and must not be opened while developing heuristics.

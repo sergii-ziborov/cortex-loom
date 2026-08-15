@@ -84,7 +84,17 @@ impl WeavatrixAdapter {
                 rebuild_retry_sources(engine, gathered, task, symbol, hints, budget, policy);
             }
         }
-        for operation in crate::plan::plan_with_prior(task, symbol, budget, policy, hints, prior) {
+        let inventory_glob = crate::inventory(&root).glob();
+        let operations = crate::plan::plan_with_prior(
+            task,
+            symbol,
+            budget,
+            policy,
+            hints,
+            prior,
+            Some(inventory_glob.as_str()),
+        );
+        for operation in operations {
             let kind = crate::verify::kind_name(operation.kind);
             if !initial
                 .missing_evidence

@@ -309,7 +309,17 @@ impl WeavatrixAdapter {
             .into_iter()
             .collect();
         let mut search_hits = Vec::new();
-        for operation in crate::plan::plan_with_prior(task, symbol, budget, policy, hints, prior) {
+        let inventory_glob = crate::inventory(&root).glob();
+        let operations = crate::plan::plan_with_prior(
+            task,
+            symbol,
+            budget,
+            policy,
+            hints,
+            prior,
+            Some(inventory_glob.as_str()),
+        );
+        for operation in operations {
             match native_call(engine, operation.tool, operation.arguments.clone()) {
                 Ok(value) => {
                     if let Some(overrun) = budget_overrun(operation.tool, &value) {

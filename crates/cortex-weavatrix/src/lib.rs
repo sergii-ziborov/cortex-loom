@@ -4,6 +4,7 @@ mod certificate;
 mod context;
 mod fold;
 mod hints;
+mod languages;
 mod layers;
 mod mechanisms;
 pub mod plan;
@@ -27,6 +28,7 @@ pub use fold::{
     DEFAULT_SOURCE_GLOB, fold_text, search_glob, segment_identifier, window_covers_span,
 };
 pub use hints::{IntentHint, PlanHints};
+pub use languages::{LanguageInventory, inventory};
 pub use plan_intent::asks_for_prior_attempts;
 pub use refactor_preview::{PreviewChange, RefactorPreview, preview_refactor_plan};
 pub use run_memory::{PriorRunEvent, PriorRunMemory};

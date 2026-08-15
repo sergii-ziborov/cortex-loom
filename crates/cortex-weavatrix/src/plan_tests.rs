@@ -368,6 +368,7 @@ fn prior_run_memory_is_planned_when_events_exist() {
         PlanPolicy::default(),
         crate::PlanHints::default(),
         Some(&prior),
+        None,
     );
     let tools: Vec<&str> = operations.iter().map(|operation| operation.tool).collect();
     assert_eq!(

@@ -30,10 +30,9 @@ contradictory, or stale. Compression is a consequence, not the product.
 
 ## Stage 3 — beyond the Rust benches
 
-Unicode/mixed-language intent is started. Dynamic language inventory,
-AST definition spans, TS/JS/Python/Go/Java suites, no global `ui/`
-downrank, 20–50 external repositories, and hidden issue/PR tasks are
-not built.
+Unicode/mixed-language intent and a revision-cached language inventory
+are in. AST definition spans, TS/JS/Python/Go/Java suites, no global
+`ui/` downrank, external repositories, and hidden issue/PR tasks follow.
 
 ## Stage 4 — prove the work is better
 

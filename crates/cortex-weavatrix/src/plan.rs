@@ -299,7 +299,7 @@ pub fn plan_with_hints(
     policy: PlanPolicy,
     hints: PlanHints,
 ) -> Vec<PlannedOperation> {
-    plan_with_prior(task, symbol, budget, policy, hints, None)
+    plan_with_prior(task, symbol, budget, policy, hints, None, None)
 }
 
 /// As [`plan_with_hints`], including prior-run memory when the caller has it.
@@ -311,8 +311,17 @@ pub fn plan_with_prior(
     policy: PlanPolicy,
     hints: PlanHints,
     prior: Option<&PriorRunMemory>,
+    inventory_glob: Option<&str>,
 ) -> Vec<PlannedOperation> {
-    let mut operations = plan_all(task, symbol, budget, policy, hints, prior);
+    let mut operations = plan_all(
+        task,
+        symbol,
+        budget,
+        policy,
+        hints,
+        prior,
+        inventory_glob,
+    );
     let ceiling = budget.saturating_mul(policy.overcommit.max(1));
     let mut committed = 0_u32;
     operations.retain(|operation| {
@@ -341,6 +350,7 @@ fn plan_all(
     policy: PlanPolicy,
     hints: PlanHints,
     prior: Option<&PriorRunMemory>,
+    inventory_glob: Option<&str>,
 ) -> Vec<PlannedOperation> {
     let intent = hints.intent_or_detect(task);
     let mut identifiers = extract_identifiers(task);
@@ -401,7 +411,7 @@ fn plan_all(
         }
     }
     if !identifiers.is_empty() {
-        let glob = crate::fold::search_glob(&identifiers);
+        let glob = crate::fold::search_glob_in(&identifiers, inventory_glob);
         if intent == TaskIntent::RuntimeConfig {
             let slice = share(search_budget, 1, 2);
             operations.push(search_op(

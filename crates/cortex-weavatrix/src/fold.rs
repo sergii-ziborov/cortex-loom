@@ -66,6 +66,13 @@ pub const DEFAULT_SOURCE_GLOB: &str = "**/*.{rs,ts,tsx,js,jsx,py,go,java,kt,cs,s
 /// multi-language default.
 #[must_use]
 pub fn search_glob(identifiers: &[String]) -> String {
+    search_glob_in(identifiers, None)
+}
+
+/// Same as [`search_glob`], but a repository inventory can replace the
+/// multi-language default when the task names no suffix.
+#[must_use]
+pub fn search_glob_in(identifiers: &[String], inventory_glob: Option<&str>) -> String {
     let mut suffixes = Vec::new();
     for identifier in identifiers {
         let lower = fold_text(identifier);
@@ -79,7 +86,7 @@ pub fn search_glob(identifiers: &[String]) -> String {
         }
     }
     match suffixes.as_slice() {
-        [] => DEFAULT_SOURCE_GLOB.to_owned(),
+        [] => inventory_glob.unwrap_or(DEFAULT_SOURCE_GLOB).to_owned(),
         [only] => format!("**/*{only}"),
         many => {
             let inner = many

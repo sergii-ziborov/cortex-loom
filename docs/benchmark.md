@@ -193,6 +193,25 @@ comes from priority-ordered budgeting across operations, not from dedup.
 5. **Reading the files still wins on recall, always.** 24/24, every time, for
    4.5× the tokens. The trade is real and it is a trade, not a free lunch.
 
+## Measured 2026-08-15 — ten-task probe, 4 000-token budget
+
+Same `--set probe` as the 2026-08-13 quality stamp. Production
+`cortex_prepare` is the `cortex-source` arm (planned ops + source
+follow-up + compiler).
+
+| arm | tokens | facts | vs previous published targeted |
+| --- | ---: | ---: | --- |
+| naive | 396 984 | 40/40 | — |
+| weavatrix-raw | 97 217 | 28/40 | — |
+| weavatrix-planned | 13 355 | 28/40 | was 23 636 / 28/40 |
+| cortex-targeted | 12 583 | 27/40 | was 23 287 / 28/40 |
+| **cortex-source** | **17 748** | **37/40** | **+9 facts vs 28/40, −24 % tokens vs old targeted** |
+
+`cortex-source` is the number that matters for the product claim: 96 %
+fewer tokens than reading the candidate files, 37 of 40 required facts,
+and more complete than the previous 28/40 targeted packet. The three
+missed facts are still a real gap, not a 100 % recall claim.
+
 ## The honest conclusion
 
 - **Over Weavatrix alone**, the control plane buys a measured 71 % token

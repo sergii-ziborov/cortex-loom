@@ -1,16 +1,24 @@
 # Cortex Loom
 
-**Give a coding agent less to read, without hiding the facts it needs.**
+**A verifiable context compiler for coding agents.**
 
-Cortex Loom sits between a repository and Codex, Claude, or Copilot. It
-asks [Weavatrix](https://github.com/sergii-ziborov/weavatrix) for typed
-code evidence, packs only what the current task can use, and leaves
+Cortex Loom compiles a task-complete, revision-bound evidence packet
+and proves which required facts are present, missing, contradictory,
+or stale. It gives the model only the facts it needs — and does not
+hide the unknown.
+
+It sits between a repository and Codex, Claude, or Copilot. It asks
+[Weavatrix](https://github.com/sergii-ziborov/weavatrix) for typed
+code evidence, packs what the current task can use, and leaves
 mutation, risk, and unverified work to the upstream agent.
 
 It is a local control plane: a typed process graph, a budgeted evidence
 compiler, fail-closed routing, and an MCP / HTTP / browser surface over
 the same contracts. It is not a second indexer, not an autonomous coder,
 and not a Superpowers fork.
+
+> Cortex Loom — проверяемый компилятор контекста: модели только нужные
+> факты, плюс доказательство полноты. Неизвестное не скрывается.
 
 <p align="center">
   <img src="docs/images/studio-canvas.png" alt="Cortex Loom studio: typed process graph with Weavatrix, local-model, and upstream-agent nodes" width="920" />

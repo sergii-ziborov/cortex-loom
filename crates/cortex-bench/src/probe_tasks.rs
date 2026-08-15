@@ -46,7 +46,7 @@ pub const fn probe_tasks() -> &'static [BenchTask] {
             id: "probe-compile-bundle-callers",
             prompt: concat!(
                 "Who calls `compile_",
-                "evidence_bundle`, and what breaks if it starts refusing more packets?"
+                "evidence_bundle` versus `compile_probe_bundle`, and what breaks if the generic path starts refusing more packets?"
             ),
             symbol: Some(concat!("compile_", "evidence_bundle")),
             naive_globs: &[
@@ -61,7 +61,7 @@ pub const fn probe_tasks() -> &'static [BenchTask] {
                 },
                 Anchor {
                     id: "mcp-build",
-                    any_of: &[concat!("match compile_", "evidence_bundle(")],
+                    any_of: &[concat!("match compile_", "probe_bundle(")],
                 },
                 Anchor {
                     id: "bench-arm",

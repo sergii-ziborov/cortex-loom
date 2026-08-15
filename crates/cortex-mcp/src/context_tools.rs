@@ -1,6 +1,6 @@
 use super::{
     Arc, ConcurrentMcpServer, ContextRequest, CortexMcpState, ToolReply, WeavatrixContextArgs,
-    compile_context, json,
+    compile_context, distrust_caller_verified, json,
 };
 use crate::compile_session::{CompileArgs, compile_weavatrix};
 
@@ -53,10 +53,11 @@ pub(crate) fn register(
                 "required": ["items", "maxTokens"],
                 "additionalProperties": false
             }),
-            move |context, arguments: ContextRequest| {
+            move |context, mut arguments: ContextRequest| {
                 if context.is_cancelled() {
                     return ToolReply::error("cancelled");
                 }
+                distrust_caller_verified(&mut arguments);
                 match compile_context(&arguments) {
                     Ok(packet) => ToolReply::text(packet),
                     Err(error) => ToolReply::error(error.to_string()),

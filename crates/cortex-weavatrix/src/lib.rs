@@ -4,6 +4,7 @@ mod context;
 mod fold;
 mod hints;
 mod layers;
+mod mechanisms;
 pub mod plan;
 mod plan_intent;
 mod refactor_preview;
@@ -18,6 +19,7 @@ pub use adapter::{
 };
 pub use context::{
     CompiledEvidenceBundle, compile_evidence_bundle, compile_evidence_bundle_layered,
+    compile_probe_bundle,
 };
 pub use fold::{
     DEFAULT_SOURCE_GLOB, fold_text, search_glob, segment_identifier, window_covers_span,

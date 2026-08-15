@@ -18,7 +18,7 @@
 //!   fragment concatenated, unbudgeted and unordered, exactly as an agent
 //!   receives it when an MCP tool result is pasted into the conversation.
 //! * `cortex-loom` — the same Weavatrix bundle through
-//!   [`cortex_weavatrix::compile_evidence_bundle`] at a declared budget, with
+//!   [`cortex_weavatrix::compile_probe_bundle`] at a declared budget, with
 //!   priority ordering and fail-closed critical evidence.
 //!
 //! ## What this does not measure

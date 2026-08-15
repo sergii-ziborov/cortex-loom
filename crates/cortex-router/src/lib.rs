@@ -128,6 +128,14 @@ impl RoutingRequest {
             availability: LocalAvailability::default(),
         }
     }
+
+    /// A caller may report missing or contradictory evidence to escalate.
+    /// They cannot mint `Verified` to take a cheaper path.
+    pub fn distrust_self_reported_verified(&mut self) {
+        if self.evidence == EvidenceStatus::Verified {
+            self.evidence = EvidenceStatus::NotRequired;
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

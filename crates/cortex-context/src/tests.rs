@@ -199,6 +199,26 @@ fn trust_state_is_visible_in_the_packet() {
 }
 
 #[test]
+fn a_caller_cannot_mint_verified_on_the_wire() {
+    let mut request = ContextRequest {
+        items: vec![item(
+            "WX-SOURCE",
+            "pub const MAX: u32 = 1;",
+            EvidencePriority::Critical,
+        )],
+        max_tokens: 1_000,
+        deduplicate: true,
+    };
+    assert_eq!(request.items[0].state, EvidenceState::Verified);
+    distrust_caller_verified(&mut request);
+    assert_eq!(request.items[0].state, EvidenceState::Unverified);
+    assert_eq!(
+        request.items[0].derivation,
+        Some(EvidenceDerivation::Inferred)
+    );
+}
+
+#[test]
 fn injected_markdown_headings_in_source_are_escaped() {
     let mut item = item(
         "WX-SOURCE",

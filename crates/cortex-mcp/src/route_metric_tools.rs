@@ -61,10 +61,11 @@ pub(crate) fn register(
                 "required": ["task", "evidence", "schemaValid", "budget", "mutation", "availability"],
                 "additionalProperties": false
             }),
-            move |context, arguments: RouteWorkArgs| {
+            move |context, mut arguments: RouteWorkArgs| {
                 if context.is_cancelled() {
                     return ToolReply::error("cancelled");
                 }
+                arguments.request.distrust_self_reported_verified();
                 let routed = route_state.llm_router.as_ref().map_or_else(
                     || llm_route::RoutedWork {
                         decision: lexical_route(&arguments.request),

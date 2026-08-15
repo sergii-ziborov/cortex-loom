@@ -16,8 +16,9 @@ Cortex Loom is a control plane, not an autonomous replacement for Codex or Claud
    default, not `**/*.rs`.
 4. Sufficiency allows one targeted retry. A still-thin packet becomes an
    upstream handoff, never a confident local answer.
-5. Codex or Claude receives the compact evidence and remains responsible
-   for ambiguous or high-risk engineering decisions.
+5. Codex or Claude receives the compact evidence and a coverage
+   certificate — present, missing, contradictory, or stale — and remains
+   responsible for ambiguous or high-risk engineering decisions.
 
 Local output is advisory. No model may publish, deploy, approve a release, apply a refactor, or mutate workflow state solely from self-reported confidence.
 
@@ -57,6 +58,8 @@ The protocol-independent crates do not depend on MCP, HTTP, or the UI. `cortex-m
 - Weavatrix sessions are per-repository. The map lock only looks up a slot; agents on different repos do not block each other. Idle slots evict under an LRU cap and a 30-minute TTL. Embeddings cache by content hash.
 - The optional local classifier runs only on lexical ambiguity, mixed-script tasks, detector disagreement, or a floor below `upstream_strong`. An already-obvious high-risk route does not pay for an 8B call.
 - Fine-tune rows live in `corpora/train` and `corpora/dev`. Gold lives in `crates/cortex-eval/fixtures/` and `eval/public`. `eval/private` is unused by heuristics. The writer refuses exact-hash, repository, and gold-family leakage.
+- Callers cannot mint `Verified`. `route_work` treats self-reported verified evidence as absent. `context_compile` downgrades wire items to unverified. Only the Weavatrix adapter assigns trust after a source read.
+- Archive-miss and block-join mechanism labels are probe-only (`compile_probe_bundle`). The generic engine does not inject them.
 - All frames, queues, tool runtimes, model contexts, graph sizes, and response sizes are bounded.
 - Refactor planning intelligence is not claimed locally: an upstream coding agent authors the exact plan, then native Rust parsing, path confinement, hash checks, and `weavatrix-edit` render a read-only preview. Apply, confirmation tokens, rollback, worktrees, and process spawning are absent.
 - Graph writes require the current revision; stale clients receive a conflict instead of overwriting newer state.

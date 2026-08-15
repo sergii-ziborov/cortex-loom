@@ -37,7 +37,7 @@ pub fn compile_evidence_bundle(
     max_tokens: u32,
     relevance: Option<&HashMap<String, f64>>,
 ) -> Result<CompiledEvidenceBundle, ContextError> {
-    compile_evidence_bundle_layered(bundle, task, max_tokens, relevance, None)
+    compile_layered(bundle, task, max_tokens, relevance, None, false)
 }
 
 /// Same compile, with an L0 decision map and L2 expansion handles when a
@@ -49,6 +49,30 @@ pub fn compile_evidence_bundle_layered(
     max_tokens: u32,
     relevance: Option<&HashMap<String, f64>>,
     certificate: Option<&cortex_context::CoverageCertificate>,
+) -> Result<CompiledEvidenceBundle, ContextError> {
+    compile_layered(bundle, task, max_tokens, relevance, certificate, false)
+}
+
+/// Bench/probe compile. Applies the T2/T3 mechanism labels that must not
+/// run on the generic engine.
+#[allow(clippy::implicit_hasher)]
+pub fn compile_probe_bundle(
+    bundle: EvidenceBundle,
+    task: &str,
+    max_tokens: u32,
+    relevance: Option<&HashMap<String, f64>>,
+) -> Result<CompiledEvidenceBundle, ContextError> {
+    compile_layered(bundle, task, max_tokens, relevance, None, true)
+}
+
+#[allow(clippy::implicit_hasher)]
+fn compile_layered(
+    bundle: EvidenceBundle,
+    task: &str,
+    max_tokens: u32,
+    relevance: Option<&HashMap<String, f64>>,
+    certificate: Option<&cortex_context::CoverageCertificate>,
+    probe_mechanisms: bool,
 ) -> Result<CompiledEvidenceBundle, ContextError> {
     let EvidenceBundle {
         repository,
@@ -107,8 +131,8 @@ pub fn compile_evidence_bundle_layered(
             items.push(expands);
         }
     }
-    if let Some(index) = mechanism_index(task, &items) {
-        items.insert(1, index);
+    if probe_mechanisms {
+        crate::mechanisms::insert_probe_index(task, &mut items);
     }
     let snapshot_for_packet = snapshot_id.clone();
     // Fragments come from several Weavatrix operations that budget
@@ -192,109 +216,6 @@ const fn derivation_for(kind: EvidenceKind, state: EvidenceState) -> EvidenceDer
         ) => EvidenceDerivation::Graph,
         (_, EvidenceState::Unverified) => EvidenceDerivation::Inferred,
         _ => EvidenceDerivation::ExactSource,
-    }
-}
-
-/// A short index of mechanisms already present in the packet.
-///
-/// Measured on T3: the 9B saw `enabled`, `cfg(feature)`, and
-/// `safe_virtual_path` and still refused to name them. Naming the fragment
-/// recovered those facts through the same model. Only labels mechanisms the
-/// evidence already carries.
-fn mechanism_index(task: &str, items: &[EvidenceItem]) -> Option<EvidenceItem> {
-    let lower = task.to_ascii_lowercase();
-    if !crate::plan_intent::is_broad(task)
-        && !lower.contains("quiet")
-        && !is_block_join_task(&lower)
-    {
-        return None;
-    }
-    let blob: String = items
-        .iter()
-        .filter(|item| item.id != "TASK")
-        .map(|item| item.content.as_str())
-        .collect::<Vec<_>>()
-        .join("\n")
-        .to_ascii_lowercase();
-    let mut lines = Vec::new();
-    push_mechanism(
-        &mut lines,
-        &blob,
-        &["pub enabled", " enabled:", ".enabled"],
-        "mechanism: enable-flag — field `enabled`",
-    );
-    push_mechanism(
-        &mut lines,
-        &blob,
-        &["max_entry_bytes", "max_expanded_bytes", "max_archive_bytes"],
-        "mechanism: size-limit — max_entry_bytes / max_expanded_bytes / max_archive_bytes",
-    );
-    push_mechanism(
-        &mut lines,
-        &blob,
-        &["max_entries"],
-        "mechanism: entry-count — max_entries",
-    );
-    push_mechanism(
-        &mut lines,
-        &blob,
-        &[
-            "cfg(feature",
-            "feature = \"archives\"",
-            "feature=\"archives\"",
-        ],
-        "mechanism: feature-gate — cfg(feature = \"archives\")",
-    );
-    push_mechanism(
-        &mut lines,
-        &blob,
-        &["safe_virtual_path", "../", "traversal"],
-        "mechanism: path-skip — name `safe_virtual_path` (parent-dir / traversal skip)",
-    );
-    push_mechanism(
-        &mut lines,
-        &blob,
-        &["quiet_match", "fn quiet"],
-        "mechanism: quiet-path — quiet_match",
-    );
-    push_mechanism(
-        &mut lines,
-        &blob,
-        &["fn finish_block", "finish_block("],
-        "mechanism: flush — call `finish_block`",
-    );
-    push_mechanism(
-        &mut lines,
-        &blob,
-        &["struct block", "type block"],
-        "mechanism: block-type — struct `Block`",
-    );
-    push_mechanism(
-        &mut lines,
-        &blob,
-        &["end_line", "start_line"],
-        "mechanism: join-condition — end_line / start_line; otherwise finish_block",
-    );
-    if lines.is_empty() {
-        return None;
-    }
-    Some(EvidenceItem::new(
-        "WX-MECHANISMS",
-        "cortex:mechanism_index",
-        format!("mechanisms present in this packet:\n{}", lines.join("\n")),
-        EvidencePriority::Critical,
-        EvidenceState::Verified,
-    ))
-}
-
-fn is_block_join_task(lower: &str) -> bool {
-    lower.contains("block")
-        && (lower.contains("join") || lower.contains("group") || lower.contains("multiline"))
-}
-
-fn push_mechanism(lines: &mut Vec<String>, blob: &str, needles: &[&str], label: &str) {
-    if needles.iter().any(|needle| blob.contains(needle)) {
-        lines.push(label.to_owned());
     }
 }
 

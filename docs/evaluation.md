@@ -1,6 +1,24 @@
 # Evaluation gates
 
-The “90% less upstream work” idea is a measurable product target, not a release claim.
+Cortex Loom is a verifiable context compiler, not a “90% smaller packet”
+claim. A release number must compare native agent, native + whole files,
+raw Weavatrix, Cortex, and Serena/LSP on the same models, prompts,
+commits, oracles, and retry budgets. Packet reduction of 40–60% with no
+loss of task success beats 90% reduction that adds a repair loop.
+
+The release table:
+
+| Metric | Release requirement |
+|---|---|
+| Critical evidence recall | 100% |
+| False sufficiency | 0 on the hidden suite |
+| Task success | not worse than native within CI |
+| Repair loops | not more than native |
+| Paid tokens per successful task | below native |
+| Stale citations | 0 |
+| Unsupported digest claims | 0 |
+| Deterministic latency | bounded and predictable |
+| Upstream turns | at or below native |
 
 ## Shadow phase
 

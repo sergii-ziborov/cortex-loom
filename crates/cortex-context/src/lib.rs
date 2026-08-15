@@ -161,6 +161,21 @@ pub fn compile_context(request: &ContextRequest) -> Result<ContextPacket, Contex
     compile_context_with(request, &RUNTIME_COUNTER)
 }
 
+/// Wire-facing compile: a caller cannot mint `Verified`.
+///
+/// Host-gathered fragments (Weavatrix adapter) still go through
+/// [`compile_context`] after the adapter assigned trust from the source.
+pub fn distrust_caller_verified(request: &mut ContextRequest) {
+    for item in &mut request.items {
+        if item.state == EvidenceState::Verified {
+            item.state = EvidenceState::Unverified;
+            if item.derivation == Some(EvidenceDerivation::ExactSource) {
+                item.derivation = Some(EvidenceDerivation::Inferred);
+            }
+        }
+    }
+}
+
 /// Same compile, with an explicit counter. Benches that need the historical
 /// four-character unit pass [`CharDiv4Counter`].
 pub fn compile_context_with(

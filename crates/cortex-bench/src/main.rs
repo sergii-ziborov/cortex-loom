@@ -24,9 +24,7 @@ use cortex_bench::{
     unavailable,
 };
 use cortex_weavatrix::plan::PlanPolicy;
-use cortex_weavatrix::{
-    EvidenceBundle, WeavatrixAdapter, WeavatrixConfig, compile_evidence_bundle,
-};
+use cortex_weavatrix::{EvidenceBundle, WeavatrixAdapter, WeavatrixConfig, compile_probe_bundle};
 
 fn main() -> ExitCode {
     if std::env::args().nth(1).as_deref() == Some("sequence") {
@@ -319,7 +317,7 @@ fn cortex_arm(
     task: &BenchTask,
     bundle: EvidenceBundle,
 ) -> ArmMeasurement {
-    match compile_evidence_bundle(bundle, task.prompt, settings.budget, None) {
+    match compile_probe_bundle(bundle, task.prompt, settings.budget, None) {
         Ok(compiled) => {
             let packet = &compiled.context;
             let mut arm = measure_scoped(

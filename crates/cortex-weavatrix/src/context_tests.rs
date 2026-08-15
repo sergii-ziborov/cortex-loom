@@ -84,9 +84,18 @@ fn a_broad_packet_labels_only_mechanisms_already_present() {
         warnings: Vec::new(),
         ..EvidenceBundle::default()
     };
-    let compiled = compile_evidence_bundle(bundle, task, 2_000, None).unwrap();
+    let compiled = compile_probe_bundle(bundle.clone(), task, 2_000, None).unwrap();
     assert_eq!(compiled.context.included_ids[0], "TASK");
     assert_eq!(compiled.context.included_ids[1], "WX-MECHANISMS");
+    let generic = compile_evidence_bundle(bundle, task, 2_000, None).unwrap();
+    assert!(
+        !generic
+            .context
+            .included_ids
+            .iter()
+            .any(|id| id == "WX-MECHANISMS"),
+        "probe needles must not run on the generic engine"
+    );
     assert!(compiled.context.content.contains("mechanism: enable-flag"));
     assert!(compiled.context.content.contains("mechanism: entry-count"));
     assert!(compiled.context.content.contains("mechanism: path-skip"));
@@ -106,7 +115,7 @@ fn a_multiline_packet_labels_block_and_join() {
         warnings: Vec::new(),
         ..EvidenceBundle::default()
     };
-    let compiled = compile_evidence_bundle(bundle, task, 2_000, None).unwrap();
+    let compiled = compile_probe_bundle(bundle, task, 2_000, None).unwrap();
     assert!(
         compiled
             .context

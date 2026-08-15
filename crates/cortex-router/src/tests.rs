@@ -70,6 +70,16 @@ fn evidence_compression_requires_verified_inputs() {
 }
 
 #[test]
+fn a_caller_cannot_mint_verified_to_skip_the_compression_guard() {
+    let mut request = RoutingRequest::new("Compress context for the coding agent");
+    request.evidence = EvidenceStatus::Verified;
+    request.distrust_self_reported_verified();
+    let decision = route(&request);
+    assert_eq!(decision.target, ExecutionTarget::Upstream);
+    assert!(decision.reasons.contains(&RoutingReason::MissingEvidence));
+}
+
+#[test]
 fn evidence_schema_budget_and_mutation_guards_fail_closed() {
     let mut cases = Vec::new();
     let mut missing = RoutingRequest::new("Summarize the evidence");

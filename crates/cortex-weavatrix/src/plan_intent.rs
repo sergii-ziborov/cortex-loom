@@ -142,6 +142,12 @@ pub fn is_broad(task: &str) -> bool {
         "all reasons",
         "every reason",
         "exhaustive",
+        "каждый механизм",
+        "все механизмы",
+        "перечисли все",
+        "перелічи всі",
+        "alle mechanismen",
+        "כל מנגנון",
     ];
     let lower = crate::fold::fold_text(task);
     CUES.iter().any(|cue| lower.contains(cue))
@@ -211,6 +217,11 @@ fn test_selection_cue(lower: &str) -> bool {
         "relevant tests",
         "what should i test",
         "what should we test",
+        "какие тесты",
+        "які тести",
+        "какие тесты запустить",
+        "welche tests",
+        "אילו בדיקות",
     ];
     CUES.iter().any(|cue| lower.contains(cue))
 }
@@ -234,6 +245,11 @@ fn git_history_cue(lower: &str) -> bool {
         "when was this introduced",
         "when did we add",
         "when did we introduce",
+        "кто менял",
+        "хто змінював",
+        "кто последний правил",
+        "git verlauf",
+        "מי שינה",
     ];
     CUES.iter().any(|cue| lower.contains(cue))
         || (lower.contains("churn") && (lower.contains("commit") || lower.contains("file")))
@@ -254,6 +270,12 @@ fn blast_radius_cue(lower: &str) -> bool {
         "impact of changing",
         "if its signature",
         "if the signature",
+        "кто вызывает",
+        "хто викликає",
+        "что сломается",
+        "що зламається",
+        "wer ruft",
+        "מי קורא",
     ];
     CUES.iter().any(|cue| lower.contains(cue))
 }
@@ -395,6 +417,15 @@ mod tests {
             detect("Still failing compile_context after the last attempt"),
             TaskIntent::PriorAttempt
         );
+        assert_eq!(
+            detect("какие тесты запустить после compile_context"),
+            TaskIntent::TestSelection
+        );
+        assert_eq!(
+            detect("кто вызывает `route` и что сломается"),
+            TaskIntent::BlastRadius
+        );
+        assert!(is_broad("Перечисли все механизмы молчаливого пропуска"));
         assert_eq!(
             detect("предыдущая попытка не собрала formatGroupedResult"),
             TaskIntent::PriorAttempt

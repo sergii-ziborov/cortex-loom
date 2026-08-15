@@ -225,7 +225,7 @@ fn definition_complete(
     {
         return range_covers(got_start, got_end, need_start, need_end);
     }
-    crate::source_followup::definition_is_complete(text, symbol) == Some(true)
+    crate::definition::definition_complete(text, symbol, span) == Some(true)
 }
 
 fn locate_definition(

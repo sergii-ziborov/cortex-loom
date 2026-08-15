@@ -2,6 +2,7 @@ mod adapter;
 mod budget;
 mod certificate;
 mod context;
+mod definition;
 mod fold;
 mod hints;
 mod languages;

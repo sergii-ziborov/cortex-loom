@@ -7,23 +7,22 @@ use cortex_adapters::{AgentKind, McpLaunch, export_adapter, export_library_adapt
 use cortex_context::{ContextRequest, compile_context};
 use cortex_domain::{GraphDocument, default_control_plane};
 use cortex_router::{RoutingDecision, RoutingRequest, route};
-use cortex_shadow::{
-    CompressionSnapshot, RoutingSnapshot, ShadowConfig, ShadowEvidence, ShadowHandle, ShadowTask,
-};
+use cortex_shadow::{RoutingSnapshot, ShadowConfig, ShadowHandle, ShadowTask};
 use cortex_skills::{export_skill_markdown, import_skill_markdown, index_entry, render_index};
 use cortex_store::{GraphStore, ShadowOperation, UsageOperation, UsageReport, UsageSample};
-use cortex_weavatrix::{
-    PlanHints, WeavatrixAdapter, WeavatrixConfig, assess_compiled, compile_evidence_bundle,
-};
+use cortex_weavatrix::{WeavatrixAdapter, WeavatrixConfig};
 use mcport::{ConcurrentMcpServer, FlushPolicy, RuntimeConfig, ToolReply, TransportLimits, json};
 use serde::Deserialize;
 use serde_json::Value;
 
+mod agent_tools;
+mod compile_session;
 mod context_memory;
 mod context_tools;
 mod graph_skill_tools;
 pub mod http;
 mod llm_route;
+mod packet_store;
 mod plan_hints;
 mod route_metric_tools;
 mod run_tools;
@@ -51,6 +50,7 @@ pub struct CortexMcpState {
     /// Present only under explicit `CORTEX_LLM=1` with a gated classification
     /// profile; may escalate above the lexical floor and fails closed to it.
     llm_router: Option<Arc<LlmRouter>>,
+    packets: Arc<packet_store::PacketStore>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -239,13 +239,14 @@ impl CortexMcpState {
             shadow,
             semantic,
             llm_router,
+            packets: Arc::new(packet_store::PacketStore::default()),
         })
     }
 }
 
-/// Run the full server over stdio (the default transport).
+/// Run the agent-profile server over stdio (the integration default).
 pub fn serve(state: CortexMcpState) -> io::Result<()> {
-    serve_with(state, ServerProfile::Full)
+    serve_with(state, ServerProfile::Agent)
 }
 
 /// Run one profile's server over stdio.
@@ -271,15 +272,16 @@ pub fn runtime_config() -> RuntimeConfig {
 /// Every tool schema is loaded into the client's context for the whole
 /// session, before a single call is made, so the surface is a standing cost.
 /// Measured on this workspace: `Full` is 27 tools over two `tools/list` pages
-/// and roughly 4 000 estimated tokens. A caller that only wants evidence pays
-/// that for twenty-five tools it never calls.
+/// and roughly 4 000 estimated tokens. Generated adapters and the CLI default
+/// to [`ServerProfile::Agent`] so a coding agent does not pay that tax.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ServerProfile {
-    /// Graphs, skills, routing, runs, sequences, adapters and evidence.
+    /// Two tools: `cortex_prepare` and `cortex_expand`. Integration default.
     #[default]
+    Agent,
+    /// Graphs, skills, routing, runs, sequences, adapters and evidence.
     Full,
-    /// Evidence compilation only. Routing, runs, graphs, skills and sequences
-    /// are absent; a caller that needs them wants [`ServerProfile::Full`].
+    /// Legacy evidence-compile pair used by the schema-token bench.
     Context,
 }
 
@@ -292,9 +294,10 @@ impl ServerProfile {
     /// misspelling fails loudly instead of silently serving everything.
     pub fn parse(value: &str) -> Result<Self, String> {
         match value.trim().to_ascii_lowercase().as_str() {
+            "agent" | "default" => Ok(Self::Agent),
             "full" => Ok(Self::Full),
             "context" => Ok(Self::Context),
-            other => Err(format!("unknown profile: {other} (full|context)")),
+            other => Err(format!("unknown profile: {other} (agent|full|context)")),
         }
     }
 }
@@ -313,24 +316,31 @@ pub fn build_server_with(state: CortexMcpState, profile: ServerProfile) -> Concu
     let server = ConcurrentMcpServer::new("cortex-loom", env!("CARGO_PKG_VERSION"))
         .instructions(instructions(profile))
         .tool_page_size(16);
-    let server = context_tools::register(server, &state);
-    if profile == ServerProfile::Context {
-        return server;
+    match profile {
+        ServerProfile::Agent => agent_tools::register(server, &state),
+        ServerProfile::Context => context_tools::register(server, &state),
+        ServerProfile::Full => {
+            let server = agent_tools::register(server, &state);
+            let server = context_tools::register(server, &state);
+            let server = graph_skill_tools::register(server, &state);
+            let server = route_metric_tools::register(server, &state, route);
+            let server = weavatrix_tools::register(server, &state);
+            let server = run_tools::register(server, Arc::clone(&state));
+            sequence_tools::register(server, &state)
+        }
     }
-    let server = graph_skill_tools::register(server, &state);
-    let server = route_metric_tools::register(server, &state, route);
-    let server = weavatrix_tools::register(server, &state);
-    let server = run_tools::register(server, Arc::clone(&state));
-    sequence_tools::register(server, &state)
 }
 
 const fn instructions(profile: ServerProfile) -> &'static str {
     match profile {
+        ServerProfile::Agent => {
+            "Cortex Loom reduces repository context before Codex or Claude reasons about it. Call cortex_prepare with { repository, task, runId?, budgetClass }. It routes and returns a bounded packet plus expansion handles. Call cortex_expand only for a listed missing facet. Keep every TASK/WX-* citation ID. Do not call usage_report; consumption is collected out-of-band. Local-model output is advisory. High-risk work stays upstream. Refactor is preview-only."
+        }
         ServerProfile::Full => {
-            "Cortex Loom reduces repository context before Codex or Claude reasons about it. Use route_work first, then weavatrix_context_compile for revision-bound, budgeted evidence. Local-model results are advisory and must retain evidence IDs. High-risk or ambiguous work stays upstream. Refactor is preview-only: this server never applies a plan. Graphs are canonical in the local store; generated Markdown is only a view."
+            "Cortex Loom reduces repository context before Codex or Claude reasons about it. Coding agents should use cortex_prepare / cortex_expand. The remaining tools are for Studio and debugging. Local-model results are advisory and must retain evidence IDs. High-risk or ambiguous work stays upstream. Refactor is preview-only: this server never applies a plan."
         }
         ServerProfile::Context => {
-            "Cortex Loom reduces repository context before Codex or Claude reasons about it. Call weavatrix_context_compile for revision-bound, budgeted evidence with stable citation IDs; name the symbols, files, and constants you care about in `task`. A packet that reports requiresUpstream or an unmet sufficiency check is not a confident answer. This profile exposes evidence compilation only: routing, runs, graphs, skills, and sequences need the full profile."
+            "Cortex Loom reduces repository context before Codex or Claude reasons about it. Call weavatrix_context_compile for revision-bound, budgeted evidence with stable citation IDs; name the symbols, files, and constants you care about in `task`. A packet that reports requiresUpstream or an unmet sufficiency check is not a confident answer. This profile exposes evidence compilation only."
         }
     }
 }

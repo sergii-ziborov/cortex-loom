@@ -51,9 +51,13 @@ refactor.
   callers, modules, endpoints, source windows, git history, stack-trace
   mapping, test selection, prior-run memory), one sufficiency retry, then
   a fail-closed compile with stable citation IDs.
-- **`--profile context`** — two MCP tools and 454 tokens of schema
-  instead of twenty-seven tools and 4 021, for callers that only want a
-  packet.
+- **`--profile agent` (default)** — two MCP tools, `cortex_prepare` and
+  `cortex_expand`. Generated adapters launch this. The caller sends
+  `{ repository, task, runId?, budgetClass }`; mutation and verification
+  are derived, never self-declared.
+- **`--profile context`** — the bench evidence-compile pair
+  (`context_compile`, `weavatrix_context_compile`), 454 schema tokens.
+- **`--profile full`** — Studio/admin, 27 tools and ~4 021 schema tokens.
 - **Seven editable sequences** — Cortex rewrites of 13 useful mechanic
   *names* (plan, TDD, debug, review, verify, parallel work, authoring).
   Typed nodes, evidence gates, Weavatrix edges. Not a 1:1 port of
@@ -220,9 +224,10 @@ npm.cmd --prefix ui run build
 cargo run -p cortex-server
 ```
 
-Editor: `http://127.0.0.1:43817`. MCP stdio: `cargo run -p cortex-mcp`.
+Editor: `http://127.0.0.1:43817`. MCP stdio (agent profile):
+`cargo run -p cortex-mcp`. Studio/admin: `--profile full`.
 Streamable HTTP: `cargo run -p cortex-mcp -- --http 127.0.0.1:43818`
-(loopback only). Evidence-only: `--profile context` or
+(loopback only). Evidence-compile bench: `--profile context` or
 `CORTEX_MCP_PROFILE=context`.
 
 ```powershell

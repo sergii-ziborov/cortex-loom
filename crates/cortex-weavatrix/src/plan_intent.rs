@@ -31,7 +31,7 @@ pub enum TaskIntent {
 /// Classify `task` from stable structural cues in the prose.
 #[must_use]
 pub fn detect(task: &str) -> TaskIntent {
-    let lower = task.to_ascii_lowercase();
+    let lower = crate::fold::fold_text(task);
     // Specific evidence shapes win over structural ones: a pasted panic is
     // not an API-contract question even if a path contains `/api/`.
     if stack_trace_cue(&lower) {
@@ -65,7 +65,7 @@ pub fn detect(task: &str) -> TaskIntent {
 /// Whether the question is about a previous attempt, not a first look.
 #[must_use]
 pub fn asks_for_prior_attempts(task: &str) -> bool {
-    prior_attempt_cue(&task.to_ascii_lowercase())
+    prior_attempt_cue(&crate::fold::fold_text(task))
 }
 
 fn prior_attempt_cue(lower: &str) -> bool {
@@ -85,6 +85,13 @@ fn prior_attempt_cue(lower: &str) -> bool {
         "tried again",
         "last time",
         "once more",
+        "предыдущая попытка",
+        "прошлый раз",
+        "ещё раз",
+        "еще раз",
+        "всё ещё падает",
+        "все еще падает",
+        "попередня спроба",
     ];
     CUES.iter().any(|cue| lower.contains(cue))
 }
@@ -119,9 +126,10 @@ pub fn is_broad(task: &str) -> bool {
         "every reason",
         "exhaustive",
     ];
-    let lower = task.to_ascii_lowercase();
+    let lower = crate::fold::fold_text(task);
     CUES.iter().any(|cue| lower.contains(cue))
         || (lower.contains("silently") && (lower.contains("nothing") || lower.contains("miss")))
+        || (lower.contains("молча") && (lower.contains("пропуст") || lower.contains("ничего")))
 }
 
 /// Whether the task asks to introduce code that may not exist yet.
@@ -131,11 +139,26 @@ pub fn is_broad(task: &str) -> bool {
 /// already exist; the owning symbol's complete definition remains required.
 #[must_use]
 pub(crate) fn is_creation(task: &str) -> bool {
-    let lower = task.to_ascii_lowercase();
+    let lower = crate::fold::fold_text(task);
     lower
-        .split(|character: char| !character.is_ascii_alphabetic())
+        .split(|character: char| !character.is_alphabetic())
         .take(6)
-        .any(|word| matches!(word, "implement" | "add" | "create" | "introduce"))
+        .any(|word| {
+            matches!(
+                word,
+                "implement"
+                    | "add"
+                    | "create"
+                    | "introduce"
+                    | "добав"
+                    | "добавь"
+                    | "добавить"
+                    | "создай"
+                    | "реализуй"
+                    | "додай"
+                    | "створи"
+            )
+        })
 }
 
 fn stack_trace_cue(lower: &str) -> bool {
@@ -353,6 +376,10 @@ mod tests {
         );
         assert_eq!(
             detect("Still failing compile_context after the last attempt"),
+            TaskIntent::PriorAttempt
+        );
+        assert_eq!(
+            detect("предыдущая попытка не собрала formatGroupedResult"),
             TaskIntent::PriorAttempt
         );
     }

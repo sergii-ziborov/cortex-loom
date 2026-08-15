@@ -1,10 +1,9 @@
 use super::{
-    Arc, CompressionSnapshot, ConcurrentMcpServer, ContextRequest, CortexMcpState, PlanHints,
-    ShadowEvidence, ShadowTask, ToolReply, UsageOperation, UsageSample, WeavatrixContextArgs,
-    assess_compiled, compile_context, compile_evidence_bundle, json, plan_hints, record_usage,
+    Arc, ConcurrentMcpServer, ContextRequest, CortexMcpState, ToolReply, WeavatrixContextArgs,
+    compile_context, json,
 };
+use crate::compile_session::{CompileArgs, compile_weavatrix};
 
-#[allow(clippy::too_many_lines)]
 pub(crate) fn register(
     server: ConcurrentMcpServer,
     state: &Arc<CortexMcpState>,
@@ -74,163 +73,21 @@ pub(crate) fn register(
                 if context.is_cancelled() {
                     return ToolReply::error("cancelled");
                 }
-                let hints = match arguments.skill_id.as_deref() {
-                    Some(skill_id) => match context_state.store.get(skill_id) {
-                        Ok(Some(graph)) => match plan_hints::from_graph(&graph) {
-                            Ok(hints) => hints,
-                            Err(error) => return ToolReply::error(error),
-                        },
-                        Ok(None) => {
-                            return ToolReply::error(format!("active skill not found: {skill_id}"));
-                        }
-                        Err(error) => return ToolReply::error(error.to_string()),
+                match compile_weavatrix(
+                    &context_state,
+                    &CompileArgs {
+                        repository: arguments.repository,
+                        task: arguments.task,
+                        symbol: arguments.symbol,
+                        max_tokens: arguments.max_tokens,
+                        run_id: arguments.run_id,
+                        skill_id: arguments.skill_id,
+                        targeted: arguments.targeted,
+                        hints: None,
                     },
-                    None => PlanHints::default(),
-                };
-                let source_followup = hints.source_followup_or(true);
-                let prior = crate::context_memory::load_prior(
-                    &context_state.store,
-                    arguments.run_id.as_deref(),
-                );
-                let (prepared, gather_report) = if arguments.targeted {
-                    match context_state
-                        .weavatrix
-                        .prepare_verified_targeted_context_with_prior(
-                        &arguments.repository,
-                        &arguments.task,
-                        arguments.symbol.as_deref(),
-                        arguments.max_tokens,
-                        cortex_weavatrix::plan::PlanPolicy::default(),
-                        hints,
-                        Some(prior),
-                    ) {
-                        Ok((bundle, report)) => (Ok(bundle), Some(report)),
-                        Err(error) => (Err(error), None),
-                    }
-                } else {
-                    (
-                        context_state.weavatrix.prepare_context(
-                            &arguments.repository,
-                            &arguments.task,
-                            arguments.symbol.as_deref(),
-                        ),
-                        None,
-                    )
-                };
-                let mut bundle = match prepared {
-                    Ok(bundle) => bundle,
-                    Err(error) => return ToolReply::error(error.to_string()),
-                };
-                let verification_bundle = bundle.clone();
-                if context.is_cancelled() {
-                    return ToolReply::error("cancelled");
-                }
-                // Copied only when shadow observation is active; the shadow
-                // runner never touches the deterministic reply below.
-                let shadow_evidence = context_state.shadow.as_ref().map(|_| {
-                    bundle
-                        .evidence
-                        .iter()
-                        .map(|fragment| ShadowEvidence {
-                            id: fragment.id.clone(),
-                            source: fragment.source.clone(),
-                            content: fragment.content.clone(),
-                        })
-                        .collect::<Vec<_>>()
-                });
-                let started = std::time::Instant::now();
-                // Gated semantic ordering: on any failure the packet keeps
-                // the deterministic order and records why.
-                let mut semantic_note = None;
-                let relevance = context_state.semantic.as_ref().and_then(|scorer| {
-                    let fragments: Vec<(String, String)> = bundle
-                        .evidence
-                        .iter()
-                        .map(|fragment| (fragment.id.clone(), fragment.content.clone()))
-                        .collect();
-                    match scorer.score(&arguments.task, &fragments) {
-                        Ok(scores) => {
-                            semantic_note = Some(scorer.provenance());
-                            Some(scores)
-                        }
-                        Err(error) => {
-                            bundle.warnings.push(format!(
-                                "semantic ordering unavailable: {error}; deterministic order used"
-                            ));
-                            None
-                        }
-                    }
-                });
-                match compile_evidence_bundle(
-                    bundle,
-                    &arguments.task,
-                    arguments.max_tokens,
-                    relevance.as_ref(),
                 ) {
-                    Ok(mut packet) => {
-                        packet.semantic_ranking = semantic_note;
-                        if let Some(gather_report) = gather_report {
-                            let final_report = assess_compiled(
-                                &verification_bundle,
-                                &packet.context.included_ids,
-                                &arguments.task,
-                                arguments.symbol.as_deref(),
-                                hints,
-                                source_followup,
-                                gather_report.retry_performed,
-                            );
-                            if !final_report.sufficient {
-                                packet.context.requires_upstream = true;
-                                packet.warnings.push(format!(
-                                    "evidence remains thin after verification: {}",
-                                    final_report.missing_evidence.join(", ")
-                                ));
-                            }
-                            packet.sufficiency = Some(final_report);
-                        }
-                        record_usage(
-                            &context_state.store,
-                            &UsageSample {
-                                operation: UsageOperation::ContextCompile,
-                                run_id: arguments.run_id.clone(),
-                                target: None,
-                                model_tier: None,
-                                task_class: None,
-                                budget_tokens: Some(arguments.max_tokens),
-                                raw_tokens: Some(packet.context.raw_estimated_tokens),
-                                selected_tokens: Some(packet.context.selected_estimated_tokens),
-                                omitted_tokens: Some(packet.context.omitted_estimated_tokens),
-                                requires_upstream: Some(packet.context.requires_upstream),
-                                latency_ms: Some(
-                                    u64::try_from(started.elapsed().as_millis())
-                                        .unwrap_or(u64::MAX),
-                                ),
-                                token_accounting: packet
-                                    .context
-                                    .token_breakdown
-                                    .as_ref()
-                                    .and_then(|breakdown| serde_json::to_string(breakdown).ok()),
-                            },
-                        );
-                        if let (Some(shadow), Some(evidence)) =
-                            (&context_state.shadow, shadow_evidence)
-                        {
-                            shadow.observe(ShadowTask::ContextCompression {
-                                task: arguments.task.clone(),
-                                evidence,
-                                deterministic: CompressionSnapshot {
-                                    included_ids: packet.context.included_ids.clone(),
-                                    omitted_ids: packet.context.omitted_ids.clone(),
-                                    selected_estimated_tokens: packet
-                                        .context
-                                        .selected_estimated_tokens,
-                                    requires_upstream: packet.context.requires_upstream,
-                                },
-                            });
-                        }
-                        ToolReply::text(packet)
-                    }
-                    Err(error) => ToolReply::error(error.to_string()),
+                    Ok(packet) => ToolReply::text(packet),
+                    Err(error) => ToolReply::error(error),
                 }
             },
         )

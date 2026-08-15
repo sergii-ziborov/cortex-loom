@@ -188,11 +188,6 @@ fn is_explicit_identifier(value: &str) -> bool {
         })
 }
 
-/// Suffixes that make a token a file path worth searching for by name.
-const SOURCE_SUFFIXES: &[&str] = &[
-    ".rs", ".ts", ".tsx", ".toml", ".json", ".yaml", ".yml", ".md", ".sql", ".proto",
-];
-
 fn is_identifier(value: &str) -> bool {
     if value.len() < 3 || value.len() > 96 {
         return false;
@@ -204,9 +199,9 @@ fn is_identifier(value: &str) -> bool {
     {
         return true;
     }
-    let lowercase = value.to_ascii_lowercase();
+    let lowercase = crate::fold::fold_text(value);
     if value.contains("::")
-        || SOURCE_SUFFIXES
+        || crate::fold::SOURCE_SUFFIXES
             .iter()
             .any(|suffix| lowercase.ends_with(suffix))
     {
@@ -406,6 +401,7 @@ fn plan_all(
         }
     }
     if !identifiers.is_empty() {
+        let glob = crate::fold::search_glob(&identifiers);
         if intent == TaskIntent::RuntimeConfig {
             let slice = share(search_budget, 1, 2);
             operations.push(search_op(
@@ -413,7 +409,7 @@ fn plan_all(
                 &identifiers,
                 slice,
                 policy,
-                "**/*.rs",
+                glob.as_str(),
             ));
             operations.push(search_op(
                 "WX-CONFIG",
@@ -430,7 +426,7 @@ fn plan_all(
                 &blast_search_pattern(symbol),
                 search_budget,
                 policy,
-                "**/*.rs",
+                glob.as_str(),
             ));
         } else {
             operations.push(search_op(
@@ -438,7 +434,7 @@ fn plan_all(
                 &identifiers,
                 search_budget,
                 policy,
-                "**/*.rs",
+                glob.as_str(),
             ));
         }
     }

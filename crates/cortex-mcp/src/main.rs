@@ -30,7 +30,7 @@ fn run() -> Result<(), String> {
             "--profile" => {
                 let value = arguments
                     .next()
-                    .ok_or_else(|| "--profile requires a value (full|context)".to_owned())?;
+                    .ok_or_else(|| "--profile requires a value (agent|full|context)".to_owned())?;
                 profile = ServerProfile::parse(&value)?;
             }
             other => return Err(format!("unknown argument: {other}")),

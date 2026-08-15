@@ -75,13 +75,29 @@ impl Default for SourceWindow {
 
 /// Where a symbol's definition head sits in a text, if it is there at all.
 ///
-/// Matches `fn name`, `struct name`, `enum name`, `trait name` with a word
-/// boundary after the name, case-insensitively.
+/// Matches a language-agnostic definition head (`fn`, `class`, `def`,
+/// `func`, …) with a word boundary after the name. Brace balance remains
+/// a last-resort completeness check; prefer Weavatrix span metadata when
+/// the graph already knows the exact extent.
 #[must_use]
 pub fn definition_head_index(text: &str, symbol: &str) -> Option<usize> {
+    // Source is almost always ASCII; ascii-lowercase keeps byte indices so
+    // completeness can slice the original text. Do not NFKC-fold the haystack.
     let lower = text.to_ascii_lowercase();
     let symbol = symbol.to_ascii_lowercase();
-    for keyword in ["fn ", "struct ", "enum ", "trait "] {
+    for keyword in [
+        "fn ",
+        "struct ",
+        "enum ",
+        "trait ",
+        "type ",
+        "class ",
+        "interface ",
+        "function ",
+        "def ",
+        "func ",
+        "record ",
+    ] {
         let mut from = 0;
         while let Some(relative) = lower[from..].find(keyword) {
             let head = from + relative;
@@ -435,6 +451,15 @@ mod tests {
         assert!(definition_head_index("pub fn permits(&self)", "permits").is_some());
         assert!(definition_head_index("pub fn permits_all()", "permits").is_none());
         assert!(definition_head_index("permits(&self)", "permits").is_none());
+        assert!(
+            definition_head_index(
+                "export function formatGroupedResult()",
+                "formatGroupedResult"
+            )
+            .is_some()
+        );
+        assert!(definition_head_index("class Handler {", "Handler").is_some());
+        assert!(definition_head_index("def load_rows(self):", "load_rows").is_some());
     }
 
     #[test]

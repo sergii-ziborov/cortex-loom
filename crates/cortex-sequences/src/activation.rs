@@ -6,6 +6,29 @@ use crate::templates;
 
 const MAX_CANDIDATES: usize = 3;
 
+const MUTATION_CUES: &[&str] = &[
+    "implement",
+    "build",
+    "fix",
+    "change",
+    "edit",
+    "refactor",
+    "remove",
+    "rename",
+    "merge",
+    "release",
+    "publish",
+    "добав",
+    "обнови",
+    "исправ",
+    "удали",
+    "измени",
+    "реализ",
+    "додай",
+    "онови",
+    "виправ",
+];
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct SequenceCandidate {
@@ -32,22 +55,7 @@ pub fn candidate_templates(task: &str) -> Vec<SequenceCandidate> {
             "explain",
         ],
     );
-    let mutation = contains_any(
-        &normalized,
-        &[
-            "implement",
-            "build",
-            "fix",
-            "change",
-            "edit",
-            "refactor",
-            "remove",
-            "rename",
-            "merge",
-            "release",
-            "publish",
-        ],
-    );
+    let mutation = contains_any(&normalized, MUTATION_CUES);
     let mut candidates: Vec<_> = templates()
         .iter()
         .filter_map(|template| {

@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 pub const MCP_SERVER_NAME: &str = "cortex-loom";
 
 /// Shared usage contract embedded into every vendor instruction file.
-const USAGE_NOTE: &str = "Call `skill_index` to see which workflows exist and fetch at most one with `skill_read { id }` once a task matches it — never preload workflow bodies. Use `route_work` before acting on a task, passing `runId` when you execute a run node. Fetch bounded, citable repository evidence with `weavatrix_context_compile` (default `maxTokens: 4000` — the measured sweet spot; large fragments arrive as split `WX-*-n` sub-citations) and keep every `TASK`/`WX-*` citation ID in derived output. When you finish a task, self-report your consumption with `usage_report { runId, agent, inputTokens, outputTokens }` so savings can be credited against real upstream cost. Local-model output is advisory only. High-risk, ambiguous, unverified, or mutating work stays with the upstream agent or a human gate, and Weavatrix Refactor remains preview-only.";
+const USAGE_NOTE: &str = "Call `cortex_prepare` with `{ repository, task, runId?, budgetClass }` (default `budgetClass: normal`). It routes the work and returns a bounded packet, a coverage certificate, missing facets, and expansion handles. Call `cortex_expand { packetId, facet }` only for a listed missing facet. Keep every `TASK`/`WX-*` citation ID in derived output. Do not self-report token consumption in the prompt workflow — it is collected out-of-band. Local-model output is advisory only. High-risk, ambiguous, unverified, or mutating work stays with the upstream agent or a human gate, and Weavatrix Refactor remains preview-only.";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -52,7 +52,14 @@ impl Default for McpLaunch {
     fn default() -> Self {
         Self {
             command: "cargo".to_owned(),
-            args: vec!["run".to_owned(), "-p".to_owned(), "cortex-mcp".to_owned()],
+            args: vec![
+                "run".to_owned(),
+                "-p".to_owned(),
+                "cortex-mcp".to_owned(),
+                "--".to_owned(),
+                "--profile".to_owned(),
+                "agent".to_owned(),
+            ],
         }
     }
 }
@@ -248,7 +255,7 @@ fn claude_mcp(launch: &McpLaunch) -> serde_json::Value {
                 "type": "stdio",
                 "command": launch.command,
                 "args": launch.args,
-                "tools": ["*"]
+                "tools": ["cortex_prepare", "cortex_expand"]
             }
         }
     })

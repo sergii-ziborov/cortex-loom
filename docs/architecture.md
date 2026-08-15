@@ -10,7 +10,10 @@ Cortex Loom is a control plane, not an autonomous replacement for Codex or Claud
    callers, modules, endpoints, source windows, git history, stack traces,
    test selection, and prior-run memory only when an explicit completed
    `runId` is supplied. Wording such as "previous attempt" never searches
-   other Failed, Cancelled, or Running runs.
+   other Failed, Cancelled, or Running runs. Coding-agent integrations
+   launch `--profile agent` (`cortex_prepare` / `cortex_expand`); Full is
+   for Studio. Search globs follow named file suffixes or a multi-language
+   default, not `**/*.rs`.
 4. Sufficiency allows one targeted retry. A still-thin packet becomes an
    upstream handoff, never a confident local answer.
 5. Codex or Claude receives the compact evidence and remains responsible

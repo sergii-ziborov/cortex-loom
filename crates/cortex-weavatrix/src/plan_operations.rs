@@ -11,7 +11,7 @@ pub(super) fn search_op(
     identifiers: &[String],
     search_budget: u32,
     policy: PlanPolicy,
-    glob: &'static str,
+    glob: &str,
 ) -> PlannedOperation {
     search_pattern_op(
         id,
@@ -27,7 +27,7 @@ pub(super) fn search_pattern_op(
     query: &str,
     search_budget: u32,
     policy: PlanPolicy,
-    glob: &'static str,
+    glob: &str,
 ) -> PlannedOperation {
     PlannedOperation {
         id,
@@ -50,7 +50,7 @@ pub(super) fn search_pattern_op(
 pub(super) fn blast_search_pattern(symbol: &str) -> String {
     let symbol = escape_regex_literal(symbol);
     format!(
-        r"\b(fn|struct|enum|trait|type)\s+{symbol}\b|,\s*{symbol}\s*\)|[:=]\s*{symbol}\s*\(|(return|match)\s+{symbol}\s*\("
+        r"\b(fn|struct|enum|trait|type|class|interface|function|def|func|record)\s+{symbol}\b|,\s*{symbol}\s*\)|[:=]\s*{symbol}\s*\(|(return|match)\s+{symbol}\s*\("
     )
 }
 
@@ -62,8 +62,10 @@ pub(super) fn asks_for_change_plan(task: &str) -> bool {
         "prepare change",
         "plan the change",
         "plan this change",
+        "план изменений",
+        "план зміни",
     ];
-    let lower = task.to_ascii_lowercase();
+    let lower = crate::fold::fold_text(task);
     CUES.iter().any(|cue| lower.contains(cue))
 }
 

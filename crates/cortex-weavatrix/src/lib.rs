@@ -1,5 +1,6 @@
 mod adapter;
 mod context;
+mod fold;
 mod hints;
 pub mod plan;
 mod plan_intent;
@@ -13,6 +14,9 @@ pub use adapter::{
     WeavatrixError,
 };
 pub use context::{CompiledEvidenceBundle, compile_evidence_bundle};
+pub use fold::{
+    DEFAULT_SOURCE_GLOB, fold_text, search_glob, segment_identifier, window_covers_span,
+};
 pub use hints::{IntentHint, PlanHints};
 pub use plan_intent::asks_for_prior_attempts;
 pub use refactor_preview::{PreviewChange, RefactorPreview, preview_refactor_plan};

@@ -43,9 +43,9 @@ fn rust_search_covers_a_standard_single_crate_source_tree() {
     let search = operations
         .iter()
         .find(|operation| operation.tool == "search_code")
-        .expect("identifier task searches Rust source");
+        .expect("identifier task searches source");
 
-    assert_eq!(search.arguments["glob"], "**/*.rs");
+    assert_eq!(search.arguments["glob"], crate::fold::DEFAULT_SOURCE_GLOB);
     let query = search.arguments["query"]
         .as_str()
         .expect("search query is text");
@@ -135,7 +135,7 @@ fn blast_radius_intent_asks_for_dependents_first() {
         .find(|operation| operation.tool == "search_code")
         .expect("blast-radius plan searches for definitions and callers");
     let query = search.arguments["query"].as_str().unwrap();
-    assert!(query.contains("(fn|struct|enum|trait|type)"));
+    assert!(query.contains("(fn|struct|enum|trait|type|class|interface|function|def|func|record)"));
     assert!(query.contains(",\\s*compile_context"));
     assert!(
         !tools.contains(&"context_bundle"),

@@ -23,16 +23,16 @@ fn every_agent_bundle_derives_from_the_canonical_graph() {
             "instructions embed the canonical skill view"
         );
         assert!(
-            instructions.contains("route_work"),
+            instructions.contains("cortex_prepare"),
             "usage contract is present"
         );
         assert!(
-            instructions.contains("maxTokens: 4000"),
-            "measured default budget is recommended"
+            instructions.contains("budgetClass"),
+            "measured default budget class is recommended"
         );
         assert!(
-            instructions.contains("usage_report"),
-            "agents are told to close the token balance"
+            !instructions.contains("usage_report"),
+            "usage_report is not a prompt-visible workflow tool"
         );
         assert!(
             bundle
@@ -53,6 +53,14 @@ fn claude_bundle_registers_the_mcp_server_without_touching_refactor_boundaries()
     let parsed: serde_json::Value = serde_json::from_str(&bundle.files[1].content).unwrap();
     assert_eq!(parsed["mcpServers"]["cortex-loom"]["type"], "stdio");
     assert_eq!(parsed["mcpServers"]["cortex-loom"]["command"], "cargo");
+    assert_eq!(
+        parsed["mcpServers"]["cortex-loom"]["args"],
+        serde_json::json!(["run", "-p", "cortex-mcp", "--", "--profile", "agent"])
+    );
+    assert_eq!(
+        parsed["mcpServers"]["cortex-loom"]["tools"],
+        serde_json::json!(["cortex_prepare", "cortex_expand"])
+    );
 }
 
 #[test]
@@ -133,8 +141,8 @@ fn an_always_applied_file_carries_the_catalogue_and_never_a_workflow_body() {
             "{agent:?}: a workflow body leaked into the always-applied file"
         );
         assert!(
-            always_applied.contains("skill_read"),
-            "{agent:?}: no way to fetch a body"
+            always_applied.contains("cortex_prepare"),
+            "{agent:?}: no way to fetch evidence"
         );
     }
 }

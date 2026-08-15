@@ -1,144 +1,17 @@
 use cortex_domain::RiskLevel;
 
+use crate::fold::fold_words;
+use crate::lexicon::{
+    ADVISORY, AUTH, COMPRESSION, CONCURRENCY, DEPLOYMENT, DETERMINISTIC, EXTRACTION, INJECTION,
+    MIGRATION, MUTATION, PUBLICATION, RELEASE, REPOSITORY, SECURITY, negated,
+};
 use crate::{Classification, TaskClass};
-
-const MUTATION_WORDS: &[&str] = &[
-    "add",
-    "apply",
-    "change",
-    "delete",
-    "edit",
-    "fix",
-    "implement",
-    "modify",
-    "remove",
-    "rename",
-    "replace",
-    "rewrite",
-    "update",
-    "write",
-];
-const AUTH: &[&str] = &[
-    "authentication",
-    "authorization",
-    "oauth",
-    "openid",
-    "login",
-    "jwt",
-    "access token",
-    "refresh token",
-    "role based access",
-    "tenant isolation",
-];
-const SECURITY: &[&str] = &[
-    "security",
-    "vulnerability",
-    "sql injection",
-    "cross site scripting",
-    "csrf",
-    "xss",
-    "credential",
-    "secret rotation",
-    "permission boundary",
-    "threat model",
-];
-const CONCURRENCY: &[&str] = &[
-    "concurrency",
-    "concurrent",
-    "race condition",
-    "deadlock",
-    "thread safety",
-    "atomic update",
-    "cancellation race",
-    "parallel mutation",
-];
-const MIGRATION: &[&str] = &[
-    "database migration",
-    "schema migration",
-    "data migration",
-    "backfill",
-    "migrate database",
-];
-const RELEASE: &[&str] = &[
-    "release",
-    "version bump",
-    "bump the version",
-    "bump version",
-    "git tag",
-    "tag the version",
-    "release tag",
-    "changelog release",
-    "semver",
-    "cut a release",
-];
-const DEPLOYMENT: &[&str] = &[
-    "deployment",
-    "deploy",
-    "production rollout",
-    "kubernetes",
-    "terraform",
-    "helm chart",
-];
-const PUBLICATION: &[&str] = &[
-    "publication",
-    "publish",
-    "public registry",
-    "cargo publish",
-    "npm publish",
-    "package registry",
-];
-const REPOSITORY: &[&str] = &[
-    "dependency graph",
-    "call graph",
-    "repository graph",
-    "repo graph",
-    "dead code",
-    "reachability",
-    "impact analysis",
-    "weavatrix",
-    "analyze repository",
-    "inspect dependencies",
-];
-const DETERMINISTIC: &[&str] = &[
-    "format",
-    "sort",
-    "parse",
-    "validate json",
-    "validate schema",
-    "count",
-    "exact match",
-    "canonicalize",
-    "deterministic",
-];
-const EXTRACTION: &[&str] = &[
-    "classify text",
-    "extract fields",
-    "extract entities",
-    "label evidence",
-    "tag evidence",
-    "normalize metadata",
-];
-const COMPRESSION: &[&str] = &[
-    "summarize",
-    "summary",
-    "compress evidence",
-    "compress context",
-    "context digest",
-    "condense evidence",
-];
-const ADVISORY: &[&str] = &[
-    "draft",
-    "explain",
-    "outline",
-    "brainstorm",
-    "suggest wording",
-];
 
 /// Classify work using stable lexical rules, without calling a model.
 #[must_use]
 pub fn classify(task: &str) -> Classification {
-    let normalized = normalize(task);
-    let mutation_likely = contains_word_from(&normalized, MUTATION_WORDS);
+    let normalized = fold_words(task);
+    let mutation_likely = mutation_likely(&normalized);
     let class = high_risk_class(&normalized)
         .unwrap_or_else(|| ordinary_class(&normalized, mutation_likely));
     let risk = if class.is_high_risk() {
@@ -158,8 +31,20 @@ pub fn classify(task: &str) -> Classification {
     }
 }
 
+fn mutation_likely(normalized: &str) -> bool {
+    let tokens: Vec<&str> = normalized.split_whitespace().collect();
+    tokens.iter().enumerate().any(|(index, token)| {
+        MUTATION
+            .iter()
+            .any(|cue| *token == *cue || token.starts_with(cue) && cue.chars().count() >= 4)
+            && !negated(&tokens, index)
+    })
+}
+
 fn high_risk_class(normalized: &str) -> Option<TaskClass> {
-    if has_phrase(normalized, AUTH) || contains_word_from(normalized, &["auth"]) {
+    if has_phrase(normalized, INJECTION) {
+        Some(TaskClass::Ambiguous)
+    } else if has_phrase(normalized, AUTH) || contains_word_from(normalized, &["auth"]) {
         Some(TaskClass::Authentication)
     } else if has_phrase(normalized, SECURITY) {
         Some(TaskClass::Security)
@@ -198,21 +83,6 @@ fn ordinary_class(normalized: &str, mutation_likely: bool) -> TaskClass {
     } else {
         TaskClass::Ambiguous
     }
-}
-
-fn normalize(task: &str) -> String {
-    task.chars()
-        .map(|character| {
-            if character.is_alphanumeric() {
-                character.to_ascii_lowercase()
-            } else {
-                ' '
-            }
-        })
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 fn has_phrase(normalized: &str, phrases: &[&str]) -> bool {

@@ -13,13 +13,7 @@ fn graph_summary_is_bounded_metadata() {
 
 #[test]
 fn registry_exposes_only_the_cortex_sequence_contract() {
-    let state = CortexMcpState {
-        store: GraphStore::open_in_memory().unwrap(),
-        weavatrix: WeavatrixAdapter::new(WeavatrixConfig::discover().unwrap()),
-        shadow: None,
-        semantic: None,
-        llm_router: None,
-    };
+    let state = test_state();
     let catalog = build_server(state).catalog();
     let names: Vec<_> = catalog
         .as_array()
@@ -39,21 +33,32 @@ fn registry_exposes_only_the_cortex_sequence_contract() {
     assert!(!names.iter().any(|name| name.contains("superpowers")));
 }
 
-fn tool_names(profile: ServerProfile) -> Vec<String> {
-    let state = CortexMcpState {
+fn test_state() -> CortexMcpState {
+    CortexMcpState {
         store: GraphStore::open_in_memory().unwrap(),
         weavatrix: WeavatrixAdapter::new(WeavatrixConfig::discover().unwrap()),
         shadow: None,
         semantic: None,
         llm_router: None,
-    };
-    build_server_with(state, profile)
+        packets: std::sync::Arc::new(crate::packet_store::PacketStore::default()),
+    }
+}
+
+fn tool_names(profile: ServerProfile) -> Vec<String> {
+    build_server_with(test_state(), profile)
         .catalog()
         .as_array()
         .unwrap()
         .iter()
         .filter_map(|tool| tool["name"].as_str().map(ToOwned::to_owned))
         .collect()
+}
+
+#[test]
+fn the_agent_profile_is_the_default_and_exposes_two_tools() {
+    assert_eq!(ServerProfile::default(), ServerProfile::Agent);
+    let names = tool_names(ServerProfile::Agent);
+    assert_eq!(names, ["cortex_prepare", "cortex_expand"]);
 }
 
 #[test]
@@ -85,6 +90,7 @@ fn an_unknown_profile_name_fails_instead_of_serving_everything() {
         ServerProfile::Context
     );
     assert_eq!(ServerProfile::parse("full").unwrap(), ServerProfile::Full);
+    assert_eq!(ServerProfile::parse("agent").unwrap(), ServerProfile::Agent);
 }
 
 #[test]

@@ -67,7 +67,7 @@ fn source_followup_opens_the_rust_server_for_skills_compile() {
 }
 
 #[test]
-fn thin_rust_only_search_gets_one_wide_retry_and_source_followup() {
+fn typescript_identifier_is_found_without_a_rust_only_first_pass() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     if !root.join("ui/src/api/client.ts").exists() {
         return;
@@ -85,22 +85,15 @@ fn thin_rust_only_search_gets_one_wide_retry_and_source_followup() {
             PlanHints::default(),
         )
         .expect("verified context");
+    assert!(report.sufficient, "TS client call stayed missing: {report:?}");
+    let haystack: String = bundle
+        .evidence
+        .iter()
+        .map(|item| format!("{} {}", item.source, item.content))
+        .collect();
     assert!(
-        report.retry_performed,
-        "the Rust-only search should be thin"
-    );
-    assert!(report.sufficient, "retry remained thin: {report:?}");
-    assert!(
-        bundle
-            .evidence
-            .iter()
-            .any(|item| item.id.starts_with("WX-RETRY-SEARCH"))
-    );
-    assert!(
-        bundle
-            .evidence
-            .iter()
-            .any(|item| item.id.starts_with("WX-RETRY-SOURCE"))
+        haystack.contains("compileMarkdown") || haystack.contains("client.ts"),
+        "multi-language search must reach the TS client without a Rust-only first pass: {report:?}"
     );
     let compiled = crate::compile_evidence_bundle(bundle.clone(), &task, 4_000, None)
         .expect("retry bundle compiles");

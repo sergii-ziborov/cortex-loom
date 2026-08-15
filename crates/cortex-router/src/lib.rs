@@ -1,11 +1,14 @@
 #![doc = include_str!("../README.md")]
 
 mod classifier;
+mod fold;
+mod lexicon;
 
 use serde::{Deserialize, Serialize};
 
 pub use classifier::classify;
 pub use cortex_domain::{ExecutionTarget, RiskLevel};
+pub use fold::{fold_text, fold_words};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]

@@ -173,3 +173,19 @@ fn route_with_classification_keeps_guards() {
     assert_eq!(decision.target, ExecutionTarget::Upstream);
     assert!(decision.reasons.contains(&RoutingReason::MissingEvidence));
 }
+
+#[test]
+fn mixed_language_mutation_is_not_missed() {
+    let russian = classify("добавь обработку в formatGroupedResult и обнови тесты");
+    assert!(
+        russian.mutation_likely,
+        "Russian verbs must count as mutation"
+    );
+    assert_eq!(russian.class, TaskClass::Implementation);
+
+    let negated = classify("не изменяй formatGroupedResult");
+    assert!(
+        !negated.mutation_likely,
+        "a negated Russian verb is not a mutation"
+    );
+}

@@ -34,6 +34,8 @@ struct EvidenceProfile {
     coverage_text: String,
     /// Original-case bodies for structural, boundary-sensitive checks.
     coverage_fragments: Vec<String>,
+    grouped: std::collections::HashMap<String, String>,
+    declared_complete: bool,
 }
 
 /// Assess the evidence gathered before compilation. `search_hits` is the
@@ -111,6 +113,16 @@ fn profile<'a>(evidence: impl Iterator<Item = &'a crate::EvidenceFragment>) -> E
             EvidenceKind::SourceReads | EvidenceKind::SymbolContext | EvidenceKind::TypeExpansion
         ) {
             profile.coverage_fragments.push(item.content.clone());
+            if let Some(group) = &item.group_id {
+                profile
+                    .grouped
+                    .entry(group.clone())
+                    .or_default()
+                    .push_str(&item.content);
+            }
+            if item.declared_complete == Some(true) {
+                profile.declared_complete = true;
+            }
         }
     }
     profile
@@ -186,14 +198,12 @@ fn assess(
                 missing.push(name);
             }
         }
-        // A definition head is not enough: its braces must balance inside one
-        // fragment so a clipped body cannot pass sufficiency.
+        // Completeness is judged on the grouped atom (split transport
+        // pieces joined), or on a gatherer-declared span.
         if let Some(symbol) = symbol {
             let name = format!("definition:{}", symbol.to_ascii_lowercase());
             required.push(name.clone());
-            let complete = profile.coverage_fragments.iter().any(|fragment| {
-                crate::source_followup::definition_is_complete(fragment, symbol) == Some(true)
-            });
+            let complete = definition_group_complete(profile, symbol);
             if complete {
                 present.push(name);
             } else {
@@ -307,6 +317,16 @@ fn search_fragment_has_hits(content: &str) -> bool {
     // Fragments split off the head keep hit lines without the header, and a
     // legacy JSON fragment must still be recognised.
     content.contains(".rs:") || (content.contains("\"path\"") && content.contains("\"line\""))
+}
+
+fn definition_group_complete(profile: &EvidenceProfile, symbol: &str) -> bool {
+    if profile.declared_complete {
+        return true;
+    }
+    let complete =
+        |body: &str| crate::source_followup::definition_is_complete(body, symbol) == Some(true);
+    profile.coverage_fragments.iter().any(|body| complete(body))
+        || profile.grouped.values().any(|body| complete(body))
 }
 
 pub(crate) const fn kind_name(kind: EvidenceKind) -> &'static str {

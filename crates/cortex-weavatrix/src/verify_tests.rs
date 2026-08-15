@@ -2,13 +2,7 @@ use super::*;
 use crate::EvidenceFragment;
 
 fn fragment(id: &str, kind: EvidenceKind, content: &str) -> EvidenceFragment {
-    EvidenceFragment {
-        id: id.to_owned(),
-        kind,
-        source: "test".to_owned(),
-        content: content.to_owned(),
-        head: true,
-    }
+    EvidenceFragment::new(id, kind, "test", content)
 }
 
 #[test]
@@ -24,6 +18,7 @@ fn config_context_is_thin_until_search_and_source_both_survive() {
             fragment("WX-SOURCE", EvidenceKind::SourceReads, "CORTEX_LLM"),
         ],
         warnings: Vec::new(),
+        ..EvidenceBundle::default()
     };
     let hints = PlanHints {
         intent: Some(crate::IntentHint::RuntimeConfig),
@@ -74,6 +69,7 @@ fn profile_gate_requires_semantic_source_coverage_not_just_source_presence() {
             ),
         ],
         warnings: Vec::new(),
+        ..EvidenceBundle::default()
     };
     let hints = PlanHints {
         intent: Some(crate::IntentHint::RuntimeConfig),
@@ -145,6 +141,7 @@ fn a_truncated_definition_of_the_named_symbol_is_insufficient() {
             fragment("WX-DEF", EvidenceKind::SourceReads, body),
         ],
         warnings: Vec::new(),
+        ..EvidenceBundle::default()
     };
     let included = ["WX-SEARCH".to_owned(), "WX-DEF".to_owned()];
     let task = "Add a constructor to `ArchiveOptions` with every limit zero";
@@ -201,6 +198,7 @@ fn creating_a_named_member_requires_its_owner_not_the_future_member() {
             fragment("WX-DEF", EvidenceKind::SourceReads, complete),
         ],
         warnings: Vec::new(),
+        ..EvidenceBundle::default()
     };
 
     let report = assess_compiled(
@@ -235,6 +233,7 @@ fn definition_completeness_does_not_sum_across_fragments() {
             fragment("WX-SOURCE-2", EvidenceKind::SourceReads, second_half),
         ],
         warnings: Vec::new(),
+        ..EvidenceBundle::default()
     };
     let report = assess_compiled(
         &bundle,
@@ -250,6 +249,76 @@ fn definition_completeness_does_not_sum_across_fragments() {
             .missing_evidence
             .iter()
             .any(|item| item == "definition:archiveoptions")
+    );
+}
+
+#[test]
+fn a_graph_span_declares_completeness_without_braces() {
+    let mut fragment = fragment(
+        "WX-DEF",
+        EvidenceKind::SourceReads,
+        "def helper():\n    return 1\n",
+    );
+    fragment.facet = cortex_context::EvidenceFacet::Definition;
+    fragment.declared_complete = Some(true);
+    fragment.locator.path = Some("src/helper.py".to_owned());
+    fragment.locator.start_line = Some(1);
+    fragment.locator.end_line = Some(2);
+    let bundle = EvidenceBundle {
+        repository: "repo".to_owned(),
+        evidence: vec![fragment],
+        warnings: Vec::new(),
+        ..EvidenceBundle::default()
+    };
+    let report = assess_compiled(
+        &bundle,
+        &["WX-DEF".to_owned()],
+        "Change `helper`",
+        Some("helper"),
+        PlanHints::default(),
+        true,
+        false,
+    );
+    assert!(
+        report
+            .present_evidence
+            .iter()
+            .any(|item| item == "definition:helper"),
+        "{report:?}"
+    );
+}
+
+#[test]
+fn split_definition_pieces_complete_when_they_share_a_group() {
+    let first_half = "pub struct ArchiveOptions {\n    pub enabled: bool,\n";
+    let second_half = "    pub max_entries: usize,\n}\n";
+    let mut first = fragment("WX-DEF-1", EvidenceKind::SourceReads, first_half);
+    let mut second = fragment("WX-DEF-2", EvidenceKind::SourceReads, second_half);
+    first.group_id = Some("def-archive".to_owned());
+    second.group_id = Some("def-archive".to_owned());
+    first.facet = cortex_context::EvidenceFacet::Definition;
+    second.facet = cortex_context::EvidenceFacet::Definition;
+    let bundle = EvidenceBundle {
+        repository: "repo".to_owned(),
+        evidence: vec![first, second],
+        warnings: Vec::new(),
+        ..EvidenceBundle::default()
+    };
+    let report = assess_compiled(
+        &bundle,
+        &["WX-DEF-1".to_owned(), "WX-DEF-2".to_owned()],
+        "Change `ArchiveOptions`",
+        Some("ArchiveOptions"),
+        PlanHints::default(),
+        true,
+        false,
+    );
+    assert!(
+        report
+            .present_evidence
+            .iter()
+            .any(|item| item == "definition:archiveoptions"),
+        "{report:?}"
     );
 }
 
@@ -285,6 +354,7 @@ fn quiet_result_mode_requires_the_quiet_path() {
             ),
         ],
         warnings: Vec::new(),
+        ..EvidenceBundle::default()
     };
     let report = assess_compiled(
         &thin,
@@ -316,6 +386,7 @@ fn a_block_join_question_requires_block_and_end_line() {
             "fn finish_block() {}",
         )],
         warnings: Vec::new(),
+        ..EvidenceBundle::default()
     };
     let report = assess_compiled(
         &thin,
@@ -357,6 +428,7 @@ fn a_broad_silent_miss_packet_is_thin_without_option_limits_and_path_guard() {
             ),
         ],
         warnings: Vec::new(),
+        ..EvidenceBundle::default()
     };
     let included = ["WX-SEARCH".to_owned(), "WX-DEF".to_owned()];
     let report = assess_compiled(
@@ -405,6 +477,7 @@ fn a_broad_silent_miss_packet_is_thin_without_option_limits_and_path_guard() {
             ),
         ],
         warnings: Vec::new(),
+        ..EvidenceBundle::default()
     };
     let filled = assess_compiled(
         &enough,
@@ -433,6 +506,7 @@ fn git_stack_and_test_intents_require_their_native_kinds() {
         repository: "repo".to_owned(),
         evidence: Vec::new(),
         warnings: Vec::new(),
+        ..EvidenceBundle::default()
     };
     let git = assess_compiled(
         &empty,

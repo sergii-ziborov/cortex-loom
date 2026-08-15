@@ -2,7 +2,8 @@
 
 use weavatrix_rust::Weavatrix;
 
-use super::evidence::{EvidenceFragment, EvidenceKind, append_definition_read_as};
+use super::evidence::{EvidenceFragment, EvidenceKind};
+use super::source_reads::append_definition_read_as;
 
 /// Second-hop type expansion for enumerating questions.
 ///
@@ -265,13 +266,7 @@ mod tests {
     use crate::adapter::evidence::EvidenceFragment;
 
     fn fragment(kind: EvidenceKind, content: &str) -> EvidenceFragment {
-        EvidenceFragment {
-            id: "WX".to_owned(),
-            kind,
-            source: "test".to_owned(),
-            content: content.to_owned(),
-            head: true,
-        }
+        EvidenceFragment::new("WX", kind, "test", content)
     }
 
     #[test]

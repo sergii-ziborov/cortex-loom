@@ -27,7 +27,22 @@ pub(crate) fn register(
                             "content": {"type": "string"},
                             "priority": {"type": "string", "enum": ["critical", "high", "normal", "low"]},
                             "state": {"type": "string", "enum": ["verified", "unverified", "contradictory"]},
-                            "relevance": {"type": "number", "description": "Optional score; reorders only within a priority band."}
+                            "relevance": {"type": "number", "description": "Optional score; reorders only within a priority band."},
+                            "derivation": {"type": "string", "enum": ["exact_source", "plan", "graph", "search", "memory", "inferred"]},
+                            "facet": {"type": "string", "enum": ["unspecified", "definition", "caller_signature", "source_window", "references", "plan", "structure", "memory"]},
+                            "contradictionGroup": {"type": "string"},
+                            "groupId": {"type": "string"},
+                            "locator": {
+                                "type": "object",
+                                "properties": {
+                                    "path": {"type": "string"},
+                                    "startLine": {"type": "integer", "minimum": 1},
+                                    "endLine": {"type": "integer", "minimum": 1},
+                                    "blobHash": {"type": "string"},
+                                    "snapshotId": {"type": "string"}
+                                },
+                                "additionalProperties": false
+                            }
                         },
                         "required": ["id", "source", "content", "priority", "state"],
                         "additionalProperties": false

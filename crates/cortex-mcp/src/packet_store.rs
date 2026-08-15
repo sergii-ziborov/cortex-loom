@@ -15,6 +15,7 @@ pub(crate) struct StoredPacket {
     pub task: String,
     pub run_id: Option<String>,
     pub symbols: Vec<String>,
+    pub snapshot_id: Option<String>,
 }
 
 #[derive(Default)]
@@ -43,5 +44,5 @@ impl PacketStore {
 #[must_use]
 pub(crate) fn packet_id(repository: &str, task: &str) -> String {
     let digest = Sha256::digest(format!("{repository}\n{task}").as_bytes());
-    format!("pkt:{digest:x}").chars().take(20).collect()
+    format!("pk_{digest:x}").chars().take(15).collect()
 }

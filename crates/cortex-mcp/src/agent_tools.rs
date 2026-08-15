@@ -13,6 +13,8 @@ use serde_json::json;
 use crate::CortexMcpState;
 use crate::compile_session::{CompileArgs, compile_weavatrix};
 use crate::packet_store::{StoredPacket, packet_id};
+use cortex_context::snapshot_is_stale;
+use cortex_weavatrix::repository_snapshot;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -118,12 +120,14 @@ fn prepare(state: &CortexMcpState, arguments: PrepareArgs) -> ToolReply {
         .map(|report| report.missing_evidence.clone())
         .unwrap_or_default();
     let id = packet_id(&arguments.repository.to_string_lossy(), &arguments.task);
+    let snapshot = compiled.context.snapshot_id.clone();
     state.packets.insert(StoredPacket {
         id: id.clone(),
         repository: arguments.repository,
         task: arguments.task,
         run_id: arguments.run_id,
         symbols,
+        snapshot_id: snapshot.clone(),
     });
     let handles: Vec<_> = missing
         .iter()
@@ -131,6 +135,7 @@ fn prepare(state: &CortexMcpState, arguments: PrepareArgs) -> ToolReply {
         .collect();
     ToolReply::text(json!({
         "packetId": id,
+        "snapshotId": snapshot,
         "routing": routing,
         "mutationLikely": classification.mutation_likely,
         "workflowStep": workflow,
@@ -148,6 +153,8 @@ fn expand(state: &CortexMcpState, arguments: &ExpandArgs) -> ToolReply {
     let Some(stored) = state.packets.get(&arguments.packet_id) else {
         return ToolReply::error(format!("unknown packetId: {}", arguments.packet_id));
     };
+    let current_snapshot = repository_snapshot(&stored.repository);
+    let revision_stale = snapshot_is_stale(stored.snapshot_id.as_deref(), &current_snapshot);
     let (task, hints) = facet_request(&stored.task, &stored.symbols, &arguments.facet);
     match compile_weavatrix(
         state,
@@ -164,6 +171,8 @@ fn expand(state: &CortexMcpState, arguments: &ExpandArgs) -> ToolReply {
     ) {
         Ok(packet) => ToolReply::text(json!({
             "packetId": stored.id,
+            "stale": revision_stale,
+            "snapshotId": packet.context.snapshot_id,
             "facet": arguments.facet,
             "context": packet.context,
             "coverage": packet.sufficiency,

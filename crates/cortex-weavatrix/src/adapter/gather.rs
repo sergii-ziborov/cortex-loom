@@ -4,16 +4,16 @@ use serde_json::json;
 
 use super::cleanup::prune_incomplete_definition_duplicates;
 use super::evidence::{
-    EvidenceBundle, EvidenceKind, SourceReadPlan, append_definition_read, append_source_reads,
-    budget_overrun, fragments, native_call, normalize_graph_stats,
+    EvidenceBundle, EvidenceKind, budget_overrun, fragments, native_call, normalize_graph_stats,
+    stamp_bundle,
 };
 use super::expand::{append_type_expansion_reads, callee_hits_from_evidence};
-use super::retry::retry_wide_search;
+use super::source_reads::{SourceReadPlan, append_definition_read, append_source_reads};
 use super::{WeavatrixAdapter, WeavatrixError};
 
-struct TargetedEvidence {
-    bundle: EvidenceBundle,
-    search_hits: Vec<crate::source_followup::SearchHit>,
+pub(super) struct TargetedEvidence {
+    pub bundle: EvidenceBundle,
+    pub search_hits: Vec<crate::source_followup::SearchHit>,
 }
 
 impl WeavatrixAdapter {
@@ -90,14 +90,17 @@ impl WeavatrixAdapter {
                 symbol_context,
             ));
         }
-        Ok(EvidenceBundle {
+        let mut bundle = EvidenceBundle {
             repository: repository.to_string_lossy().into_owned(),
             evidence,
             warnings: refreshed
                 .then(|| "native Weavatrix graph refreshed from changed source evidence".to_owned())
                 .into_iter()
                 .collect(),
-        })
+            ..EvidenceBundle::default()
+        };
+        stamp_bundle(&mut bundle, &crate::repository_snapshot(&root));
+        Ok(bundle)
     }
 
     pub fn prepare_targeted_context(
@@ -337,177 +340,16 @@ impl WeavatrixAdapter {
                 prune_incomplete_definition_duplicates(&mut evidence, symbol);
             }
         }
+        let mut bundle = EvidenceBundle {
+            repository: repository.to_string_lossy().into_owned(),
+            evidence,
+            warnings,
+            ..EvidenceBundle::default()
+        };
+        stamp_bundle(&mut bundle, &crate::repository_snapshot(&root));
         Ok(TargetedEvidence {
-            bundle: EvidenceBundle {
-                repository: repository.to_string_lossy().into_owned(),
-                evidence,
-                warnings,
-            },
+            bundle,
             search_hits,
         })
-    }
-
-    /// Re-read the named symbol's definition with a doubled window when the
-    /// sufficiency report flagged it as incomplete.
-    fn retry_definition(
-        engine: &mut weavatrix_rust::Weavatrix,
-        symbol: Option<&str>,
-        budget: u32,
-        initial: &crate::EvidenceSufficiency,
-        gathered: &mut TargetedEvidence,
-    ) {
-        let Some(symbol) = symbol else { return };
-        if !initial
-            .missing_evidence
-            .iter()
-            .any(|item| item.starts_with("definition:"))
-        {
-            return;
-        }
-        append_definition_read(
-            engine,
-            &mut gathered.bundle.evidence,
-            &mut gathered.bundle.warnings,
-            &gathered.search_hits,
-            symbol,
-            budget,
-            true,
-        );
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn retry_targeted(
-        &self,
-        repository: &Path,
-        task: &str,
-        symbol: Option<&str>,
-        budget: u32,
-        policy: crate::plan::PlanPolicy,
-        hints: crate::PlanHints,
-        source_followup: bool,
-        prior: Option<&crate::PriorRunMemory>,
-        initial: &crate::EvidenceSufficiency,
-        gathered: &mut TargetedEvidence,
-    ) -> Result<(), WeavatrixError> {
-        gathered.bundle.warnings.push(format!(
-            "evidence sufficiency retry: missing {}",
-            initial.missing_evidence.join(", ")
-        ));
-        let root = self.canonical_root(repository)?;
-        let mut sessions = self
-            .engines
-            .lock()
-            .map_err(|_| WeavatrixError::LockPoisoned)?;
-        let engine = Self::session(&mut sessions, &root)?;
-        Self::retry_definition(engine, symbol, budget, initial, gathered);
-        let needs_search_retry = initial
-            .missing_evidence
-            .iter()
-            .any(|kind| kind == "search_hits" || kind.starts_with("source_term:"));
-        if needs_search_retry {
-            let first_retry_hit = gathered.search_hits.len();
-            retry_wide_search(
-                engine,
-                &mut gathered.bundle.evidence,
-                &mut gathered.bundle.warnings,
-                &mut gathered.search_hits,
-                task,
-                symbol,
-                hints,
-                &initial.missing_evidence,
-                budget,
-                policy,
-            );
-            if source_followup && gathered.search_hits.len() > first_retry_hit {
-                rebuild_retry_sources(engine, gathered, task, symbol, hints, budget, policy);
-            }
-        }
-        for operation in crate::plan::plan_with_prior(task, symbol, budget, policy, hints, prior) {
-            let kind = crate::verify::kind_name(operation.kind);
-            if !initial
-                .missing_evidence
-                .iter()
-                .any(|missing| missing == kind)
-                || operation.kind == EvidenceKind::SearchHits
-            {
-                continue;
-            }
-            match native_call(engine, operation.tool, operation.arguments) {
-                Ok(value) => gathered.bundle.evidence.extend(fragments(
-                    &format!("WX-RETRY-{}", operation.id.trim_start_matches("WX-")),
-                    operation.kind,
-                    &format!("weavatrix:{}", operation.tool),
-                    &value,
-                )),
-                Err(error) => gathered
-                    .bundle
-                    .warnings
-                    .push(format!("{} retry unavailable: {error}", operation.tool)),
-            }
-        }
-        let has_source = gathered
-            .bundle
-            .evidence
-            .iter()
-            .any(|item| item.kind == EvidenceKind::SourceReads);
-        if source_followup && !has_source {
-            append_source_reads(
-                engine,
-                &mut gathered.bundle.evidence,
-                &mut gathered.bundle.warnings,
-                &gathered.search_hits,
-                budget,
-                policy,
-                SourceReadPlan {
-                    id_prefix: "WX-RETRY-SOURCE",
-                    preferred_patterns: &[],
-                    window: crate::source_followup::SourceWindow::for_task(task),
-                },
-            );
-        }
-        if let Some(symbol) = symbol {
-            prune_incomplete_definition_duplicates(&mut gathered.bundle.evidence, symbol);
-        }
-        Ok(())
-    }
-}
-
-fn rebuild_retry_sources(
-    engine: &mut weavatrix_rust::Weavatrix,
-    gathered: &mut TargetedEvidence,
-    task: &str,
-    symbol: Option<&str>,
-    hints: crate::PlanHints,
-    budget: u32,
-    policy: crate::plan::PlanPolicy,
-) {
-    let preferred_patterns = crate::verify::source_priority_patterns(task, symbol, hints);
-    // The definition read survives the source rebuild: it is the one
-    // fragment whose absence the retry may exist to repair.
-    gathered
-        .bundle
-        .evidence
-        .retain(|item| item.kind != EvidenceKind::SourceReads || item.id.starts_with("WX-DEF"));
-    append_source_reads(
-        engine,
-        &mut gathered.bundle.evidence,
-        &mut gathered.bundle.warnings,
-        &gathered.search_hits,
-        budget,
-        policy,
-        SourceReadPlan {
-            id_prefix: "WX-RETRY-SOURCE",
-            preferred_patterns: &preferred_patterns,
-            window: crate::source_followup::SourceWindow::for_task(task),
-        },
-    );
-    if crate::plan_intent::is_broad(task) {
-        append_type_expansion_reads(
-            engine,
-            &mut gathered.bundle.evidence,
-            &mut gathered.bundle.warnings,
-            task,
-            budget,
-        );
     }
 }

@@ -8,9 +8,10 @@ pub(super) fn prune_incomplete_definition_duplicates(
     symbol: &str,
 ) {
     let has_complete = evidence.iter().any(|fragment| {
-        fragment.kind == EvidenceKind::SourceReads
-            && crate::source_followup::definition_is_complete(&fragment.content, symbol)
-                == Some(true)
+        fragment.declared_complete == Some(true)
+            || (fragment.kind == EvidenceKind::SourceReads
+                && crate::source_followup::definition_is_complete(&fragment.content, symbol)
+                    == Some(true))
     });
     if !has_complete {
         return;
@@ -28,13 +29,12 @@ mod tests {
     use crate::{EvidenceFragment, EvidenceKind};
 
     fn fragment(id: &str, content: &str) -> EvidenceFragment {
-        EvidenceFragment {
-            id: id.to_owned(),
-            kind: EvidenceKind::SourceReads,
-            source: "weavatrix:read_source".to_owned(),
-            content: content.to_owned(),
-            head: true,
-        }
+        EvidenceFragment::new(
+            id,
+            EvidenceKind::SourceReads,
+            "weavatrix:read_source",
+            content,
+        )
     }
 
     #[test]

@@ -1,14 +1,15 @@
 use super::*;
 
 fn item(id: &str, content: &str, priority: EvidencePriority) -> EvidenceItem {
-    EvidenceItem {
-        id: id.to_owned(),
-        source: format!("src/{id}.rs:1"),
-        content: content.to_owned(),
+    let mut item = EvidenceItem::new(
+        id,
+        format!("src/{id}.rs:1"),
+        content,
         priority,
-        state: EvidenceState::Verified,
-        relevance: None,
-    }
+        EvidenceState::Verified,
+    );
+    item.derivation = Some(EvidenceDerivation::ExactSource);
+    item
 }
 
 #[test]
@@ -18,7 +19,7 @@ fn selects_priority_order_and_reports_token_savings() {
             item("low", &"x".repeat(80), EvidencePriority::Low),
             item("high", "important", EvidencePriority::High),
         ],
-        max_tokens: 10,
+        max_tokens: 30,
         deduplicate: true,
     };
     let packet = compile_context_with(&request, &CharDiv4Counter).unwrap();
@@ -134,13 +135,12 @@ fn overlapping_evidence_is_sent_once() {
     };
     let packet = compile_context(&request).unwrap();
     assert_eq!(packet.included_ids, ["WX-SYMBOL", "WX-SEARCH"]);
-    assert_eq!(packet.deduplicated_lines, 1);
-    assert!(packet.deduplicated_estimated_tokens > 0);
     assert_eq!(
         packet.content.matches(shared).count(),
-        1,
-        "the shared line survives exactly once"
+        2,
+        "different source spans keep their own copy"
     );
+    assert_eq!(packet.deduplicated_lines, 0);
     assert!(
         packet.content.contains("another distinct line of context"),
         "the rest of the lower-priority item is untouched"
@@ -148,14 +148,84 @@ fn overlapping_evidence_is_sent_once() {
     let breakdown = packet.token_breakdown.expect("runtime counter");
     assert_eq!(breakdown.counter_id, "conservative");
     assert_eq!(breakdown.budget_omitted_tokens, 0);
-    assert!(breakdown.dedup_saved_tokens > 0);
     assert_eq!(packet.omitted_estimated_tokens, 0);
-    assert_eq!(
-        packet.omitted_estimated_tokens
-            + packet.deduplicated_estimated_tokens
-            + packet.selected_estimated_tokens,
-        packet.raw_estimated_tokens
+}
+
+#[test]
+fn trust_state_is_visible_in_the_packet() {
+    let mut plan = item("WX-VERIFY", "rename the helper", EvidencePriority::High);
+    plan.state = EvidenceState::Unverified;
+    plan.derivation = Some(EvidenceDerivation::Plan);
+    let mut conflict = item(
+        "WX-CONFLICT-A",
+        "enabled defaults to true",
+        EvidencePriority::Low,
     );
+    conflict.state = EvidenceState::Contradictory;
+    conflict.contradiction_group = Some("C7".to_owned());
+    let packet = compile_context(&ContextRequest {
+        items: vec![
+            plan,
+            conflict,
+            item(
+                "WX-SOURCE",
+                "pub enabled: bool = false;",
+                EvidencePriority::Critical,
+            ),
+        ],
+        max_tokens: 1_000,
+        deduplicate: true,
+    })
+    .unwrap();
+    assert!(packet.content.contains("## [WX-VERIFY] UNVERIFIED PLAN"));
+    assert!(packet.content.contains("## [WX-SOURCE] EXACT SOURCE"));
+    assert!(
+        packet
+            .content
+            .contains("## [WX-CONFLICT-A] CONTRADICTORY — group C7")
+    );
+}
+
+#[test]
+fn contradictory_lines_do_not_erase_verified_provenance() {
+    let shared = "pub const MAX_RETRY_ATTEMPTS: u32 = 20; // the shared line";
+    let mut conflict = item("conflict", shared, EvidencePriority::Low);
+    conflict.state = EvidenceState::Contradictory;
+    let verified = item("source", shared, EvidencePriority::High);
+    let packet = compile_context(&ContextRequest {
+        items: vec![conflict, verified],
+        max_tokens: 1_000,
+        deduplicate: true,
+    })
+    .unwrap();
+    assert_eq!(packet.content.matches(shared).count(), 2);
+    assert!(!packet.content.contains("same source span as"));
+}
+
+#[test]
+fn matching_span_and_trust_keep_a_pointer() {
+    let shared = "pub const MAX_RETRY_ATTEMPTS: u32 = 20; // the shared line";
+    let first = item(
+        "WX-DEF-1",
+        &format!("{shared}\nfn apply() {{}}"),
+        EvidencePriority::Critical,
+    );
+    let mut second = item(
+        "WX-DEF-2",
+        &format!("{shared}\nfn extra() {{}}"),
+        EvidencePriority::High,
+    );
+    second.locator = first.locator.clone();
+    second.source = first.source.clone();
+    let packet = compile_context(&ContextRequest {
+        items: vec![first, second],
+        max_tokens: 1_000,
+        deduplicate: true,
+    })
+    .unwrap();
+    assert_eq!(packet.deduplicated_lines, 1);
+    assert!(packet.content.contains("same source span as [WX-DEF-1]"));
+    assert_eq!(packet.content.matches(shared).count(), 1);
 }
 
 #[test]
@@ -241,6 +311,95 @@ fn short_lines_are_never_deduplicated() {
     let packet = compile_context(&request).unwrap();
     assert_eq!(packet.deduplicated_lines, 0);
     assert_eq!(packet.content.matches("fn two()").count(), 1);
+}
+
+#[test]
+fn a_changed_blob_on_the_same_span_is_revision_stale() {
+    let previous = EvidenceLocator {
+        path: Some("src/lib.rs".to_owned()),
+        start_line: Some(10),
+        end_line: Some(20),
+        blob_hash: Some("blob_old".to_owned()),
+        snapshot_id: Some("git:1+dirty:0".to_owned()),
+    };
+    let current = EvidenceLocator {
+        blob_hash: Some("blob_new".to_owned()),
+        ..previous.clone()
+    };
+    assert!(previous.is_revision_stale(&current));
+    assert!(!previous.is_revision_stale(&previous));
+}
+
+#[test]
+fn packet_identity_follows_snapshot_and_selected_ids() {
+    let mut first = item(
+        "WX-SOURCE",
+        "pub enabled: bool = false;",
+        EvidencePriority::High,
+    );
+    first.locator = Some(EvidenceLocator {
+        path: Some("src/lib.rs".to_owned()),
+        start_line: Some(10),
+        end_line: Some(12),
+        blob_hash: Some("blob_aaa".to_owned()),
+        snapshot_id: Some("git:abc+dirty:0".to_owned()),
+    });
+    let packet = compile_context(&ContextRequest {
+        items: vec![first.clone()],
+        max_tokens: 1_000,
+        deduplicate: true,
+    })
+    .unwrap();
+    assert_eq!(packet.snapshot_id.as_deref(), Some("git:abc+dirty:0"));
+    assert!(
+        packet
+            .packet_id
+            .as_deref()
+            .is_some_and(|id| id.starts_with("pk_"))
+    );
+
+    let mut changed = first;
+    changed.locator.as_mut().expect("locator").snapshot_id = Some("git:abc+dirty:ffff".to_owned());
+    let later = compile_context(&ContextRequest {
+        items: vec![changed],
+        max_tokens: 1_000,
+        deduplicate: true,
+    })
+    .unwrap();
+    assert_ne!(packet.packet_id, later.packet_id);
+    assert!(snapshot_is_stale(
+        packet.snapshot_id.as_deref(),
+        "git:abc+dirty:ffff"
+    ));
+}
+
+#[test]
+fn different_blob_hashes_keep_both_copies() {
+    let shared = "pub const MAX_RETRY_ATTEMPTS: u32 = 20; // the shared line";
+    let mut first = item("WX-DEF-1", shared, EvidencePriority::Critical);
+    let mut second = item("WX-DEF-2", shared, EvidencePriority::High);
+    first.locator = Some(EvidenceLocator {
+        path: Some("src/lib.rs".to_owned()),
+        start_line: Some(10),
+        end_line: Some(12),
+        blob_hash: Some("blob_old".to_owned()),
+        snapshot_id: Some("git:1+dirty:0".to_owned()),
+    });
+    second.locator = Some(EvidenceLocator {
+        path: Some("src/lib.rs".to_owned()),
+        start_line: Some(10),
+        end_line: Some(12),
+        blob_hash: Some("blob_new".to_owned()),
+        snapshot_id: Some("git:1+dirty:0".to_owned()),
+    });
+    let packet = compile_context(&ContextRequest {
+        items: vec![first, second],
+        max_tokens: 1_000,
+        deduplicate: true,
+    })
+    .unwrap();
+    assert_eq!(packet.content.matches(shared).count(), 2);
+    assert_eq!(packet.deduplicated_lines, 0);
 }
 
 #[test]

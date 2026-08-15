@@ -46,7 +46,11 @@ fn small_results_keep_the_bare_citation_id() {
     let value = json!({"content": [{"type": "text", "text": "short plan"}]});
     let parts = fragments("WX-VERIFY", EvidenceKind::ChangePlan, "weavatrix:v", &value);
     assert_eq!(parts.len(), 1);
-    assert_eq!(parts[0].id, "WX-VERIFY");
+    assert!(parts[0].id.starts_with("ev_"));
+    assert_eq!(
+        parts[0].id,
+        fragments("WX-VERIFY", EvidenceKind::ChangePlan, "weavatrix:v", &value)[0].id
+    );
 }
 
 #[test]
@@ -58,8 +62,10 @@ fn oversized_results_split_into_stable_ordered_sub_citations() {
     let value = json!({"content": [{"type": "text", "text": text}]});
     let parts = fragments("WX-VERIFY", EvidenceKind::ChangePlan, "weavatrix:v", &value);
     assert!(parts.len() > 1, "must split: {}", parts.len());
-    for (index, part) in parts.iter().enumerate() {
-        assert_eq!(part.id, format!("WX-VERIFY-{}", index + 1));
+    let group = parts[0].group_id.clone();
+    for part in &parts {
+        assert!(part.id.starts_with("ev_"));
+        assert_eq!(part.group_id, group);
         assert!(part.content.chars().count() <= MAX_FRAGMENT_CHARS);
         assert_eq!(part.kind, EvidenceKind::ChangePlan);
     }

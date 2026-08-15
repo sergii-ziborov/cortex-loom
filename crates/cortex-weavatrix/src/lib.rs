@@ -6,6 +6,7 @@ pub mod plan;
 mod plan_intent;
 mod refactor_preview;
 mod run_memory;
+mod snapshot;
 mod source_followup;
 mod verify;
 
@@ -21,6 +22,7 @@ pub use hints::{IntentHint, PlanHints};
 pub use plan_intent::asks_for_prior_attempts;
 pub use refactor_preview::{PreviewChange, RefactorPreview, preview_refactor_plan};
 pub use run_memory::{PriorRunEvent, PriorRunMemory};
+pub use snapshot::repository_snapshot;
 pub use verify::{EvidenceSufficiency, assess_compiled};
 
 #[cfg(test)]

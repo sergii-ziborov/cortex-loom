@@ -59,7 +59,7 @@ fn source_followup_opens_the_rust_server_for_skills_compile() {
             .context
             .included_ids
             .iter()
-            .any(|id| id.starts_with("WX-SOURCE")),
+            .any(|id| id.starts_with("ev_") || id.starts_with("WX-SOURCE")),
         "source evidence must survive the compiler: {:?}",
         compiled.context.omitted_ids
     );

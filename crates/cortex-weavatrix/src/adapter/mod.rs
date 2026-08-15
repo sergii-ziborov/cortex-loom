@@ -2,8 +2,10 @@ mod cleanup;
 mod evidence;
 mod expand;
 mod gather;
+mod locator;
 mod render;
 mod retry;
+mod source_reads;
 #[cfg(test)]
 mod tests;
 

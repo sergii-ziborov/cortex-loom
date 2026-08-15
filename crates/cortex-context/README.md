@@ -25,9 +25,16 @@ can inspect and test:
 - **Overlap is paid for once.** Evidence assembled from several tools repeats
   itself, and no single tool can see that — each budgets its own answer in
   isolation. With `deduplicate` (on by default) a line that a
-  higher-priority item already carried is dropped from the lower-priority
-  one, and `deduplicated_lines` reports how much. Short lines are never
-  touched, and an item that would render empty keeps its content.
+  higher-priority item already carried is replaced by
+  `same source span as [id]` only when span, content, snapshot, blob, trust,
+  and derivation all match. Short lines are never touched, and an item that
+  would render empty keeps its content.
+- **Trust is visible in the packet text.** Headings carry
+  `EXACT SOURCE`, `UNVERIFIED PLAN`, or `CONTRADICTORY — group C7`, not just
+  an envelope flag.
+- **IDs are revision-stable.** `packetId` is `pk_<hash>`, citations are
+  `ev_<hash>`, and `snapshotId` plus per-item `blobHash` detect a stale
+  packet after the file changes.
 
 ```rust
 use cortex_context::{
@@ -36,22 +43,20 @@ use cortex_context::{
 
 let request = ContextRequest {
     items: vec![
-        EvidenceItem {
-            id: "TASK".to_owned(),
-            source: "request:user".to_owned(),
-            content: "Rename the export helper without breaking callers.".to_owned(),
-            priority: EvidencePriority::Critical,
-            state: EvidenceState::Verified,
-            relevance: None,
-        },
-        EvidenceItem {
-            id: "SRC-1".to_owned(),
-            source: "src/export.rs:120".to_owned(),
-            content: "fn render_frontmatter(..) { /* ... */ }".to_owned(),
-            priority: EvidencePriority::High,
-            state: EvidenceState::Verified,
-            relevance: None,
-        },
+        EvidenceItem::new(
+            "TASK",
+            "request:user",
+            "Rename the export helper without breaking callers.",
+            EvidencePriority::Critical,
+            EvidenceState::Verified,
+        ),
+        EvidenceItem::new(
+            "SRC-1",
+            "src/export.rs:120",
+            "fn render_frontmatter(..) { /* ... */ }",
+            EvidencePriority::High,
+            EvidenceState::Verified,
+        ),
     ],
     max_tokens: 4_000,
     deduplicate: true,

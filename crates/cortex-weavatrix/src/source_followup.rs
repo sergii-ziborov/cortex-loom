@@ -130,23 +130,56 @@ pub fn definition_is_complete(text: &str, symbol: &str) -> Option<bool> {
     let head = definition_head_index(text, symbol)?;
     let mut depth = 0_i32;
     let mut opened = false;
+    let mut mode = BraceMode::Code;
+    let mut previous = '\0';
     for character in text[head..].chars() {
-        match character {
-            '{' => {
-                depth += 1;
-                opened = true;
-            }
-            '}' => {
-                depth -= 1;
-                if opened && depth == 0 {
-                    return Some(true);
+        mode = advance_brace_mode(mode, previous, character);
+        if mode == BraceMode::Code {
+            match character {
+                '{' => {
+                    depth += 1;
+                    opened = true;
                 }
+                '}' => {
+                    depth -= 1;
+                    if opened && depth == 0 {
+                        return Some(true);
+                    }
+                }
+                ';' if !opened => return Some(true),
+                _ => {}
             }
-            ';' if !opened => return Some(true),
-            _ => {}
         }
+        previous = character;
     }
     Some(false)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BraceMode {
+    Code,
+    LineComment,
+    BlockComment,
+    String,
+    Char,
+}
+
+fn advance_brace_mode(mode: BraceMode, previous: char, character: char) -> BraceMode {
+    match mode {
+        BraceMode::LineComment if character == '\n' => BraceMode::Code,
+        BraceMode::LineComment => BraceMode::LineComment,
+        BraceMode::BlockComment if previous == '*' && character == '/' => BraceMode::Code,
+        BraceMode::BlockComment => BraceMode::BlockComment,
+        BraceMode::String if previous != '\\' && character == '"' => BraceMode::Code,
+        BraceMode::String => BraceMode::String,
+        BraceMode::Char if previous != '\\' && character == '\'' => BraceMode::Code,
+        BraceMode::Char => BraceMode::Char,
+        BraceMode::Code if previous == '/' && character == '/' => BraceMode::LineComment,
+        BraceMode::Code if previous == '/' && character == '*' => BraceMode::BlockComment,
+        BraceMode::Code if character == '"' => BraceMode::String,
+        BraceMode::Code if character == '\'' => BraceMode::Char,
+        BraceMode::Code => BraceMode::Code,
+    }
 }
 
 /// One search match that can be turned into a `read_source` call.
@@ -460,6 +493,11 @@ mod tests {
         );
         assert!(definition_head_index("class Handler {", "Handler").is_some());
         assert!(definition_head_index("def load_rows(self):", "load_rows").is_some());
+        assert_eq!(
+            definition_is_complete(r#"fn foo() { let s = "{"; }"#, "foo"),
+            Some(true),
+            "braces inside strings must not unbalance a definition"
+        );
     }
 
     #[test]

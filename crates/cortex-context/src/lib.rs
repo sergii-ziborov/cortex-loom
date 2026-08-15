@@ -1,68 +1,25 @@
 #![doc = include_str!("../README.md")]
 
+mod evidence;
 pub mod ranking;
 mod tokens;
 
+pub use evidence::{
+    EvidenceDerivation, EvidenceFacet, EvidenceItem, EvidenceLocator, EvidencePriority,
+    EvidenceState, blob_id, evidence_id, packet_id, snapshot_is_stale,
+};
 pub use tokens::{
     CharDiv4Counter, ChatMessage, ConservativeCounter, RUNTIME_COUNTER, TokenBreakdown,
     TokenCounter, estimate_tokens,
 };
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Serialize};
 
 pub const MAX_EVIDENCE_ITEMS: usize = 4_096;
 pub const MAX_EVIDENCE_CHARS: usize = 262_144;
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum EvidencePriority {
-    Critical,
-    High,
-    Normal,
-    Low,
-}
-
-impl EvidencePriority {
-    const fn rank(self) -> u8 {
-        match self {
-            Self::Critical => 0,
-            Self::High => 1,
-            Self::Normal => 2,
-            Self::Low => 3,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum EvidenceState {
-    Verified,
-    Unverified,
-    Contradictory,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct EvidenceItem {
-    pub id: String,
-    pub source: String,
-    pub content: String,
-    pub priority: EvidencePriority,
-    pub state: EvidenceState,
-    /// Optional relevance score, typically from a retrieval ranking.
-    ///
-    /// It only reorders items **within** the same trust/priority band:
-    /// contradiction handling, priority, and fail-closed criticality always
-    /// dominate. Higher scores come first. Within a band, every scored item
-    /// precedes every unscored one, and unscored items keep their submission
-    /// order relative to each other â€” so scoring part of a band promotes
-    /// those items over the rest of it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub relevance: Option<f64>,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -128,6 +85,12 @@ pub struct ContextPacket {
     /// Split accounting for the counter that produced the numbers above.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_breakdown: Option<TokenBreakdown>,
+    /// Revision-stable handle: `pk_<hash>` of the selected citations and snapshot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub packet_id: Option<String>,
+    /// Tree the packet was compiled against, e.g. `git:<commit>+dirty:<digest>`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -218,7 +181,7 @@ pub fn compile_context_with(
     let mut content = String::new();
     let mut included_ids = Vec::new();
     let mut omitted_ids = Vec::new();
-    let mut seen = HashSet::new();
+    let mut seen = HashMap::new();
     let mut deduplicated_lines = 0_u32;
     let mut breakdown = TokenBreakdown::for_counter(counter);
     for (_, item) in &ordered {
@@ -226,7 +189,7 @@ pub fn compile_context_with(
         let candidate = counter.count(&full);
         breakdown.candidate_tokens = breakdown.candidate_tokens.saturating_add(candidate);
         let (body, removed_lines, _) = if request.deduplicate {
-            deduplicate_body(&item.content, &seen)
+            deduplicate_body(item, &seen)
         } else {
             (item.content.clone(), 0, 0)
         };
@@ -243,7 +206,7 @@ pub fn compile_context_with(
                 .rendering_overhead_tokens
                 .saturating_add(delivered.saturating_sub(counter.count(body.trim())));
             if request.deduplicate {
-                record_substantial_lines(&item.content, &mut seen);
+                record_substantial_lines(item, &mut seen);
                 deduplicated_lines = deduplicated_lines.saturating_add(removed_lines);
             }
         } else if item.priority == EvidencePriority::Critical {
@@ -272,6 +235,11 @@ pub fn compile_context_with(
         .items
         .iter()
         .any(|item| item.state != EvidenceState::Verified);
+    let snapshot = shared_snapshot(&request.items);
+    let assigned_packet_id = Some(packet_id(&[
+        snapshot.as_deref().unwrap_or_default(),
+        &included_ids.join("\n"),
+    ]));
     Ok(ContextPacket {
         content: content.trim_end().to_owned(),
         included_ids,
@@ -283,7 +251,28 @@ pub fn compile_context_with(
         deduplicated_lines,
         deduplicated_estimated_tokens: breakdown.dedup_saved_tokens,
         token_breakdown: Some(breakdown),
+        snapshot_id: snapshot,
+        packet_id: assigned_packet_id,
     })
+}
+
+fn shared_snapshot(items: &[EvidenceItem]) -> Option<String> {
+    let mut shared: Option<&str> = None;
+    for item in items {
+        let Some(snapshot) = item
+            .locator
+            .as_ref()
+            .and_then(|locator| locator.snapshot_id.as_deref())
+        else {
+            continue;
+        };
+        match shared {
+            None => shared = Some(snapshot),
+            Some(existing) if existing == snapshot => {}
+            Some(_) => return None,
+        }
+    }
+    shared.map(ToOwned::to_owned)
 }
 
 fn validate(request: &ContextRequest) -> Result<(), ContextError> {
@@ -323,44 +312,76 @@ fn validate(request: &ContextRequest) -> Result<(), ContextError> {
 }
 
 fn render_item(item: &EvidenceItem, body: &str) -> String {
-    format!("## [{}] {}\n{}\n\n", item.id, item.source, body.trim())
+    format!(
+        "## [{}] {}\n{}\n{}\n\n",
+        item.id,
+        item.heading_label(),
+        item.source,
+        body.trim()
+    )
 }
 
-/// Drop lines an earlier, higher-priority item already carried.
-///
-/// Returns one body per ordered item, the number of lines removed, and what
-/// those lines would have cost. An item whose every substantial line is a
-/// repeat keeps its original body: a citation that renders as nothing is
-/// worse than a citation that repeats something.
-fn deduplicate_body(content: &str, seen: &HashSet<String>) -> (String, u32, usize) {
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct DedupKey {
+    line: String,
+    state: EvidenceState,
+    derivation: Option<EvidenceDerivation>,
+    path: Option<String>,
+    start_line: Option<u32>,
+    end_line: Option<u32>,
+    snapshot_id: Option<String>,
+    blob_hash: Option<String>,
+}
+
+fn dedup_key(item: &EvidenceItem, line: &str) -> DedupKey {
+    let locator = item.locator.as_ref();
+    DedupKey {
+        line: line.to_owned(),
+        state: item.state,
+        derivation: item.derivation,
+        path: locator.and_then(|locator| locator.path.clone()),
+        start_line: locator.and_then(|locator| locator.start_line),
+        end_line: locator.and_then(|locator| locator.end_line),
+        snapshot_id: locator.and_then(|locator| locator.snapshot_id.clone()),
+        blob_hash: locator.and_then(|locator| locator.blob_hash.clone()),
+    }
+}
+
+/// Drop a line only when span, trust, derivation, and snapshot all match.
+/// A match becomes a provenance pointer, not a silent deletion.
+fn deduplicate_body(item: &EvidenceItem, seen: &HashMap<DedupKey, String>) -> (String, u32, usize) {
     let mut kept = Vec::new();
-    let mut dropped = Vec::new();
-    for line in content.lines() {
+    let mut dropped = 0_u32;
+    let mut removed_chars = 0_usize;
+    let mut cited = HashSet::new();
+    for line in item.content.lines() {
         let trimmed = line.trim();
         if trimmed.chars().count() < MIN_DEDUPLICATED_LINE_CHARS {
-            kept.push(line);
-        } else if seen.contains(trimmed) {
-            dropped.push(line);
+            kept.push(line.to_owned());
+            continue;
+        }
+        if let Some(first) = seen.get(&dedup_key(item, trimmed)) {
+            if cited.insert(first.clone()) {
+                kept.push(format!("same source span as [{first}]"));
+            }
+            dropped = dropped.saturating_add(1);
+            removed_chars = removed_chars.saturating_add(line.chars().count().saturating_add(1));
         } else {
-            kept.push(line);
+            kept.push(line.to_owned());
         }
     }
     if kept.iter().all(|line| line.trim().is_empty()) {
-        return (content.to_owned(), 0, 0);
+        return (item.content.clone(), 0, 0);
     }
-    let removed_lines = u32::try_from(dropped.len()).unwrap_or(u32::MAX);
-    let mut removed_chars = 0_usize;
-    for line in dropped {
-        removed_chars = removed_chars.saturating_add(line.chars().count().saturating_add(1));
-    }
-    (kept.join("\n"), removed_lines, removed_chars)
+    (kept.join("\n"), dropped, removed_chars)
 }
 
-fn record_substantial_lines(content: &str, seen: &mut HashSet<String>) {
-    for line in content.lines() {
+fn record_substantial_lines(item: &EvidenceItem, seen: &mut HashMap<DedupKey, String>) {
+    for line in item.content.lines() {
         let trimmed = line.trim();
         if trimmed.chars().count() >= MIN_DEDUPLICATED_LINE_CHARS {
-            seen.insert(trimmed.to_owned());
+            seen.entry(dedup_key(item, trimmed))
+                .or_insert_with(|| item.id.clone());
         }
     }
 }

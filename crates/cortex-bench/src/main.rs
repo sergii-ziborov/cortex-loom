@@ -15,6 +15,7 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 use cortex_bench::naive::{NaiveScan, scan};
+use cortex_bench::lang_tasks::lang_tasks;
 use cortex_bench::probe_tasks::probe_tasks;
 use cortex_bench::report::render;
 use cortex_bench::schedule::alternating_orders;
@@ -67,8 +68,17 @@ fn run(settings: &Settings) -> Result<BenchReport, String> {
         (Some(id), _) => vec![find_any(id).ok_or_else(|| format!("unknown task: {id}"))?],
         (None, "probe") => probe_tasks().iter().collect(),
         (None, "core") => tasks().iter().collect(),
-        (None, "all") => tasks().iter().chain(probe_tasks().iter()).collect(),
-        (None, other) => return Err(format!("unknown --set value: {other} (core|probe|all)")),
+        (None, "langs") => lang_tasks().iter().collect(),
+        (None, "all") => tasks()
+            .iter()
+            .chain(probe_tasks().iter())
+            .chain(lang_tasks().iter())
+            .collect(),
+        (None, other) => {
+            return Err(format!(
+                "unknown --set value: {other} (core|probe|langs|all)"
+            ));
+        }
     };
     let weavatrix = if settings.use_weavatrix {
         Some(WeavatrixAdapter::new(
@@ -447,6 +457,9 @@ impl Settings {
                     for task in probe_tasks() {
                         println!("{}", task.id);
                     }
+                    for task in lang_tasks() {
+                        println!("{}", task.id);
+                    }
                     std::process::exit(0);
                 }
                 other => return Err(format!("unknown argument: {other}")),
@@ -460,7 +473,9 @@ impl Settings {
 }
 
 fn find_any(id: &str) -> Option<&'static BenchTask> {
-    find(id).or_else(|| probe_tasks().iter().find(|task| task.id == id))
+    find(id)
+        .or_else(|| probe_tasks().iter().find(|task| task.id == id))
+        .or_else(|| lang_tasks().iter().find(|task| task.id == id))
 }
 
 fn next(arguments: &mut impl Iterator<Item = String>, flag: &str) -> Result<String, String> {

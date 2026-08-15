@@ -31,6 +31,7 @@
 mod external_skills;
 pub mod manifest;
 pub mod naive;
+pub mod lang_tasks;
 pub mod probe_tasks;
 pub mod report;
 pub mod schedule;

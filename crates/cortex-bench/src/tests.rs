@@ -96,7 +96,11 @@ fn fixture_anchors_exist_in_the_repository() {
     if !root.join("Cargo.toml").exists() {
         return;
     }
-    for task in tasks().iter().chain(probe_tasks::probe_tasks().iter()) {
+    for task in tasks()
+        .iter()
+        .chain(probe_tasks::probe_tasks().iter())
+        .chain(crate::lang_tasks::lang_tasks().iter())
+    {
         let found = scan(&root, task.naive_globs).expect("scan the workspace");
         assert!(
             !found.files.is_empty(),

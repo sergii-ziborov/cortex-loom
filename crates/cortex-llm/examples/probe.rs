@@ -18,6 +18,10 @@ fn profile(id: &str, role: Role, model: &str, device: Device, port: u16, secs: u
         base_url: format!("http://127.0.0.1:{port}"),
         timeout_seconds: secs,
         gate_passed: false,
+        quantization: None,
+        embedding_pooling: None,
+        tokenizer: None,
+        calibration_ref: None,
         note: None,
     }
 }

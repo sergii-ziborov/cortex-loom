@@ -9,16 +9,19 @@ use std::collections::BTreeMap;
 use cortex_ollama::EmbedRequest;
 
 use crate::backend::EvalBackend;
-use crate::fixtures::{FixtureSet, RetrievalFixtures};
+use crate::fixtures::{FixtureSet, MicroExtractionFixture, RetrievalFixtures};
 use crate::metrics::{
     ClassificationAggregate, ClassificationSample, CompressionAggregate, CompressionSample,
-    ExtractionAggregate, ExtractionSample, LatencyStats, RetrievalAggregate, RetrievalSample,
-    aggregate_classification, aggregate_compression, aggregate_extraction, aggregate_retrieval,
+    ExtractionAggregate, ExtractionSample, LatencyStats, MicroExtractionAggregate,
+    MicroExtractionSample, RetrievalAggregate, RetrievalSample, aggregate_classification,
+    aggregate_compression, aggregate_extraction, aggregate_micro_extraction, aggregate_retrieval,
     latency_stats, ndcg_at_k, rank_by_similarity, recall_at_k, reciprocal_rank,
 };
-use crate::profile_suites::{run_classification, run_compression, run_extraction};
-use crate::verdict::{CalibrationVerdict, judge, judge_retrieval};
-use cortex_context::ranking::{Bm25Index, build_adjacency, graph_boost, rrf_fuse};
+use crate::profile_suites::{
+    run_classification, run_compression, run_extraction, run_micro_extraction,
+};
+use crate::verdict::{CalibrationVerdict, judge, judge_micro_extract, judge_retrieval};
+use cortex_context::ranking::{Bm25Index, rank_hybrid_graph, rrf_fuse};
 
 const EMBED_BATCH: usize = 16;
 
@@ -30,6 +33,7 @@ pub struct SuiteSelection {
     pub extraction: bool,
     pub compression: bool,
     pub retrieval: bool,
+    pub micro: bool,
     pub sequence: bool,
 }
 
@@ -41,6 +45,10 @@ impl SuiteSelection {
             extraction: true,
             compression: true,
             retrieval: true,
+            // `micro_extract` is a separate role with a separate gate and is
+            // normally a separate servable, so it is selected explicitly
+            // (`--suite micro`) rather than swept into every default run.
+            micro: false,
             // Paired sequence evaluation requires an explicit deterministic
             // report and is never pulled into a broad default run.
             sequence: false,
@@ -82,6 +90,87 @@ pub struct ProfileReport {
     pub classification_samples: Vec<ClassificationSample>,
     pub extraction_samples: Vec<ExtractionSample>,
     pub compression_samples: Vec<CompressionSample>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MicroExtractReport {
+    pub profile_id: String,
+    pub model: String,
+    pub status: ProfileStatus,
+    pub digest: Option<String>,
+    pub aggregate: Option<MicroExtractionAggregate>,
+    pub verdict: CalibrationVerdict,
+    pub latency: LatencyStats,
+    pub samples: Vec<MicroExtractionSample>,
+}
+
+/// Run the adversarial literal-extraction holdout against one profile and
+/// judge it on the `micro_extract` gate.
+///
+/// This is deliberately not folded into [`run_profile`]: passing this gate
+/// grants a role no `ModelTier` grants, so it carries its own verdict and its
+/// own report section instead of being averaged into a tier judgement.
+pub fn run_micro_extract_profile(
+    backend: &dyn EvalBackend,
+    profile: &EvalProfile,
+    fixtures: &[MicroExtractionFixture],
+    limit: Option<usize>,
+) -> MicroExtractReport {
+    let mut report = MicroExtractReport {
+        profile_id: profile.id.clone(),
+        model: profile.model.clone(),
+        status: ProfileStatus::Evaluated,
+        digest: None,
+        aggregate: None,
+        verdict: judge_micro_extract(None),
+        latency: latency_stats(&[]),
+        samples: Vec::new(),
+    };
+    let installed = match backend.installed_models() {
+        Ok(models) => models,
+        Err(error) => {
+            eprintln!("[cortex-eval] {}: discovery failed: {error}", profile.id);
+            report.status = ProfileStatus::DiscoveryFailed;
+            return report;
+        }
+    };
+    let Some(model) = installed
+        .iter()
+        .find(|model| model.model == profile.model || model.name == profile.model)
+    else {
+        eprintln!(
+            "[cortex-eval] {}: model {} is not installed; skipping (no hidden pull)",
+            profile.id, profile.model
+        );
+        report.status = ProfileStatus::ModelAbsent;
+        return report;
+    };
+    report.digest = Some(model.digest.clone());
+
+    let taken = bounded(fixtures, limit);
+    for (index, fixture) in taken.iter().enumerate() {
+        let sample = run_micro_extraction(backend, &profile.id, fixture);
+        progress(
+            &profile.id,
+            "micro-extraction",
+            index,
+            taken.len(),
+            sample.error.as_deref(),
+        );
+        report.samples.push(sample);
+    }
+    let latencies: Vec<u64> = report
+        .samples
+        .iter()
+        .filter(|sample| sample.answered)
+        .map(|sample| sample.latency_ms)
+        .collect();
+    let aggregate = aggregate_micro_extraction(&report.samples);
+    report.verdict = judge_micro_extract(Some(&aggregate));
+    report.aggregate = Some(aggregate);
+    report.latency = latency_stats(&latencies);
+    report
 }
 
 #[derive(Debug, Clone)]
@@ -207,7 +296,6 @@ pub fn run_embedding_profile(
     };
 
     let corpus_ids: Vec<&str> = fixtures.corpus.iter().map(|doc| doc.id.as_str()).collect();
-    let adjacency = build_adjacency(&corpus_ids, &fixtures.related);
     let bm25 = Bm25Index::build(&corpus_texts);
     let mut mode_samples: BTreeMap<RetrievalMode, Vec<RetrievalSample>> = BTreeMap::new();
     for (query, vector) in queries.iter().zip(&query_vectors) {
@@ -217,7 +305,16 @@ pub fn run_embedding_profile(
             &[embedding_ranking.as_slice(), lexical_ranking.as_slice()],
             fixtures.corpus.len(),
         );
-        let graph_ranking = graph_boost(&hybrid_ranking, &adjacency);
+        // Same function production calls; adjacency here is the declared
+        // fixture pairs that the historical gate measured.
+        let graph_ranking = rank_hybrid_graph(
+            vector,
+            &corpus_vectors,
+            &corpus_texts,
+            &query.text,
+            &corpus_ids,
+            &fixtures.related,
+        );
         for (mode, ranking) in [
             (RetrievalMode::Embedding, &embedding_ranking),
             (RetrievalMode::Hybrid, &hybrid_ranking),

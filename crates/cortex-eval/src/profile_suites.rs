@@ -1,12 +1,20 @@
+use cortex_llm::MicroExtractRequest;
+
 use crate::backend::EvalBackend;
-use crate::comparators::{citation_metrics, classification_outcome, token_delta};
-use crate::fixtures::{ClassificationFixture, CompressionFixture, ExtractionFixture};
+use crate::comparators::{
+    MicroExtractionOutcome, citation_metrics, classification_outcome, micro_extraction_outcome,
+    token_delta,
+};
+use crate::fixtures::{
+    ClassificationFixture, CompressionFixture, ExtractionFixture, MicroExtractionFixture,
+};
 use crate::metrics::{
     ClassificationSample, CompressionSample, ExtractionMatches, ExtractionSample,
+    MicroExtractionSample,
 };
 use crate::prompts::{
     EvidenceBlock, classification_request, compression_request, extraction_request,
-    parse_compression, parse_extraction, parse_tier,
+    micro_extraction_request, parse_compression, parse_extraction, parse_tier,
 };
 
 pub(crate) fn run_classification(
@@ -85,6 +93,54 @@ pub(crate) fn run_extraction(
     }
 }
 
+/// Ask one closed-schema literal extraction and score it under the exact
+/// contract the provider enforces. The reply is never repaired: fences, prose
+/// and truncated JSON are schema failures here because they are schema
+/// failures at the product boundary too.
+pub(crate) fn run_micro_extraction(
+    backend: &dyn EvalBackend,
+    profile: &str,
+    fixture: &MicroExtractionFixture,
+) -> MicroExtractionSample {
+    let fields: Vec<&str> = fixture.allowed_fields.iter().map(String::as_str).collect();
+    let request = match MicroExtractRequest::new(&fixture.verified_input, &fields) {
+        Ok(request) => request,
+        Err(error) => {
+            return MicroExtractionSample {
+                fixture_id: fixture.id.clone(),
+                answered: false,
+                outcome: MicroExtractionOutcome::default(),
+                reply: String::new(),
+                latency_ms: 0,
+                error: Some(error.to_string()),
+            };
+        }
+    };
+    let (content, latency_ms, answered, error) =
+        match backend.structured(&micro_extraction_request(profile, &request)) {
+            Ok(timed) => (timed.content, timed.latency_ms, true, None),
+            Err(error) => (String::new(), 0, false, Some(error)),
+        };
+    let outcome = micro_extraction_outcome(&request, &fixture.gold, &content);
+    let reply: String = content
+        .trim()
+        .replace('\n', " ")
+        .chars()
+        .take(240)
+        .collect();
+    let error = error.or_else(|| {
+        (!outcome.schema_valid).then(|| "the provider would refuse this reply".to_owned())
+    });
+    MicroExtractionSample {
+        fixture_id: fixture.id.clone(),
+        answered,
+        outcome,
+        reply,
+        latency_ms,
+        error,
+    }
+}
+
 pub(crate) fn run_compression(
     backend: &dyn EvalBackend,
     profile: &str,
@@ -110,7 +166,7 @@ pub(crate) fn run_compression(
         .iter()
         .map(|evidence| evidence.content.as_str())
         .collect();
-    let (schema_valid, citations, delta, latency_ms, error) = match call {
+    let (schema_valid, citations, delta, claim_ok, claim_errors, latency_ms, error) = match call {
         Ok(timed) => match parse_compression(&timed.content) {
             Ok(parsed) => {
                 let citations = citation_metrics(
@@ -120,17 +176,57 @@ pub(crate) fn run_compression(
                     &parsed.evidence_ids,
                 );
                 let delta = token_delta(&contents, &parsed.summary);
-                (true, Some(citations), Some(delta), timed.latency_ms, None)
+                let evidence: Vec<cortex_llm::ClaimEvidence<'_>> = fixture
+                    .evidence
+                    .iter()
+                    .map(|item| cortex_llm::ClaimEvidence {
+                        id: item.id.as_str(),
+                        source: item.source.as_str(),
+                        content: item.content.as_str(),
+                    })
+                    .collect();
+                let (claim_ok, claim_errors) =
+                    if fixture.must_preserve.is_empty() && parsed.claims.is_empty() {
+                        (None, None)
+                    } else {
+                        let check = cortex_llm::verify_claims(&parsed.claims, &evidence);
+                        let missing =
+                            cortex_llm::missing_required(&fixture.must_preserve, &parsed.claims);
+                        let mut errors = check.errors;
+                        for (subject, relation) in missing {
+                            errors.push(format!("missing required claim {subject}/{relation}"));
+                        }
+                        (Some(errors.is_empty()), Some(errors))
+                    };
+                (
+                    true,
+                    Some(citations),
+                    Some(delta),
+                    claim_ok,
+                    claim_errors,
+                    timed.latency_ms,
+                    None,
+                )
             }
-            Err(parse_error) => (false, None, None, timed.latency_ms, Some(parse_error)),
+            Err(parse_error) => (
+                false,
+                None,
+                None,
+                None,
+                None,
+                timed.latency_ms,
+                Some(parse_error),
+            ),
         },
-        Err(error) => (false, None, None, 0, Some(error)),
+        Err(error) => (false, None, None, None, None, 0, Some(error)),
     };
     CompressionSample {
         fixture_id: fixture.id.clone(),
         schema_valid,
         citations,
         token_delta: delta,
+        claim_ok,
+        claim_errors,
         latency_ms,
         error,
     }

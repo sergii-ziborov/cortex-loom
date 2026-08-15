@@ -85,12 +85,16 @@ fn typescript_identifier_is_found_without_a_rust_only_first_pass() {
             PlanHints::default(),
         )
         .expect("verified context");
-    assert!(report.sufficient, "TS client call stayed missing: {report:?}");
-    let haystack: String = bundle
-        .evidence
-        .iter()
-        .map(|item| format!("{} {}", item.source, item.content))
-        .collect();
+    assert!(
+        report.sufficient,
+        "TS client call stayed missing: {report:?}"
+    );
+    let mut haystack = String::new();
+    for item in &bundle.evidence {
+        haystack.push_str(&item.source);
+        haystack.push(' ');
+        haystack.push_str(&item.content);
+    }
     assert!(
         haystack.contains("compileMarkdown") || haystack.contains("client.ts"),
         "multi-language search must reach the TS client without a Rust-only first pass: {report:?}"

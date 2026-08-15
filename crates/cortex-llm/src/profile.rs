@@ -96,10 +96,20 @@ pub struct LlmProfile {
     /// profile on an integrated GPU is allowed minutes; an embedding profile
     /// on the hot path is not.
     pub timeout_seconds: u32,
-    /// Set once the profile has passed the calibration gate for its role.
-    /// Until then it may be observed in shadow, never trusted.
+    /// Historical flag. Semantic ordering ignores this and requires a
+    /// matching [`crate::CalibrationArtifact`]. Classification still uses it
+    /// until those roles have artifacts too.
     #[serde(default)]
     pub gate_passed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quantization: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embedding_pooling: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokenizer: Option<String>,
+    /// Path to a calibration artifact, relative to the working directory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calibration_ref: Option<String>,
     /// Free-text note carried into reports, e.g. which gate run cleared it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
@@ -231,6 +241,10 @@ mod tests {
             base_url: "http://127.0.0.1:8000".to_owned(),
             timeout_seconds: 30,
             gate_passed,
+            quantization: None,
+            embedding_pooling: None,
+            tokenizer: None,
+            calibration_ref: None,
             note: None,
         }
     }

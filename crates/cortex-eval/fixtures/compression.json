@@ -19,7 +19,16 @@
         "content": "The symbol render_frontmatter is defined once and referenced from three call sites, all inside cortex-skills. No external crate references were found, and the signature takes a graph document reference plus a mutable string buffer."
       }
     ],
-    "mustCite": ["WX-GRAPH", "WX-MODULES", "WX-SYMBOL"]
+    "mustCite": ["WX-GRAPH", "WX-MODULES", "WX-SYMBOL"],
+    "mustPreserve": [
+      {
+        "subject": "render_frontmatter",
+        "relation": "defined_in",
+        "object": "cortex-skills",
+        "evidenceIds": ["WX-SYMBOL"],
+        "sourceSpans": ["weavatrix:context_bundle"]
+      }
+    ]
   },
   {
     "id": "cp-2",

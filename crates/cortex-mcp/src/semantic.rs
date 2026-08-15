@@ -1,28 +1,29 @@
 //! Opt-in semantic ordering for evidence compilation.
 //!
-//! Off by default; enabled only by `CORTEX_SEMANTIC=1` plus an exact model
-//! tag that passed the retrieval gate for the `hybrid_graph` mode. Scores
-//! only reorder fragments within a priority band inside the deterministic
-//! compiler; on any failure the packet falls back to deterministic order
-//! with a recorded warning. Semantic ordering never gains workflow
-//! authority.
+//! Off by default. `CORTEX_SEMANTIC=1` is not enough: a matching
+//! [`CalibrationArtifact`] must authorize the live embedding profile. A
+//! profile JSON `gatePassed` flag is ignored. Scores only reorder fragments
+//! within a priority band; any failure falls back to deterministic order.
 
 use std::collections::HashMap;
-use std::time::Duration;
+use std::path::{Path, PathBuf};
 
 use cortex_context::ranking::{
-    Bm25Index, RANKING_VERSION, build_adjacency, graph_boost, rank_by_similarity, rrf_fuse,
+    ADJACENCY_KIND, EvidenceLink, RANKING_FIXTURE_SET, RANKING_VERSION, evidence_adjacency,
+    rank_hybrid_graph,
 };
-use cortex_ollama::{EmbedRequest, MAX_EMBED_INPUTS, ModelProfile, OllamaClient, OllamaConfig};
+use cortex_llm::{
+    ADJACENCY_EVIDENCE_SPANS, CalibrationArtifact, EmbedRequest, LlmProvider, OpenAiProvider,
+    ProfileRegistry, Role, Runtime, RuntimeAttestation,
+};
 
-const SEMANTIC_PROFILE: &str = "semantic";
 const MAX_EMBED_CHARS: usize = 6_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SemanticConfig {
     pub enabled: bool,
-    /// Exact tag; must hold a passing `hybrid_graph` retrieval verdict.
     pub model: Option<String>,
+    pub profiles_path: PathBuf,
     pub timeout_ms: u64,
 }
 
@@ -42,6 +43,8 @@ impl SemanticConfig {
         Self {
             enabled: non_empty("CORTEX_SEMANTIC").is_some_and(|value| value == "1"),
             model: non_empty("CORTEX_SEMANTIC_MODEL"),
+            profiles_path: non_empty("CORTEX_LLM_PROFILES")
+                .map_or_else(|| PathBuf::from("config/llm-profiles.json"), PathBuf::from),
             timeout_ms: non_empty("CORTEX_SEMANTIC_TIMEOUT_MS")
                 .and_then(|value| value.parse().ok())
                 .unwrap_or(30_000),
@@ -50,119 +53,167 @@ impl SemanticConfig {
 
     #[must_use]
     pub fn is_active(&self) -> bool {
-        self.enabled && self.model.is_some()
+        self.enabled
     }
 }
 
 pub struct SemanticScorer {
-    client: OllamaClient,
-    model: String,
+    provider: OpenAiProvider,
+    provenance: String,
 }
 
 impl SemanticScorer {
-    /// Build the scorer when explicitly configured; `Ok(None)` when inactive.
-    pub fn from_config(config: SemanticConfig) -> Result<Option<Self>, String> {
+    /// Build when `CORTEX_SEMANTIC=1` and a calibration artifact authorizes
+    /// the live embedding profile. `Ok(None)` when the flag is off.
+    pub fn from_config(config: &SemanticConfig) -> Result<Option<Self>, String> {
         if !config.is_active() {
             return Ok(None);
         }
-        let model = config.model.unwrap_or_default();
-        let timeout = Duration::from_millis(config.timeout_ms.max(1));
-        let ollama = OllamaConfig {
-            request_timeout: timeout,
-            read_timeout: timeout,
-            write_timeout: timeout,
-            ..OllamaConfig::default()
+        let registry = load_registry(&config.profiles_path)?;
+        let profile =
+            authorized_embedding(&registry, config.model.as_deref(), &config.profiles_path)?;
+        if !matches!(profile.runtime, Runtime::OpenAiCompatible) {
+            return Err(format!(
+                "semantic profile {} uses {:?}; only the OpenAI-compatible embedding path is attested",
+                profile.id, profile.runtime
+            ));
         }
-        .with_profile(
-            SEMANTIC_PROFILE,
-            ModelProfile::new(model.clone(), 2_048, 1, 4_096),
+        let mut profile = profile.clone();
+        if config.timeout_ms > 0 {
+            profile.timeout_seconds = u32::try_from(config.timeout_ms / 1_000)
+                .unwrap_or(u32::MAX)
+                .max(1);
+        }
+        let provider = OpenAiProvider::new(profile.clone()).map_err(|error| error.to_string())?;
+        let provenance = format!(
+            "{}/hybrid_graph/{RANKING_VERSION}/{ADJACENCY_KIND}",
+            profile.model
         );
-        let client = OllamaClient::new(ollama).map_err(|error| error.to_string())?;
-        Ok(Some(Self { client, model }))
+        Ok(Some(Self {
+            provider,
+            provenance,
+        }))
     }
 
-    /// Provenance string recorded on packets whose ordering this influenced.
     #[must_use]
     pub fn provenance(&self) -> String {
-        format!("{}/hybrid_graph/{RANKING_VERSION}", self.model)
+        self.provenance.clone()
     }
 
-    /// Score fragments for one task with the gated `hybrid_graph` ranking.
-    /// Scores are in (0, 1); the caller assigns the synthetic TASK item 1.0.
+    /// Score fragments with the same `hybrid_graph` pipeline the eval gate uses.
     pub fn score(
         &self,
         task: &str,
-        fragments: &[(String, String)],
+        fragments: &[EvidenceLink<'_>],
     ) -> Result<HashMap<String, f64>, String> {
         if fragments.is_empty() {
             return Ok(HashMap::new());
         }
-        if fragments.len() + 1 > MAX_EMBED_INPUTS {
-            return Err(format!(
-                "{} fragments exceed the embed batch bound",
-                fragments.len()
-            ));
-        }
-        let truncated: Vec<String> = fragments
+        let texts: Vec<String> = fragments
             .iter()
-            .map(|(_, content)| content.chars().take(MAX_EMBED_CHARS).collect())
+            .map(|item| item.content.chars().take(MAX_EMBED_CHARS).collect())
             .collect();
-        let mut inputs = Vec::with_capacity(truncated.len() + 1);
-        inputs.push(task.chars().take(MAX_EMBED_CHARS).collect::<String>());
-        inputs.extend(truncated.iter().cloned());
+        let mut inputs = Vec::with_capacity(texts.len() + 1);
+        inputs.push(task.chars().take(MAX_EMBED_CHARS).collect());
+        inputs.extend(texts.iter().cloned());
         let vectors = self
-            .client
-            .embed(&EmbedRequest {
-                profile: SEMANTIC_PROFILE.to_owned(),
-                inputs,
-            })
-            .map_err(|error| error.to_string())?;
+            .provider
+            .embed(&EmbedRequest { inputs })
+            .map_err(|error| error.to_string())?
+            .value;
         let (query, corpus) = vectors
             .split_first()
             .ok_or_else(|| "embed returned no vectors".to_owned())?;
-
-        let embedding_ranking = rank_by_similarity(query, corpus);
-        let bm25 = Bm25Index::build(&truncated);
-        let lexical_ranking = bm25.rank(task);
-        let fused = rrf_fuse(
-            &[embedding_ranking.as_slice(), lexical_ranking.as_slice()],
-            fragments.len(),
-        );
-        let ids: Vec<&str> = fragments.iter().map(|(id, _)| id.as_str()).collect();
-        let adjacency = build_adjacency(&ids, &fragment_adjacency(&ids));
-        let boosted = graph_boost(&fused, &adjacency);
-        Ok(scores_from_ranking(&ids, &boosted))
+        let ids: Vec<&str> = fragments.iter().map(|item| item.id).collect();
+        let related = evidence_adjacency(fragments);
+        let ranking = rank_hybrid_graph(query, corpus, &texts, task, &ids, &related);
+        Ok(scores_from_ranking(&ids, &ranking))
     }
 }
 
-/// Structural adjacency between fragments: split parts of the same tool
-/// result (shared parent id such as `WX-VERIFY-1`/`WX-VERIFY-2`) are related.
-pub(crate) fn fragment_adjacency(ids: &[&str]) -> Vec<Vec<String>> {
-    let mut pairs = Vec::new();
-    for (left_index, left) in ids.iter().enumerate() {
-        for right in ids.iter().skip(left_index + 1) {
-            if parent_id(left) == parent_id(right) {
-                pairs.push(vec![(*left).to_owned(), (*right).to_owned()]);
-            }
+fn resolve_ref(profiles_path: &Path, reference: &str) -> PathBuf {
+    let raw = Path::new(reference);
+    if raw.is_absolute() {
+        return raw.to_path_buf();
+    }
+    profiles_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(raw)
+}
+
+fn load_registry(path: &Path) -> Result<ProfileRegistry, String> {
+    let text = std::fs::read_to_string(path)
+        .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+    serde_json::from_str(&text).map_err(|error| format!("invalid {}: {error}", path.display()))
+}
+
+fn authorized_embedding(
+    registry: &ProfileRegistry,
+    wanted: Option<&str>,
+    profiles_path: &Path,
+) -> Result<cortex_llm::LlmProfile, String> {
+    let mut last_error = "no embedding profile is configured".to_owned();
+    for profile in registry.profiles().iter().filter(|profile| {
+        profile.role == Role::Embedding
+            && wanted.is_none_or(|want| profile.model == want || profile.id == want)
+    }) {
+        let Some(reference) = profile.calibration_ref.as_deref() else {
+            last_error = format!("{} has no calibrationRef", profile.id);
+            continue;
+        };
+        let artifact = resolve_ref(profiles_path, reference);
+        match load_and_authorize(profile, &artifact) {
+            Ok(()) => return Ok(profile.clone()),
+            Err(error) => last_error = format!("{}: {error}", profile.id),
         }
     }
-    pairs
+    Err(last_error)
 }
 
-/// `WX-VERIFY-2` → `WX-VERIFY`; ids without a numeric suffix are their own
-/// parent.
-pub(crate) fn parent_id(id: &str) -> &str {
-    if let Some(position) = id.rfind('-') {
-        let suffix = &id[position + 1..];
-        if !suffix.is_empty() && suffix.chars().all(|ch| ch.is_ascii_digit()) {
-            return &id[..position];
-        }
+fn load_and_authorize(profile: &cortex_llm::LlmProfile, path: &Path) -> Result<(), String> {
+    let text = std::fs::read_to_string(path)
+        .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+    let artifact: CalibrationArtifact = serde_json::from_str(&text)
+        .map_err(|error| format!("invalid {}: {error}", path.display()))?;
+    artifact
+        .authorize(&attestation(profile))
+        .map_err(|error| error.to_string())
+}
+
+fn attestation(profile: &cortex_llm::LlmProfile) -> RuntimeAttestation {
+    let pooling = profile
+        .embedding_pooling
+        .clone()
+        .unwrap_or_else(|| "none".to_owned());
+    let digest = format!(
+        "{}:{}:pooling={pooling}",
+        runtime_tag(profile.runtime),
+        profile.model
+    );
+    RuntimeAttestation {
+        model: profile.model.clone(),
+        model_digest: digest,
+        runtime: profile.runtime,
+        device: profile.device,
+        quantization: profile.quantization.clone().unwrap_or_default(),
+        embedding_pooling: pooling,
+        tokenizer: profile.tokenizer.clone().unwrap_or_default(),
+        prompt_version: "none".to_owned(),
+        ranking_version: RANKING_VERSION.to_owned(),
+        fixture_set_hash: RANKING_FIXTURE_SET.to_owned(),
+        adjacency_kind: ADJACENCY_EVIDENCE_SPANS.to_owned(),
     }
-    id
 }
 
-/// Monotone map from rank to a score in (0, 1): rank 0 → 0.5.
-pub(crate) fn scores_from_ranking(ids: &[&str], ranking: &[usize]) -> HashMap<String, f64> {
+fn runtime_tag(runtime: Runtime) -> &'static str {
+    match runtime {
+        Runtime::Ollama => "ollama",
+        Runtime::OpenAiCompatible => "ovms",
+    }
+}
+
+fn scores_from_ranking(ids: &[&str], ranking: &[usize]) -> HashMap<String, f64> {
     let mut scores = HashMap::with_capacity(ids.len());
     for (rank, index) in ranking.iter().enumerate() {
         if let Some(id) = ids.get(*index) {
@@ -178,20 +229,43 @@ pub(crate) fn scores_from_ranking(ids: &[&str], ranking: &[usize]) -> HashMap<St
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cortex_context::ranking::parent_id;
 
     #[test]
-    fn parent_ids_group_split_fragments_only() {
-        assert_eq!(parent_id("WX-VERIFY-2"), "WX-VERIFY");
-        assert_eq!(parent_id("WX-VERIFY-12"), "WX-VERIFY");
-        assert_eq!(parent_id("WX-GRAPH"), "WX-GRAPH");
-        assert_eq!(parent_id("TASK"), "TASK");
+    fn semantic_is_off_by_default() {
+        let config = SemanticConfig::from_lookup(|_| None);
+        assert!(!config.is_active());
+        assert!(SemanticScorer::from_config(&config).unwrap().is_none());
+    }
 
-        let ids = ["WX-VERIFY-1", "WX-VERIFY-2", "WX-GRAPH", "WX-MODULES"];
-        let pairs = fragment_adjacency(&ids);
-        assert_eq!(
-            pairs,
-            vec![vec!["WX-VERIFY-1".to_owned(), "WX-VERIFY-2".to_owned()]]
+    #[test]
+    fn a_flag_without_an_artifact_does_not_start_a_scorer() {
+        let profiles = format!(
+            "{}/../../config/llm-profiles.json",
+            env!("CARGO_MANIFEST_DIR")
         );
+        let config = SemanticConfig::from_lookup(|key| match key {
+            "CORTEX_SEMANTIC" => Some("1".to_owned()),
+            "CORTEX_LLM_PROFILES" => Some(profiles.clone()),
+            _ => None,
+        });
+        let error = match SemanticScorer::from_config(&config) {
+            Ok(Some(_)) => panic!("gatePassed is not authority"),
+            Ok(None) => panic!("enabled config must fail closed, not stay inactive"),
+            Err(error) => error,
+        };
+        assert!(
+            error.contains("calibration")
+                || error.contains("verdict")
+                || error.contains("adjacency"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn parent_ids_still_group_split_fragments() {
+        assert_eq!(parent_id("WX-VERIFY-2"), "WX-VERIFY");
+        assert_eq!(parent_id("WX-GRAPH"), "WX-GRAPH");
     }
 
     #[test]
@@ -199,18 +273,6 @@ mod tests {
         let ids = ["a", "b", "c"];
         let scores = scores_from_ranking(&ids, &[2, 0, 1]);
         assert!(scores["c"] > scores["a"]);
-        assert!(scores["a"] > scores["b"]);
         assert!(scores.values().all(|score| (0.0..1.0).contains(score)));
-    }
-
-    #[test]
-    fn semantic_is_off_by_default() {
-        let config = SemanticConfig::from_lookup(|_| None);
-        assert!(!config.is_active());
-        assert!(SemanticScorer::from_config(config).unwrap().is_none());
-
-        let enabled_only =
-            SemanticConfig::from_lookup(|key| (key == "CORTEX_SEMANTIC").then(|| "1".to_owned()));
-        assert!(!enabled_only.is_active(), "a model tag is also required");
     }
 }

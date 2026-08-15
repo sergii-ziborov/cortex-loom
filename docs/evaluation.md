@@ -77,7 +77,7 @@ cargo run -p cortex-eval -- --suite retrieval
 
 The retrieval suite evaluates embedding profiles on repository-specific fixtures (Recall@3/@5, nDCG@5, MRR) across three pinned ranking modes: pure embedding, hybrid (RRF with BM25), and hybrid with a structural graph boost. Its verdict (`recall@5 ≥ 0.9`, `nDCG@5 ≥ 0.75`) is the gate that must pass before semantic evidence selection may be enabled anywhere.
 
-Enabling the gated ordering in production: `CORTEX_SEMANTIC=1` and `CORTEX_SEMANTIC_MODEL=<exact tag with a passing hybrid_graph verdict>` (optional `CORTEX_SEMANTIC_TIMEOUT_MS`, default 30000) on `cortex-mcp`. Packets carry `semanticRanking` provenance when ordering was applied and a warning when the scorer failed and deterministic order was used.
+Enabling the gated ordering in production: `CORTEX_SEMANTIC=1` plus an embedding profile whose `calibrationRef` artifact authorizes the live identity (model, digest, runtime, device, pooling, ranking version, fixture hash, adjacency kind). A JSON `gatePassed` flag is ignored. The current `gpu-embedding` artifact records the 2026-08-05 fixture_related pass and keeps `verdictPass: false` for production `evidence_spans` until that pipeline is re-measured. Packets carry `semanticRanking` provenance when ordering was applied and a warning when the scorer failed and deterministic order was used.
 
 Profiles live in `config/eval-profiles.json` (exact tags only). Reports land in `.cortex-loom/eval/` as JSON plus a Markdown summary on stdout, pinned to prompt/schema versions, with the model digest and CPU/GPU placement recorded.
 

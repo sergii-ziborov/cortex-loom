@@ -16,7 +16,7 @@ pub struct CompiledEvidenceBundle {
     pub evidence_count: usize,
     pub warnings: Vec<String>,
     /// Provenance of a gated semantic ordering when one was applied, e.g.
-    /// `embeddinggemma:latest/hybrid_graph/retrieval-ranking-v1`.
+    /// `qwen3-embed/hybrid_graph/retrieval-ranking-v2/evidence_spans`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub semantic_ranking: Option<String>,
     /// Deterministic gather/verify result. Legacy callers that compile an

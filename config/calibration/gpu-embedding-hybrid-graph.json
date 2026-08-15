@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "cortex-loom.calibration.v1",
+  "role": "embedding",
+  "profileId": "gpu-embedding",
+  "model": "qwen3-embed",
+  "modelDigest": "ovms:qwen3-embed:pooling=last",
+  "runtime": "open_ai_compatible",
+  "device": "gpu",
+  "quantization": "int8-ov",
+  "embeddingPooling": "last",
+  "tokenizer": "qwen3",
+  "promptVersion": "none",
+  "rankingVersion": "retrieval-ranking-v2",
+  "fixtureSetHash": "retrieval-fixtures-v1",
+  "adjacencyKind": "evidence_spans",
+  "date": "2026-08-15",
+  "suite": "hybrid_graph",
+  "verdictPass": false,
+  "_comment": "The 2026-08-05 hybrid_graph PASS used fixture_related edges, not evidence_spans. This artifact records the serving identity but does not authorize production semantic ordering until cortex-eval is re-run on evidence_spans."
+}

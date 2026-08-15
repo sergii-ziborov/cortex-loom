@@ -46,6 +46,10 @@ pub struct CompressionFixture {
     pub task: String,
     pub evidence: Vec<EvidenceFixture>,
     pub must_cite: Vec<String>,
+    /// Atoms the digest must emit. Empty means the fixture still only
+    /// measures citation ids — not a pass for a digest role.
+    #[serde(default)]
+    pub must_preserve: Vec<cortex_llm::DigestClaim>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

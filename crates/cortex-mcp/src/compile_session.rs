@@ -122,10 +122,14 @@ fn score(
     semantic_note: &mut Option<String>,
 ) -> Option<std::collections::HashMap<String, f64>> {
     state.semantic.as_ref().and_then(|scorer| {
-        let fragments: Vec<(String, String)> = bundle
+        let fragments: Vec<cortex_context::ranking::EvidenceLink<'_>> = bundle
             .evidence
             .iter()
-            .map(|fragment| (fragment.id.clone(), fragment.content.clone()))
+            .map(|fragment| cortex_context::ranking::EvidenceLink {
+                id: fragment.id.as_str(),
+                source: fragment.source.as_str(),
+                content: fragment.content.as_str(),
+            })
             .collect();
         match scorer.score(&arguments.task, &fragments) {
             Ok(scores) => {

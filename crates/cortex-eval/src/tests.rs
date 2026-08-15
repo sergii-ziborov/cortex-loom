@@ -3,21 +3,17 @@ use cortex_router::{ModelTier, classify};
 
 use crate::backend::ScriptedBackend;
 use crate::comparators::policy_tier;
-use crate::fixtures::micro_extraction_fixtures;
 use crate::fixtures::{
     ClassificationFixture, CompressionFixture, EvidenceFixture, FixtureSet, RetrievalFixtures,
     default_fixtures,
 };
 use crate::metrics::{
-    ClassificationAggregate, CompressionAggregate, ExtractionAggregate, MicroExtractionAggregate,
-    latency_stats, percentile,
+    ClassificationAggregate, CompressionAggregate, ExtractionAggregate, latency_stats, percentile,
 };
-use crate::prompts::{micro_extraction_request, parse_micro_extraction};
 use crate::report::{EvalReport, render_markdown};
 use crate::runner::{EvalProfile, ProfileStatus, SuiteSelection, run_profile};
-use crate::verdict::{VerdictReason, judge, judge_micro_extract};
+use crate::verdict::{VerdictReason, judge};
 use crate::{PROMPT_VERSION, SCHEMA_VERSION};
-use cortex_llm::MicroExtractRequest;
 
 fn test_model() -> Vec<ModelInfo> {
     vec![ModelInfo {
@@ -42,6 +38,7 @@ fn classification_only() -> SuiteSelection {
         extraction: false,
         compression: false,
         retrieval: false,
+        micro: false,
         sequence: false,
     }
 }
@@ -84,44 +81,6 @@ fn default_fixtures_match_the_deterministic_policy() {
             fixture.id
         );
     }
-}
-
-#[test]
-fn micro_extract_fixtures_reject_injection_invention_and_duplicates() {
-    let fixtures = micro_extraction_fixtures().expect("micro fixtures");
-    assert!(fixtures.len() >= 8);
-    for fixture in fixtures {
-        let fields: Vec<&str> = fixture.allowed_fields.iter().map(String::as_str).collect();
-        let request = MicroExtractRequest::new(&fixture.verified_input, &fields).unwrap();
-        let prompt = micro_extraction_request("candidate", &request);
-        assert_eq!(prompt.requested_output_tokens, 128);
-        assert!(parse_micro_extraction(&request, &fixture.gold.to_string()).is_ok());
-        assert!(
-            fixture
-                .rejected_outputs
-                .iter()
-                .all(|output| parse_micro_extraction(&request, &output.to_string()).is_err())
-        );
-    }
-}
-
-#[test]
-fn micro_extract_gate_has_no_average_away_escape_hatch() {
-    let passing = MicroExtractionAggregate {
-        samples: 20,
-        schema_valid_rate: 1.0,
-        field_precision: 0.96,
-        field_recall: 0.95,
-        exact_match_rate: 0.90,
-        unsupported_fields: 0,
-        authority_outputs: 0,
-        p95_latency_ms: 1_500,
-    };
-    assert!(judge_micro_extract(Some(&passing)).pass);
-    let mut one_invention = passing;
-    one_invention.unsupported_fields = 1;
-    assert!(!judge_micro_extract(Some(&one_invention)).pass);
-    assert!(!judge_micro_extract(None).pass);
 }
 
 #[test]
@@ -202,6 +161,7 @@ fn compression_flags_hallucinated_citations() {
             },
         ],
         must_cite: vec!["WX-A".to_owned(), "WX-B".to_owned()],
+        must_preserve: Vec::new(),
     }];
     let backend = ScriptedBackend::new(
         test_model(),
@@ -215,6 +175,7 @@ fn compression_flags_hallucinated_citations() {
         extraction: false,
         compression: true,
         retrieval: false,
+        micro: false,
         sequence: false,
     };
     let medium_profile = EvalProfile {
@@ -302,6 +263,7 @@ fn passing_aggregates() -> (
             missing_total: 1,
             compressed_count: 6,
             mean_token_delta: -180,
+            claim_failures: 0,
         },
     )
 }
@@ -398,6 +360,7 @@ fn markdown_report_states_the_verdict() {
         schema_version: SCHEMA_VERSION.to_owned(),
         profiles: vec![skipped],
         embeddings: Vec::new(),
+        micro_extractions: Vec::new(),
         sequences: Vec::new(),
     };
     let markdown = render_markdown(&report);

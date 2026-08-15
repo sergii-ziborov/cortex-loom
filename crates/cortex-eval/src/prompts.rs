@@ -69,7 +69,22 @@ pub fn compression_schema() -> Value {
         "type": "object",
         "properties": {
             "summary": {"type": "string"},
-            "evidenceIds": {"type": "array", "items": {"type": "string"}}
+            "evidenceIds": {"type": "array", "items": {"type": "string"}},
+            "claims": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "subject": {"type": "string"},
+                        "relation": {"type": "string"},
+                        "object": {"type": "string"},
+                        "evidenceIds": {"type": "array", "items": {"type": "string"}},
+                        "sourceSpans": {"type": "array", "items": {"type": "string"}}
+                    },
+                    "required": ["subject", "relation", "object", "evidenceIds"],
+                    "additionalProperties": false
+                }
+            }
         },
         "required": ["summary", "evidenceIds"],
         "additionalProperties": false
@@ -184,6 +199,8 @@ pub fn parse_extraction(content: &str) -> Result<ExtractionDraft, String> {
 pub struct CompressionDraft {
     pub summary: String,
     pub evidence_ids: Vec<String>,
+    #[serde(default)]
+    pub claims: Vec<cortex_llm::DigestClaim>,
 }
 
 pub fn parse_compression(content: &str) -> Result<CompressionDraft, String> {

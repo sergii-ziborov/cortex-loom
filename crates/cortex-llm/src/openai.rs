@@ -317,6 +317,10 @@ mod tests {
             base_url: base_url.to_owned(),
             timeout_seconds: 5,
             gate_passed: true,
+            quantization: None,
+            embedding_pooling: None,
+            tokenizer: None,
+            calibration_ref: None,
             note: None,
         }
     }

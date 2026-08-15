@@ -3,7 +3,7 @@
 use cortex_router::ModelTier;
 use serde::Serialize;
 
-use crate::comparators::{CitationMetrics, ClassificationOutcome};
+use crate::comparators::{CitationMetrics, ClassificationOutcome, MicroExtractionOutcome};
 
 #[must_use]
 pub fn count_f64(value: usize) -> f64 {
@@ -96,6 +96,8 @@ pub struct CompressionSample {
     pub schema_valid: bool,
     pub citations: Option<CitationMetrics>,
     pub token_delta: Option<i64>,
+    pub claim_ok: Option<bool>,
+    pub claim_errors: Option<Vec<String>>,
     pub latency_ms: u64,
     pub error: Option<String>,
 }
@@ -148,6 +150,22 @@ pub struct ExtractionAggregate {
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct MicroExtractionSample {
+    pub fixture_id: String,
+    /// The runtime returned content at all; false for a transport failure, so
+    /// a dead endpoint cannot quietly improve the latency percentile.
+    pub answered: bool,
+    pub outcome: MicroExtractionOutcome,
+    /// What the model actually said, clipped. A gate that only reports "not
+    /// gold" cannot be diagnosed, and the brief for this role asks for the
+    /// failure mode by name: invention, extra fields, or language folding.
+    pub reply: String,
+    pub latency_ms: u64,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct MicroExtractionAggregate {
     pub samples: u32,
     pub schema_valid_rate: f64,
@@ -157,6 +175,60 @@ pub struct MicroExtractionAggregate {
     pub unsupported_fields: u32,
     pub authority_outputs: u32,
     pub p95_latency_ms: u64,
+}
+
+/// Micro-average field precision and recall over every (field, value) pair in
+/// the suite, so one fixture with many values cannot be averaged away by a
+/// dozen trivial ones.
+///
+/// Precision is fail-closed at zero when a run claims nothing but gold expects
+/// something; it is 1.0 only when both sides are genuinely empty.
+#[must_use]
+pub fn aggregate_micro_extraction(samples: &[MicroExtractionSample]) -> MicroExtractionAggregate {
+    let sum = |extract: fn(&MicroExtractionOutcome) -> u32| {
+        samples
+            .iter()
+            .map(|sample| usize::try_from(extract(&sample.outcome)).unwrap_or(0))
+            .sum::<usize>()
+    };
+    let true_positives = sum(|outcome| outcome.true_positives);
+    let claimed = sum(|outcome| outcome.claimed);
+    let gold = sum(|outcome| outcome.gold);
+    let latencies: Vec<u64> = samples
+        .iter()
+        .filter(|sample| sample.answered)
+        .map(|sample| sample.latency_ms)
+        .collect();
+    MicroExtractionAggregate {
+        samples: u32::try_from(samples.len()).unwrap_or(u32::MAX),
+        schema_valid_rate: ratio(
+            samples
+                .iter()
+                .filter(|sample| sample.outcome.schema_valid)
+                .count(),
+            samples.len(),
+        ),
+        field_precision: if claimed == 0 && gold == 0 {
+            1.0
+        } else {
+            ratio(true_positives, claimed)
+        },
+        field_recall: if gold == 0 {
+            1.0
+        } else {
+            ratio(true_positives, gold)
+        },
+        exact_match_rate: ratio(
+            samples
+                .iter()
+                .filter(|sample| sample.outcome.exact_match)
+                .count(),
+            samples.len(),
+        ),
+        unsupported_fields: u32::try_from(sum(|outcome| outcome.unsupported)).unwrap_or(u32::MAX),
+        authority_outputs: u32::try_from(sum(|outcome| outcome.authority)).unwrap_or(u32::MAX),
+        p95_latency_ms: percentile(&latencies, 95),
+    }
 }
 
 #[must_use]
@@ -187,6 +259,7 @@ pub struct CompressionAggregate {
     pub missing_total: u32,
     pub compressed_count: u32,
     pub mean_token_delta: i64,
+    pub claim_failures: u32,
 }
 
 pub use cortex_context::ranking::{cosine_similarity, rank_by_similarity};
@@ -321,5 +394,12 @@ pub fn aggregate_compression(samples: &[CompressionSample]) -> CompressionAggreg
         } else {
             deltas.iter().sum::<i64>() / i64::try_from(deltas.len()).unwrap_or(1).max(1)
         },
+        claim_failures: u32::try_from(
+            valid
+                .iter()
+                .filter(|sample| sample.claim_ok == Some(false))
+                .count(),
+        )
+        .unwrap_or(u32::MAX),
     }
 }

@@ -218,7 +218,7 @@ impl CortexMcpState {
                 None
             }
         };
-        let semantic = match SemanticScorer::from_config(SemanticConfig::from_env()) {
+        let semantic = match SemanticScorer::from_config(&SemanticConfig::from_env()) {
             Ok(scorer) => scorer.map(Arc::new),
             Err(error) => {
                 // A broken semantic configuration must never block the host.

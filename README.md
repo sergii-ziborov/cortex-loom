@@ -68,7 +68,8 @@ refactor.
 - **Preview-only refactor** — an upstream-authored Weavatrix plan is
   validated and rendered in memory. Nothing is applied.
 - **Calibration, not vibes** — `cortex-eval` never pulls a model.
-  `gatePassed` is a claim about a `(model, device, runtime)` triple.
+  `gatePassed` is a historical flag. Semantic ordering requires a matching
+  calibration artifact, not that boolean.
 
 ## Measured trials
 

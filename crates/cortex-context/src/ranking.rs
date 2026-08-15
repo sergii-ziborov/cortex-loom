@@ -11,7 +11,11 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// Identifies the pinned ranking parameters, so a measured result can be
 /// attributed to the exact algorithm that produced it.
-pub const RANKING_VERSION: &str = "retrieval-ranking-v1";
+pub const RANKING_VERSION: &str = "retrieval-ranking-v2";
+/// Identity of the retrieval fixture set this ranking is measured against.
+pub const RANKING_FIXTURE_SET: &str = "retrieval-fixtures-v1";
+/// Production graph features: file spans and split siblings, not fixture pairs.
+pub const ADJACENCY_KIND: &str = "evidence_spans";
 const BM25_K1: f64 = 1.2;
 const BM25_B: f64 = 0.75;
 const RRF_K: f64 = 60.0;
@@ -210,6 +214,83 @@ pub fn build_adjacency(ids: &[&str], related: &[Vec<String>]) -> BTreeMap<usize,
     adjacency
 }
 
+/// One evidence fragment for production adjacency extraction.
+pub struct EvidenceLink<'a> {
+    pub id: &'a str,
+    pub source: &'a str,
+    pub content: &'a str,
+}
+
+/// Structural pairs from evidence: split siblings and the same source file.
+///
+/// This is the production stand-in for eval's declared `related` pairs. It
+/// is intentionally conservative: prefix-sharing split parts, and fragments
+/// that name the same source path. It does not invent crate-level edges.
+#[must_use]
+pub fn evidence_adjacency(items: &[EvidenceLink<'_>]) -> Vec<Vec<String>> {
+    let mut pairs = Vec::new();
+    for (left_index, left) in items.iter().enumerate() {
+        for right in items.iter().skip(left_index + 1) {
+            if parent_id(left.id) == parent_id(right.id)
+                || same_source_file(left.source, right.source)
+            {
+                pairs.push(vec![left.id.to_owned(), right.id.to_owned()]);
+            }
+        }
+    }
+    pairs
+}
+
+/// `WX-VERIFY-2` → `WX-VERIFY`; ids without a trailing `-<digits>` stay as-is.
+#[must_use]
+pub fn parent_id(id: &str) -> &str {
+    if let Some(position) = id.rfind('-') {
+        let suffix = &id[position + 1..];
+        if !suffix.is_empty() && suffix.chars().all(|character| character.is_ascii_digit()) {
+            return &id[..position];
+        }
+    }
+    id
+}
+
+fn same_source_file(left: &str, right: &str) -> bool {
+    match (source_file(left), source_file(right)) {
+        (Some(left), Some(right)) => left == right,
+        _ => false,
+    }
+}
+
+fn source_file(source: &str) -> Option<&str> {
+    source.split([',', ' ', ';']).find_map(|part| {
+        let trimmed = part.trim();
+        let path = trimmed.split_once(':').map_or(trimmed, |(path, _)| path);
+        path.contains('.')
+            .then_some(path)
+            .filter(|value| value.contains('/') || value.contains('\\'))
+    })
+}
+
+/// The `hybrid_graph` pipeline: cosine + BM25 RRF, then structural boost.
+///
+/// Eval and production must call this with the same adjacency extractor.
+#[must_use]
+pub fn rank_hybrid_graph(
+    query: &[f32],
+    corpus: &[Vec<f32>],
+    corpus_texts: &[String],
+    query_text: &str,
+    corpus_ids: &[&str],
+    related: &[Vec<String>],
+) -> Vec<usize> {
+    let embedding = rank_by_similarity(query, corpus);
+    let lexical = Bm25Index::build(corpus_texts).rank(query_text);
+    let fused = rrf_fuse(
+        &[embedding.as_slice(), lexical.as_slice()],
+        corpus_texts.len(),
+    );
+    graph_boost(&fused, &build_adjacency(corpus_ids, related))
+}
+
 fn rank_by_scores(scores: &[f64]) -> Vec<usize> {
     let mut ranked: Vec<usize> = (0..scores.len()).collect();
     ranked.sort_by(|left, right| {
@@ -270,6 +351,45 @@ mod tests {
         let adjacency = build_adjacency(&ids, &related);
         let boosted = graph_boost(&fused, &adjacency);
         assert_eq!(boosted, [0, 1, 3, 2]);
+    }
+
+    #[test]
+    fn evidence_adjacency_uses_files_not_just_split_prefixes() {
+        let items = [
+            EvidenceLink {
+                id: "WX-SYMBOL",
+                source: "src/options/types.rs:41",
+                content: "enabled",
+            },
+            EvidenceLink {
+                id: "WX-SOURCE",
+                source: "src/options/types.rs:80",
+                content: "impl",
+            },
+            EvidenceLink {
+                id: "WX-VERIFY-1",
+                source: "weavatrix:change_plan",
+                content: "plan",
+            },
+            EvidenceLink {
+                id: "WX-VERIFY-2",
+                source: "weavatrix:change_plan",
+                content: "tail",
+            },
+        ];
+        let pairs = evidence_adjacency(&items);
+        assert!(
+            pairs
+                .iter()
+                .any(|pair| pair.contains(&"WX-SYMBOL".to_owned())
+                    && pair.contains(&"WX-SOURCE".to_owned()))
+        );
+        assert!(
+            pairs
+                .iter()
+                .any(|pair| pair.contains(&"WX-VERIFY-1".to_owned())
+                    && pair.contains(&"WX-VERIFY-2".to_owned()))
+        );
     }
 
     #[test]

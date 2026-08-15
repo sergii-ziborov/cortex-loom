@@ -40,6 +40,7 @@ pub enum VerdictReason {
     CitationPreservationBelowThreshold { min_ratio: f64 },
     HallucinatedCitations { count: u32 },
     DraftDoesNotCompress { mean_token_delta: i64 },
+    UnsupportedClaims { count: u32 },
     RecallBelowThreshold { mean_recall_at_5: f64 },
     NdcgBelowThreshold { mean_ndcg_at_5: f64 },
     FieldPrecisionBelowThreshold { precision: f64 },
@@ -193,6 +194,11 @@ pub fn judge(
             if aggregate.mean_token_delta >= 0 {
                 reasons.push(VerdictReason::DraftDoesNotCompress {
                     mean_token_delta: aggregate.mean_token_delta,
+                });
+            }
+            if aggregate.claim_failures > 0 {
+                reasons.push(VerdictReason::UnsupportedClaims {
+                    count: aggregate.claim_failures,
                 });
             }
         }

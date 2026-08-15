@@ -185,7 +185,7 @@ fn recommendations(state: &CortexMcpState, task: &str) -> serde_json::Value {
     let mut semantic_ranking = None;
     let mut warnings = Vec::new();
     if let Some(scorer) = &state.semantic {
-        let fragments: Vec<_> = candidates
+        let texts: Vec<(String, String)> = candidates
             .iter()
             .map(|candidate| {
                 let description = templates()
@@ -196,6 +196,14 @@ fn recommendations(state: &CortexMcpState, task: &str) -> serde_json::Value {
                     candidate.template_id.clone(),
                     format!("{description} {}", candidate.matched_hints.join(" ")),
                 )
+            })
+            .collect();
+        let fragments: Vec<cortex_context::ranking::EvidenceLink<'_>> = texts
+            .iter()
+            .map(|(id, content)| cortex_context::ranking::EvidenceLink {
+                id,
+                source: id,
+                content,
             })
             .collect();
         match scorer.score(task, &fragments) {

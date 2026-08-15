@@ -4,9 +4,10 @@
     "Intel Core Ultra 7 255U (Arrow Lake-U), AI Boost NPU driver 32.0.100.4724,",
     "Intel Graphics 4 Xe-LPG cores / 64 EU @ 2.1 GHz, 47.5 GB shared RAM.",
     "",
-    "gatePassed is a claim about a (model, device, runtime) triple, not about a",
-    "model. Every flag below was set or left false by an actual cortex-eval run",
-    "against the deployed endpoint; see .cortex-loom/eval-ovms/ for the reports."
+    "gatePassed is a historical flag. Semantic ordering ignores it and requires",
+    "a matching config/calibration/*.json artifact. Classification still reads",
+    "the flag. See .cortex-loom/eval-ovms/ for the reports that produced the",
+    "current classification pass."
   ],
   "policy": {
     "allowed": ["npu", "gpu"]
@@ -21,7 +22,11 @@
       "baseUrl": "http://127.0.0.1:8001",
       "timeoutSeconds": 15,
       "gatePassed": true,
-      "note": "Qwen3-Embedding-0.6B-int8-ov via OVMS 2026.3.0, --pooling LAST (mandatory: the CLS default gives 0.96 cosine between unrelated text). Retrieval gate PASS 2026-08-05: hybrid_graph recall@3 0.96, recall@5 1.00, nDCG@5 0.96, MRR 1.00; embedding-only 0.79/0.92/0.87/0.96. Latency p50/p95 593/658 ms. Serving on GPU because the OVMS embeddings pipeline on NPU never finished initialising."
+      "quantization": "int8-ov",
+      "embeddingPooling": "last",
+      "tokenizer": "qwen3",
+      "calibrationRef": "calibration/gpu-embedding-hybrid-graph.json",
+      "note": "Qwen3-Embedding-0.6B-int8-ov via OVMS 2026.3.0, --pooling LAST. Historical hybrid_graph PASS 2026-08-05 used fixture_related edges. Production semantic ordering stays off until the evidence_spans artifact verdictPass is true."
     },
     {
       "id": "npu-classifier",

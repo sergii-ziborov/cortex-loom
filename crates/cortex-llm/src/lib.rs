@@ -23,12 +23,21 @@
 //! * It will not select a profile that has not passed its calibration gate.
 //! * It will not reach a non-loopback host, and there is no flag to make it.
 
+pub mod calibration;
+pub mod claims;
 pub mod device;
 pub mod endpoint;
 mod micro_extract;
 pub mod openai;
 pub mod profile;
 
+pub use calibration::{
+    ADJACENCY_EVIDENCE_SPANS, ADJACENCY_FIXTURE_RELATED, AttestationMismatch, CALIBRATION_SCHEMA,
+    CalibrationArtifact, RuntimeAttestation,
+};
+pub use claims::{
+    ClaimCheck, ClaimEvidence, DigestClaim, DigestDocument, missing_required, verify_claims,
+};
 pub use device::{Device, DevicePolicy, Placement};
 pub use endpoint::{EndpointError, LoopbackUrl};
 pub use micro_extract::{MicroExtractError, MicroExtractOutput, MicroExtractRequest};

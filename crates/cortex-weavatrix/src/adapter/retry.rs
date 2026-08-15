@@ -134,6 +134,7 @@ impl WeavatrixAdapter {
                     id_prefix: "WX-RETRY-SOURCE",
                     preferred_patterns: &[],
                     window: crate::source_followup::SourceWindow::for_task(task),
+                    task,
                 },
             );
         }
@@ -227,6 +228,7 @@ fn rebuild_retry_sources(
             id_prefix: "WX-RETRY-SOURCE",
             preferred_patterns: &preferred_patterns,
             window: crate::source_followup::SourceWindow::for_task(task),
+            task,
         },
     );
     if crate::plan_intent::is_broad(task) {

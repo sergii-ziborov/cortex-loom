@@ -365,6 +365,7 @@ impl WeavatrixAdapter {
                     id_prefix: "WX-SOURCE",
                     preferred_patterns: &preferred,
                     window: crate::source_followup::SourceWindow::for_task(task),
+                    task,
                 },
             );
             if crate::plan_intent::is_broad(task) {

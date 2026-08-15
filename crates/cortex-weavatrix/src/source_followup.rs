@@ -239,6 +239,7 @@ pub fn unique_paths_for_patterns(
     hits: &[SearchHit],
     max_files: usize,
     preferred_patterns: &[String],
+    task: &str,
 ) -> Vec<SearchHit> {
     let mut preferred_paths: std::collections::HashMap<&str, std::collections::HashSet<&str>> =
         std::collections::HashMap::new();
@@ -266,7 +267,7 @@ pub fn unique_paths_for_patterns(
                         .fold(0, i32::saturating_add)
                 });
             (
-                path_rank(&hit.path)
+                path_rank(&hit.path, task)
                     .saturating_mul(10)
                     .saturating_add(affinity)
                     .saturating_add(preference_score(&hit.text, preferred_patterns)),
@@ -304,15 +305,23 @@ fn preference_score(text: &str, patterns: &[String]) -> i32 {
         .fold(0, i32::saturating_add)
 }
 
-fn path_rank(path: &str) -> i32 {
+fn path_rank(path: &str, task: &str) -> i32 {
     let normalized = path.replace('\\', "/");
     let lower = normalized.to_ascii_lowercase();
+    let task_fold = crate::fold::fold_text(task);
+    let wants_ui = task_fold.contains("ui")
+        || task_fold.contains("frontend")
+        || task_fold.contains("tsx")
+        || task_fold.contains("react")
+        || task_fold.contains("css");
+    let wants_tests = crate::plan_intent::detect(task) == crate::plan_intent::TaskIntent::TestSelection
+        || task_fold.contains("test");
     let extension = std::path::Path::new(&lower)
         .extension()
         .and_then(|ext| ext.to_str())
         .unwrap_or("");
     let mut score = 0_i32;
-    if matches!(extension, "rs" | "ts" | "tsx") {
+    if matches!(extension, "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go" | "java" | "cs") {
         score += 40;
     } else if matches!(extension, "json" | "toml" | "yaml" | "yml") {
         score += 25;
@@ -325,6 +334,18 @@ fn path_rank(path: &str) -> i32 {
     if lower.starts_with("config/") || lower.ends_with("/.env") || lower == ".env" {
         score += 35;
     }
+    if lower.starts_with("ui/") || lower.contains("/ui/") {
+        score += if wants_ui { 35 } else { -5 };
+    }
+    let is_test_path = lower.contains("/tests/")
+        || lower.contains("/test/")
+        || lower.contains(".test.")
+        || lower.ends_with("tests.rs")
+        || lower.ends_with("_test.py")
+        || lower.ends_with("_test.go");
+    if is_test_path {
+        score += if wants_tests { 35 } else { -15 };
+    }
     if lower.contains("/bench/")
         || lower.contains("/cortex-bench/")
         || lower.ends_with("/probe_tasks.rs")
@@ -333,9 +354,7 @@ fn path_rank(path: &str) -> i32 {
         || lower.contains("plan_tests.rs")
         || lower.contains("plan_intent.rs")
         || lower.contains("source_followup.rs")
-        || lower.contains("/tests/")
         || lower.starts_with("docs/")
-        || lower.starts_with("ui/")
         || lower.starts_with("readme")
     {
         score -= 50;
@@ -406,7 +425,7 @@ mod tests {
             ]
         });
         let hits = hits_from_search(&value);
-        let unique = unique_paths_for_patterns(&hits, 2, &[]);
+        let unique = unique_paths_for_patterns(&hits, 2, &[], "");
         assert_eq!(
             unique,
             vec![hit("crates/a/src/a.rs", 10), hit("crates/b/src/b.rs", 2),]
@@ -419,7 +438,7 @@ mod tests {
             hit("crates/a/src/lib.rs", 10),
             hit("crates/a/src/lib.rs", 200),
         ];
-        assert_eq!(unique_paths_for_patterns(&hits, 6, &[]), hits);
+        assert_eq!(unique_paths_for_patterns(&hits, 6, &[], ""), hits);
     }
 
     #[test]
@@ -433,7 +452,7 @@ mod tests {
             hit("apps/cortex-server/src/main.rs", 207),
             hit("apps/cortex-server/src/library.rs", 39),
         ];
-        let unique = unique_paths_for_patterns(&hits, 2, &[]);
+        let unique = unique_paths_for_patterns(&hits, 2, &[], "rename compile_context");
         assert_eq!(unique[0].path, "apps/cortex-server/src/main.rs");
         assert_eq!(unique[1].path, "apps/cortex-server/src/library.rs");
     }
@@ -445,8 +464,21 @@ mod tests {
             hit("ui/src/types.ts", 10),
             hit("config/llm-profiles.json", 15),
         ];
-        let unique = unique_paths_for_patterns(&hits, 1, &[]);
+        let unique = unique_paths_for_patterns(&hits, 1, &[], "How does CORTEX_LLM read config?");
         assert_eq!(unique[0].path, "config/llm-profiles.json");
+    }
+
+    #[test]
+    fn a_frontend_task_keeps_ui_and_a_test_task_keeps_tests() {
+        let hits = vec![
+            hit("docs/benchmark.md", 1),
+            hit("ui/src/api/client.ts", 22),
+            hit("crates/cortex-run/src/tests.rs", 10),
+        ];
+        let ui = unique_paths_for_patterns(&hits, 1, &[], "fix the React frontend in ui/");
+        assert_eq!(ui[0].path, "ui/src/api/client.ts");
+        let tests = unique_paths_for_patterns(&hits, 1, &[], "which tests should I run?");
+        assert_eq!(tests[0].path, "crates/cortex-run/src/tests.rs");
     }
 
     #[test]
@@ -455,7 +487,7 @@ mod tests {
         generic.text = "use axum::{Json, Router};".to_owned();
         let mut contract = hit("crates/cortex-mcp/src/llm_route.rs", 99);
         contract.text = "let classification = merge_tiers(lexical, tier);".to_owned();
-        let chosen = unique_paths_for_patterns(&[generic, contract], 1, &["merge_".to_owned()]);
+        let chosen = unique_paths_for_patterns(&[generic, contract], 1, &["merge_".to_owned()], "");
         assert_eq!(chosen[0].path, "crates/cortex-mcp/src/llm_route.rs");
     }
 

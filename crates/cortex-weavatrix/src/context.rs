@@ -117,6 +117,10 @@ fn compile_layered(
         item.locator = (!locator.is_empty()).then_some(locator);
         item
     }));
+    {
+        let mut seen = std::collections::HashSet::new();
+        items.retain(|item| seen.insert(item.id.clone()));
+    }
     if let Some(certificate) = certificate {
         items.insert(
             1,

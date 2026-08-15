@@ -130,6 +130,7 @@ pub(super) fn fragments(
     apply_blob_hash(&mut locator, &content);
     let facet = facet_for(id, kind);
     let group_id = evidence_id(&[
+        id,
         locator.path.as_deref().unwrap_or(source),
         &line_token(locator.start_line),
         &line_token(locator.end_line),

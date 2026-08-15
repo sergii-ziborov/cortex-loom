@@ -11,6 +11,7 @@ pub(super) struct SourceReadPlan<'a> {
     pub id_prefix: &'a str,
     pub preferred_patterns: &'a [String],
     pub window: crate::source_followup::SourceWindow,
+    pub task: &'a str,
 }
 
 pub(super) fn append_source_reads(
@@ -26,6 +27,7 @@ pub(super) fn append_source_reads(
         search_hits,
         plan.window.max_files,
         plan.preferred_patterns,
+        plan.task,
     );
     if paths.is_empty() {
         warnings.push("source follow-up skipped: search returned no file paths".to_owned());

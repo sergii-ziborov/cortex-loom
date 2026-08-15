@@ -5,7 +5,9 @@ use std::sync::Arc;
 
 use cortex_router::{RoutingRequest, classify, route};
 use cortex_sequences::candidate_templates;
-use cortex_weavatrix::{IntentHint, PlanHints, plan::extract_identifiers};
+use cortex_weavatrix::{
+    BudgetPin, IntentHint, PlanHints, adaptive_budget, plan::extract_identifiers,
+};
 use mcport::{ConcurrentMcpServer, ToolReply};
 use serde::Deserialize;
 use serde_json::json;
@@ -48,7 +50,7 @@ pub(crate) fn register(
                     "repository": {"type": "string", "maxLength": 4096},
                     "task": {"type": "string", "maxLength": 16384},
                     "runId": {"type": "string", "maxLength": 256},
-                    "budgetClass": {"type": "string", "enum": ["tight", "normal", "wide"], "default": "normal"}
+                    "budgetClass": {"type": "string", "enum": ["auto", "tight", "normal", "wide"], "default": "auto"}
                 },
                 "required": ["repository", "task"],
                 "additionalProperties": false
@@ -85,7 +87,8 @@ pub(crate) fn register(
 }
 
 fn prepare(state: &CortexMcpState, arguments: PrepareArgs) -> ToolReply {
-    let max_tokens = budget_tokens(arguments.budget_class.as_deref());
+    let pin = BudgetPin::parse(arguments.budget_class.as_deref());
+    let max_tokens = adaptive_budget(&arguments.task, pin);
     let symbols = extract_identifiers(&arguments.task);
     let routing = route(&RoutingRequest::new(arguments.task.clone()));
     let classification = classify(&arguments.task);
@@ -128,6 +131,7 @@ fn prepare(state: &CortexMcpState, arguments: PrepareArgs) -> ToolReply {
         run_id: arguments.run_id,
         symbols,
         snapshot_id: snapshot.clone(),
+        max_tokens,
     });
     let handles: Vec<_> = missing
         .iter()
@@ -139,7 +143,7 @@ fn prepare(state: &CortexMcpState, arguments: PrepareArgs) -> ToolReply {
         "routing": routing,
         "mutationLikely": classification.mutation_likely,
         "workflowStep": workflow,
-        "budgetClass": arguments.budget_class.as_deref().unwrap_or("normal"),
+        "budgetClass": pin.as_str(),
         "maxTokens": max_tokens,
         "context": compiled.context,
         "coverage": compiled.sufficiency,
@@ -163,7 +167,7 @@ fn expand(state: &CortexMcpState, arguments: &ExpandArgs) -> ToolReply {
             repository: stored.repository.clone(),
             task,
             symbol: stored.symbols.first().cloned(),
-            max_tokens: 4_000,
+            max_tokens: stored.max_tokens,
             run_id: stored.run_id.clone(),
             skill_id: None,
             targeted: true,
@@ -181,14 +185,6 @@ fn expand(state: &CortexMcpState, arguments: &ExpandArgs) -> ToolReply {
             "warnings": packet.warnings,
         })),
         Err(error) => ToolReply::error(error),
-    }
-}
-
-fn budget_tokens(class: Option<&str>) -> u32 {
-    match class {
-        Some("tight") => 1_500,
-        Some("wide") => 8_000,
-        _ => 4_000,
     }
 }
 

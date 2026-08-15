@@ -28,7 +28,7 @@ fn every_agent_bundle_derives_from_the_canonical_graph() {
         );
         assert!(
             instructions.contains("budgetClass"),
-            "measured default budget class is recommended"
+            "budget class remains an optional pin"
         );
         assert!(
             !instructions.contains("usage_report"),

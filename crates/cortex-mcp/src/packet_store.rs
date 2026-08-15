@@ -16,6 +16,7 @@ pub(crate) struct StoredPacket {
     pub run_id: Option<String>,
     pub symbols: Vec<String>,
     pub snapshot_id: Option<String>,
+    pub max_tokens: u32,
 }
 
 #[derive(Default)]

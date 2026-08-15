@@ -25,7 +25,7 @@ contradictory, or stale. Compression is a consequence, not the product.
 | Lean generated adapters (`cortex_prepare` / `cortex_expand`) | done |
 | `usage_report` out of the agent workflow | done |
 | Routing + sequence hint inside `prepare` | done |
-| Adaptive budget (not a fixed 4 000) | partial (`tight` / `normal` / `wide`) |
+| Adaptive budget (not a fixed 4 000) | done (`auto` default; pins remain) |
 | Embeddings and digests cached by revision | partial (content-hash cache; not revision-keyed) |
 
 ## Stage 3 — beyond the Rust benches

@@ -1,4 +1,5 @@
 mod adapter;
+mod budget;
 mod certificate;
 mod context;
 mod fold;
@@ -17,6 +18,7 @@ pub use adapter::{
     EvidenceBundle, EvidenceFragment, EvidenceKind, WeavatrixAdapter, WeavatrixConfig,
     WeavatrixError,
 };
+pub use budget::{BudgetPin, adaptive_budget};
 pub use context::{
     CompiledEvidenceBundle, compile_evidence_bundle, compile_evidence_bundle_layered,
     compile_probe_bundle,

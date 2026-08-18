@@ -14,15 +14,13 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
 
-use cortex_bench::lang_tasks::lang_tasks;
-use cortex_bench::naive::{NaiveScan, scan};
-use cortex_bench::probe_tasks::probe_tasks;
+use cortex_bench::naive::{NaiveScan, append_git_log, scan};
 use cortex_bench::report::render;
 use cortex_bench::schedule::alternating_orders;
-use cortex_bench::tasks::{BenchTask, find, tasks};
+use cortex_bench::tasks::BenchTask;
 use cortex_bench::{
-    ArmKind, ArmMeasurement, BenchReport, DEFAULT_BUDGET, TaskResult, measure, measure_scoped,
-    unavailable,
+    ArmKind, ArmMeasurement, BenchReport, DEFAULT_BUDGET, TaskResult, find_any,
+    full_compile_budget, measure, measure_scoped, tasks_for_set, unavailable,
 };
 use cortex_weavatrix::plan::PlanPolicy;
 use cortex_weavatrix::{EvidenceBundle, WeavatrixAdapter, WeavatrixConfig, compile_probe_bundle};
@@ -33,6 +31,15 @@ fn main() -> ExitCode {
             Ok(()) => ExitCode::SUCCESS,
             Err(message) => {
                 eprintln!("cortex-bench sequence: {message}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+    if std::env::args().nth(1).as_deref() == Some("release") {
+        return match cortex_bench::release::run_cli(std::env::args().skip(2)) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(message) => {
+                eprintln!("cortex-bench release: {message}");
                 ExitCode::FAILURE
             }
         };
@@ -64,21 +71,9 @@ fn main() -> ExitCode {
 }
 
 fn run(settings: &Settings) -> Result<BenchReport, String> {
-    let selected: Vec<&BenchTask> = match (&settings.task, settings.set.as_str()) {
-        (Some(id), _) => vec![find_any(id).ok_or_else(|| format!("unknown task: {id}"))?],
-        (None, "probe") => probe_tasks().iter().collect(),
-        (None, "core") => tasks().iter().collect(),
-        (None, "langs") => lang_tasks().iter().collect(),
-        (None, "all") => tasks()
-            .iter()
-            .chain(probe_tasks().iter())
-            .chain(lang_tasks().iter())
-            .collect(),
-        (None, other) => {
-            return Err(format!(
-                "unknown --set value: {other} (core|probe|langs|all)"
-            ));
-        }
+    let selected: Vec<&BenchTask> = match &settings.task {
+        Some(id) => vec![find_any(id).ok_or_else(|| format!("unknown task: {id}"))?],
+        None => tasks_for_set(&settings.set)?,
     };
     let weavatrix = if settings.use_weavatrix {
         Some(WeavatrixAdapter::new(
@@ -239,7 +234,15 @@ fn run_arm_inner(
 
 fn naive_arm(settings: &Settings, task: &BenchTask) -> ArmMeasurement {
     match scan(&settings.repository, task.naive_globs) {
-        Ok(found) => finish_naive(task, &found),
+        Ok(mut found) => {
+            if cortex_weavatrix::detect(task.prompt) == cortex_weavatrix::TaskIntent::GitHistory
+                && let Err(error) =
+                    append_git_log(&mut found, &settings.repository, task.naive_globs)
+            {
+                return unavailable(ArmKind::Naive, error.to_string());
+            }
+            finish_naive(task, &found)
+        }
         Err(error) => unavailable(ArmKind::Naive, error.to_string()),
     }
 }
@@ -336,7 +339,12 @@ fn cortex_arm(
     task: &BenchTask,
     bundle: EvidenceBundle,
 ) -> ArmMeasurement {
-    match compile_probe_bundle(bundle, task.prompt, settings.budget, None) {
+    let budget = if arm_kind == ArmKind::CortexLoomFull {
+        full_compile_budget(settings.budget)
+    } else {
+        settings.budget
+    };
+    match compile_probe_bundle(bundle, task.prompt, budget, None) {
         Ok(compiled) => {
             let packet = &compiled.context;
             let mut arm = measure_scoped(
@@ -460,13 +468,7 @@ impl Settings {
                 }
                 "--no-weavatrix" => settings.use_weavatrix = false,
                 "--list" => {
-                    for task in tasks() {
-                        println!("{}", task.id);
-                    }
-                    for task in probe_tasks() {
-                        println!("{}", task.id);
-                    }
-                    for task in lang_tasks() {
+                    for task in tasks_for_set("all").expect("all") {
                         println!("{}", task.id);
                     }
                     std::process::exit(0);
@@ -479,12 +481,6 @@ impl Settings {
         }
         Ok(settings)
     }
-}
-
-fn find_any(id: &str) -> Option<&'static BenchTask> {
-    find(id)
-        .or_else(|| probe_tasks().iter().find(|task| task.id == id))
-        .or_else(|| lang_tasks().iter().find(|task| task.id == id))
 }
 
 fn next(arguments: &mut impl Iterator<Item = String>, flag: &str) -> Result<String, String> {

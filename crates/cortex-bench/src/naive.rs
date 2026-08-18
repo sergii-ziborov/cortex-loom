@@ -88,6 +88,34 @@ pub fn scan(root: &Path, patterns: &[&str]) -> std::io::Result<NaiveScan> {
     Ok(scan)
 }
 
+/// Append `git log` so a history fixture has the same facts an engineer
+/// would paste after `git log -- path`.
+///
+/// # Errors
+///
+/// Returns when `git` cannot be started. A non-zero git exit is recorded
+/// as a skipped path rather than a hard failure.
+pub fn append_git_log(scan: &mut NaiveScan, root: &Path, paths: &[&str]) -> std::io::Result<()> {
+    let mut command = std::process::Command::new("git");
+    command
+        .current_dir(root)
+        .args(["log", "-20", "--format=%h %an %s", "--"]);
+    for path in paths {
+        command.arg(path);
+    }
+    let output = command.output()?;
+    if !output.status.success() {
+        scan.skipped.push(format!("git log ({})", output.status));
+        return Ok(());
+    }
+    let body = String::from_utf8_lossy(&output.stdout).into_owned();
+    if !body.trim().is_empty() {
+        scan.files.push(("git-log".to_owned(), body));
+        scan.files.sort_by(|left, right| left.0.cmp(&right.0));
+    }
+    Ok(())
+}
+
 fn is_skipped_directory(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())

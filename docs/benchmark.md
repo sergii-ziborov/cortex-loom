@@ -29,8 +29,10 @@ why produced both a bug fix and the `cortex-targeted` arm.
 
 ```powershell
 cargo run -p cortex-bench -- --repo . --budget 4000
+cargo run -p cortex-bench -- --repo . --budget 4000 --set intent
 cargo run -p cortex-bench -- --repo . --budget 16000 --out .cortex-loom/bench/report-16k.json
 cargo run -p cortex-bench -- --list
+cargo run -p cortex-bench -- release
 ```
 
 Reports land in `.cortex-loom/bench/`. `--no-weavatrix` measures the naive arm
@@ -314,7 +316,41 @@ powershell -File scripts/measure-bench.ps1 -Set core -Budget 4000 `
   -Stamp local-core -Out .cortex-loom/bench/core.json
 powershell -File scripts/measure-bench.ps1 -Set langs -Budget 4000 `
   -Stamp local-langs -Out .cortex-loom/bench/langs.json
+cargo run -p cortex-bench --release -- --set intent --budget 4000
+cargo run -p cortex-bench --release -- release --out .cortex-loom/bench/release-status.json
 ```
+
+### Intent fixtures and untrimmed compile — 2026-08-18
+
+Stamp `intent-stage4` / `full-untrim-core`. `--set intent` scores git
+history, a pasted stack trace, and test selection against this repo.
+`cortex-bench release` writes the Stage 4 arm/metric envelope and
+fails closed when Serena is not configured.
+
+Compiling `cortex-full` at the declared 4k budget after an overcommit
+gather dropped sibling facts (measured 38/41). The untrimmed arm now
+compiles at `budget × 16` (min 32k) so gather is the experiment, not
+a second trim. That is **not** the quality path — targeted and source
+stay at 4k.
+
+| set | arm | selected tokens | facts |
+| --- | --- | ---: | ---: |
+| core | naive | 336 812 | 41/41 |
+| core | cortex-source | **14 434** | **41/41** |
+| core | cortex-targeted | **14 451** | **41/41** |
+| core | cortex-full (compile 32k) | **16 956** | **41/41** |
+| intent | cortex-source / targeted | **5 140** | **11/12** |
+| intent | cortex-full | **7 538** | **12/12** |
+
+Git 4/4 after `git_history` stopped asking for analytics (cochange
+ate the 800-token cap). Stack 4/4 after panic paths become source
+hits. Tests 3/4 on the quality path: the suite file opens, but the
+4k compile drops the line-1 window that names
+`selects_priority_order_and_reports_token_savings`. Full keeps it.
+
+Stage 4 on this machine: `liveComparison=false`, `serena=false`
+(`CORTEX_SERENA_ROOT` unset). That is a missing arm, not a silent
+zero.
 
 ## The honest conclusion
 

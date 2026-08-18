@@ -157,13 +157,18 @@ control.
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
 | probe @ 4k | 10 / 40 | **19 035 / 40/40** | **19 035 / 40/40** | 21.6 s | 30.8 s | 86.2 MB |
 | probe @ 16k | 10 / 40 | **22 818 / 40/40** | — | 22.9 s | 14.4 s | 80.5 MB |
-| core @ 4k | 7 / 41 | **14 461 / 41/41** | **14 478 / 41/41** | 16.1 s | 29.2 s | 82.7 MB |
+| core @ 4k | 7 / 41 | **14 434 / 41/41** | **14 451 / 41/41** | — | — | — |
 | langs @ 4k | 6 / 12 | **4 146 / 12/12** | **4 146 / 12/12** | 10.4 s | 5.3 s | 78.3 MB |
+| intent @ 4k | 3 / 12 | **5 140 / 11/12** | **5 140 / 11/12** | — | — | — |
 
-Every `cortex-source` task on these three sets reports `sufficient:
+Every `cortex-source` task on probe, core, and langs reports `sufficient:
 true`. Source windows now name their path, so a crate fact such as
-`cortex-store` survives when `module_map` is omitted. Sampler:
-`scripts/measure-bench.ps1`.
+`cortex-store` survives when `module_map` is omitted. `cortex-full` on
+core is **16 956 / 41/41** when compiled at the untrimmed budget (16× /
+min 32k) — compiling the same overcommit gather at 4k was 38/41.
+Intent stamp `intent-stage4`: git 4/4, stack 4/4, tests 3/4 (the
+suite-head `fn` is in the gather; the 4k compile drops it). Full
+keeps all 12/12. Sampler: `scripts/measure-bench.ps1`.
 
 ### Sequence methodology — 28 scenarios, no model
 
@@ -184,16 +189,16 @@ in this pass.
 ### Still open (do not paper over)
 
 - **`cortex-loom` is still the four-operation control.** 18/41 core,
-  24/40 probe, 8/12 langs. Collapsing it into targeted would delete
-  the comparison.
-- **`cortex-full` (untrimmed) can drop facts.** Core 38/41 on this
-  stamp — overcommit plus larger windows is not the quality path.
-- **No git / stack-trace / test-selection fixture set** in
-  `cortex-bench --set`. Those intents have unit tests, not a scored
-  recall table on this repo.
-- **Stage 4 release comparison** (native / Weavatrix / Cortex /
-  Serena on one model) is still unrun here. Live 9B numbers below
-  are the 2026-08-10 stamp, not this pass.
+  24/40 probe, 8/12 langs, 6/12 intent. Collapsing it into targeted
+  would delete the comparison.
+- **Intent tests miss one suite-head name on the 4k quality path.**
+  `selects_priority_order_and_reports_token_savings` is gathered
+  from `tests.rs:1` and kept by `cortex-full` (12/12); targeted and
+  source drop that window under the conservative 4k compile.
+- **Stage 4 live comparison is fail-closed.** `cortex-bench release`
+  writes the required arms/metrics envelope with
+  `liveComparison=false` when `CORTEX_SERENA_ROOT` is unset. Serena
+  is not invoked. Live 9B numbers below are the 2026-08-10 stamp.
 
 ### Live server — one question, every approach
 

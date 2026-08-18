@@ -76,8 +76,13 @@ pub(super) fn append_source_reads(
     }
     let per_file =
         crate::source_followup::per_file_budget_with(budget, paths.len(), policy, plan.window);
+    let opened = paths
+        .iter()
+        .map(|hit| format!("{}:{}", hit.path, hit.line))
+        .collect::<Vec<_>>()
+        .join(", ");
     warnings.push(format!(
-        "source follow-up: {} file(s), ~{per_file} tokens each",
+        "source follow-up: {} file(s), ~{per_file} tokens each ({opened})",
         paths.len()
     ));
     for (index, hit) in paths.iter().enumerate() {
@@ -132,6 +137,7 @@ pub(super) fn append_definition_read(
 /// spending a bounded number of expansion slots does not burn one on a name
 /// that resolves to nothing.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)]
 pub(super) fn append_definition_read_as(
     engine: &mut Weavatrix,
     evidence: &mut Vec<EvidenceFragment>,

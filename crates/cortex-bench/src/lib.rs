@@ -29,6 +29,7 @@
 //! tokens per satisfied fact, not raw token count.
 
 mod external_skills;
+pub mod intent_tasks;
 pub mod lang_tasks;
 pub mod manifest;
 pub mod naive;
@@ -41,6 +42,10 @@ pub mod sequence;
 pub mod sequence_arms;
 pub mod tasks;
 
+use crate::intent_tasks::intent_tasks;
+use crate::lang_tasks::lang_tasks;
+use crate::probe_tasks::probe_tasks;
+use crate::tasks::{BenchTask, tasks};
 use cortex_context::estimate_tokens;
 use serde::{Deserialize, Serialize};
 
@@ -50,6 +55,47 @@ use crate::scoreboard::{FailureClass, ScoreboardRow};
 /// Default upstream evidence budget, matching the measured `maxTokens`
 /// default the adapter usage contract instructs agents to send.
 pub const DEFAULT_BUDGET: u32 = 4_000;
+
+/// Compile budget for the untrimmed arm: gather already overcommits, so
+/// compiling at the declared 4k budget drops sibling facts (measured 38/41).
+#[must_use]
+pub fn full_compile_budget(budget: u32) -> u32 {
+    budget.saturating_mul(16).max(32_000)
+}
+
+/// Tasks for `cortex-bench --set`.
+///
+/// # Errors
+///
+/// Returns when `set` is not one of the known fixture names.
+pub fn tasks_for_set(set: &str) -> Result<Vec<&'static BenchTask>, String> {
+    match set {
+        "probe" => Ok(probe_tasks().iter().collect()),
+        "core" => Ok(tasks().iter().collect()),
+        "langs" => Ok(lang_tasks().iter().collect()),
+        "intent" => Ok(intent_tasks().iter().collect()),
+        "all" => Ok(tasks()
+            .iter()
+            .chain(probe_tasks().iter())
+            .chain(lang_tasks().iter())
+            .chain(intent_tasks().iter())
+            .collect()),
+        other => Err(format!(
+            "unknown --set value: {other} (core|probe|langs|intent|all)"
+        )),
+    }
+}
+
+/// Look up a fixture by id across every set.
+#[must_use]
+pub fn find_any(id: &str) -> Option<&'static BenchTask> {
+    tasks()
+        .iter()
+        .chain(probe_tasks().iter())
+        .chain(lang_tasks().iter())
+        .chain(intent_tasks().iter())
+        .find(|task| task.id == id)
+}
 
 /// Which context-assembly strategy produced a measurement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

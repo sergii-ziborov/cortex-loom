@@ -30,6 +30,7 @@ pub(super) fn extract_text(value: &Value) -> String {
         .or_else(|| search_matches(value))
         .or_else(|| symbol_inspection(value))
         .or_else(|| graph_neighbors(value))
+        .or_else(|| git_history(value))
         .or_else(|| {
             value
                 .get("structuredContent")
@@ -229,6 +230,34 @@ fn line_of(span: Option<&Value>, edge: &str) -> Option<u64> {
     span?.get(edge)?.get("line")?.as_u64()
 }
 
+/// `git_history` as commit lines. Analytics, when present, is omitted:
+/// cochange pairs bury the summaries a history question needs.
+fn git_history(value: &Value) -> Option<String> {
+    let commits = value
+        .pointer("/analytics/commits")
+        .or_else(|| value.get("commits"))
+        .and_then(Value::as_array)?;
+    if commits.is_empty() {
+        return None;
+    }
+    let mut out = format!("commits: {}\n", commits.len());
+    for commit in commits {
+        let id = commit.get("id").and_then(Value::as_str).unwrap_or("");
+        let summary = commit
+            .get("summary")
+            .or_else(|| commit.get("message"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
+        if id.is_empty() && summary.is_empty() {
+            continue;
+        }
+        let short = id.get(..12.min(id.len())).unwrap_or(id);
+        let _ = writeln!(out, "{short} {summary}");
+    }
+    Some(out)
+}
+
 fn truncate_chars(value: String, max_chars: usize) -> String {
     if value.chars().count() <= max_chars {
         return value;
@@ -325,5 +354,22 @@ mod tests {
         });
 
         assert_eq!(extract_text(&value), "pub struct ArchiveOptions {\n}");
+    }
+
+    #[test]
+    fn git_history_renders_commit_summaries_before_analytics() {
+        let value = json!({
+            "analytics": {
+                "cochange_pairs": [{"left": "a.rs", "right": "b.rs", "commits": 9}],
+                "commits": [{
+                    "id": "e32b6c87f180727d83f211a109ba6fff64db41d5",
+                    "summary": "Stop minting Verified and keep probe mechanisms off the engine"
+                }]
+            }
+        });
+        let text = extract_text(&value);
+        assert!(text.starts_with("commits: 1\n"));
+        assert!(text.contains("e32b6c87f180 Stop minting Verified"));
+        assert!(!text.contains("cochange_pairs"));
     }
 }

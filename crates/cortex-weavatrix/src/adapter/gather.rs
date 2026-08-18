@@ -287,6 +287,7 @@ impl WeavatrixAdapter {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_lines)]
     fn collect_targeted(
         &self,
         repository: &Path,
@@ -330,6 +331,11 @@ impl WeavatrixAdapter {
                     if operation.tool == "search_code" {
                         search_hits.extend(crate::source_followup::hits_from_search(&value));
                     }
+                    if operation.tool == "select_tests" || operation.tool == "map_stacktrace" {
+                        search_hits.extend(crate::source_followup::hits_from_json_paths(
+                            &super::render::extract_text(&value),
+                        ));
+                    }
                     evidence.extend(fragments(
                         operation.id,
                         operation.kind,
@@ -341,6 +347,8 @@ impl WeavatrixAdapter {
             }
         }
         if source_followup {
+            search_hits.extend(crate::source_followup::hits_from_stack_text(task));
+            crate::source_followup::prepend_sibling_test_hits(&mut search_hits, task, symbol);
             append_implied_coverage_hits(
                 engine,
                 &mut search_hits,

@@ -100,8 +100,16 @@ fn fixture_anchors_exist_in_the_repository() {
         .iter()
         .chain(probe_tasks::probe_tasks().iter())
         .chain(crate::lang_tasks::lang_tasks().iter())
+        .chain(crate::intent_tasks::intent_tasks().iter())
     {
-        let found = scan(&root, task.naive_globs).expect("scan the workspace");
+        let mut found = scan(&root, task.naive_globs).expect("scan the workspace");
+        if crate::intent_tasks::intent_tasks()
+            .iter()
+            .any(|intent| intent.id == task.id && task.id.starts_with("intent-git"))
+        {
+            crate::naive::append_git_log(&mut found, &root, task.naive_globs)
+                .expect("git log for history fixture");
+        }
         assert!(
             !found.files.is_empty(),
             "{}: no file matched {:?}",

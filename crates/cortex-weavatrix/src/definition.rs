@@ -26,9 +26,7 @@ pub fn definition_complete(
     symbol: &str,
     locator: Option<&EvidenceLocator>,
 ) -> Option<bool> {
-    if definition_head_index(text, symbol).is_none() {
-        return None;
-    }
+    definition_head_index(text, symbol)?;
     if let Some(locator) = locator
         && span_covers_definition(text, locator)
     {
@@ -81,9 +79,11 @@ mod tests {
     #[test]
     fn a_graph_span_beats_missing_braces() {
         let text = "def archive_options():\n    return False\n";
-        let mut locator = EvidenceLocator::default();
-        locator.start_line = Some(1);
-        locator.end_line = Some(2);
+        let locator = EvidenceLocator {
+            start_line: Some(1),
+            end_line: Some(2),
+            ..EvidenceLocator::default()
+        };
         assert!(span_covers_definition(text, &locator));
         assert_eq!(
             definition_complete(text, "archive_options", Some(&locator)),

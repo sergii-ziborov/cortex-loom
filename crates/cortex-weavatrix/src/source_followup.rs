@@ -56,6 +56,17 @@ impl SourceWindow {
                 after: 120,
                 pool_fifths: 4,
             }
+        } else if crate::plan_intent::detect(task) == crate::plan_intent::TaskIntent::TestSelection
+        {
+            // Suite names sit at the top of tests.rs; a 48-line / 216-token
+            // slice around the first `compile_context` call starts at line
+            // 17 and never reaches either test head.
+            Self {
+                max_files: 4,
+                before: SOURCE_BEFORE,
+                after: 80,
+                pool_fifths: 3,
+            }
         } else {
             Self::default()
         }
@@ -225,6 +236,12 @@ pub fn hits_from_search(value: &Value) -> Vec<SearchHit> {
     hits
 }
 
+#[path = "source_hits.rs"]
+mod extra_hits;
+#[cfg(test)]
+pub use extra_hits::sibling_test_hits;
+pub use extra_hits::{hits_from_json_paths, hits_from_stack_text, prepend_sibling_test_hits};
+
 /// Deduplicate overlapping windows, capped at `max_files`.
 ///
 /// Product source (`.rs` under `apps/` / `crates/`) is preferred over docs,
@@ -270,18 +287,25 @@ pub fn unique_paths_for_patterns(
                 path_rank(&hit.path, task)
                     .saturating_mul(10)
                     .saturating_add(affinity)
-                    .saturating_add(preference_score(&hit.text, preferred_patterns)),
+                    .saturating_add(preference_score(&hit.text, preferred_patterns))
+                    .saturating_add(extra_hits::test_suite_head_bonus(hit, task))
+                    .saturating_add(extra_hits::same_crate_test_bonus(hit, hits, task)),
                 index,
                 hit,
             )
         })
         .collect();
     ranked.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(&right.1)));
-    let mut chosen = Vec::new();
+    let mut chosen: Vec<SearchHit> = Vec::new();
     for (_, _, hit) in &ranked {
-        if chosen.iter().any(|seen: &SearchHit| {
+        if let Some(index) = chosen.iter().position(|seen: &SearchHit| {
             seen.path == hit.path && seen.line.abs_diff(hit.line) <= SOURCE_BEFORE
         }) {
+            // Overlapping windows: keep the earlier line so a suite file
+            // opens from `fn` heads, not from a mid-file call.
+            if hit.line < chosen[index].line {
+                chosen[index] = (*hit).clone();
+            }
             continue;
         }
         chosen.push((*hit).clone());

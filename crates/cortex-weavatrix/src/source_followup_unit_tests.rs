@@ -53,6 +53,95 @@ fn product_rust_outranks_docs_ui_and_bench_fixtures() {
 }
 
 #[test]
+fn stack_text_names_the_panicking_file() {
+    let hits = hits_from_stack_text(
+        "thread 'main' panicked at crates/cortex-run/src/retry.rs:24:1:\nstack backtrace:",
+    );
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].path, "crates/cortex-run/src/retry.rs");
+    assert_eq!(hits[0].line, 24);
+}
+
+#[test]
+fn select_tests_json_names_the_suite_file() {
+    let hits = hits_from_json_paths(
+        r#"{"tests":[{"path":"crates/cortex-context/src/tests.rs","distance":1}]}"#,
+    );
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].path, "crates/cortex-context/src/tests.rs");
+}
+
+#[test]
+fn a_product_hit_names_the_crate_test_suite() {
+    let mut owner = hit("crates/cortex-context/src/lib.rs", 160);
+    owner.text = "pub fn compile_context(request: &ContextRequest)".to_owned();
+    let mut other = hit("crates/cortex-weavatrix/src/lib.rs", 10);
+    other.text = "pub use compile_evidence_bundle;".to_owned();
+    let hits = sibling_test_hits(
+        &[
+            owner,
+            other,
+            hit("crates/cortex-mcp/tests/adversarial.rs", 1),
+        ],
+        Some("compile_context"),
+    );
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].path, "crates/cortex-context/src/tests.rs");
+    assert_eq!(hits[0].line, 1);
+}
+
+#[test]
+fn the_owning_crate_suite_outranks_other_tests_rs() {
+    let mut owner = hit("crates/cortex-context/src/lib.rs", 160);
+    owner.text = "pub fn compile_context(request: &ContextRequest)".to_owned();
+    let hits = vec![
+        hit("crates/cortex-bench/src/tests.rs", 1),
+        hit("crates/cortex-domain/src/tests.rs", 1),
+        hit("crates/cortex-context/src/tests.rs", 1),
+        hit("crates/cortex-context/src/tests.rs", 61),
+        owner,
+    ];
+    let unique = unique_paths_for_patterns(
+        &hits,
+        2,
+        &[],
+        "Which tests should I run after changing compile_context?",
+    );
+    assert_eq!(unique.len(), 2);
+    assert!(
+        unique
+            .iter()
+            .all(|hit| hit.path == "crates/cortex-context/src/tests.rs"),
+        "other crates must not fill the suite slots: {unique:?}"
+    );
+    assert_eq!(unique[0].line, 1);
+    assert_eq!(unique[1].line, 61);
+}
+
+#[test]
+fn overlapping_windows_keep_the_earlier_line() {
+    let mut later = hit("crates/cortex-context/src/tests.rs", 25);
+    later.text = "let packet = compile_context_with(&request".to_owned();
+    let earlier = hit("crates/cortex-context/src/tests.rs", 1);
+    let unique = unique_paths_for_patterns(
+        &[later, earlier],
+        2,
+        &[],
+        "Which tests should I run after changing compile_context?",
+    );
+    assert_eq!(unique.len(), 1);
+    assert_eq!(unique[0].line, 1);
+}
+
+#[test]
+fn test_selection_widens_the_suite_window() {
+    let tests = SourceWindow::for_task("Which tests should I run after changing compile_context?");
+    let narrow = SourceWindow::for_task("Rename `read_limited` in containers.rs");
+    assert!(tests.after > narrow.after);
+    assert!(tests.pool_fifths > narrow.pool_fifths);
+}
+
+#[test]
 fn language_samples_outrank_the_lang_task_list() {
     let hits = vec![
         hit("crates/cortex-bench/src/lang_tasks.rs", 12),

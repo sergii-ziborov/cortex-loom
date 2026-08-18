@@ -30,7 +30,7 @@ pub use fold::{
 };
 pub use hints::{IntentHint, PlanHints};
 pub use languages::{LanguageInventory, inventory};
-pub use plan_intent::asks_for_prior_attempts;
+pub use plan_intent::{TaskIntent, asks_for_prior_attempts, detect};
 pub use refactor_preview::{PreviewChange, RefactorPreview, preview_refactor_plan};
 pub use run_memory::{PriorRunEvent, PriorRunMemory};
 pub use snapshot::repository_snapshot;

@@ -227,10 +227,8 @@ fn cap_dependents(content: &str, max_lines: usize) -> String {
                 .replace('\\', "/");
             let rank = if file.contains("/tests/") || file.ends_with("tests.rs") {
                 2
-            } else if file.contains("/bench/") || file.contains("docs/") {
-                1
             } else {
-                0
+                i32::from(file.contains("/bench/") || file.contains("docs/"))
             };
             (rank, file, line.to_owned())
         })

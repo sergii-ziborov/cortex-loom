@@ -331,7 +331,7 @@ fn git_history_intent_asks_for_history_first() {
         .expect("git_history planned");
     assert!(history.bounded);
     assert_eq!(history.kind, EvidenceKind::GitHistory);
-    assert_eq!(history.arguments["include_analytics"], true);
+    assert_eq!(history.arguments["include_analytics"], false);
 }
 
 #[test]

@@ -172,7 +172,10 @@ pub(super) fn git_history_op(policy: PlanPolicy) -> PlannedOperation {
             "max_commits": 24,
             "months": 36,
             "first_parent": true,
-            "include_analytics": true,
+            // Analytics (cochange / hotspots) serializes first and, under
+            // the 800-token cap, drops the commit summaries a history
+            // question is asking for.
+            "include_analytics": false,
             "token_budget": policy.git_history_tokens,
         }),
         expected_tokens: policy.git_history_tokens,

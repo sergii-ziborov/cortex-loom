@@ -136,9 +136,33 @@ fn overlapping_windows_keep_the_earlier_line() {
 #[test]
 fn test_selection_widens_the_suite_window() {
     let tests = SourceWindow::for_task("Which tests should I run after changing compile_context?");
-    let narrow = SourceWindow::for_task("Rename `read_limited` in containers.rs");
-    assert!(tests.after > narrow.after);
-    assert!(tests.pool_fifths > narrow.pool_fifths);
+    assert_eq!(tests.max_files, 2);
+    assert_eq!(tests.max_per_file, 280);
+}
+
+#[test]
+fn a_test_suite_keeps_the_head_and_one_later_window() {
+    let mut owner = hit("crates/cortex-context/src/lib.rs", 160);
+    owner.text = "pub fn compile_context(request: &ContextRequest)".to_owned();
+    let unique = unique_paths_for_patterns(
+        &[
+            hit("crates/cortex-context/src/tests.rs", 1),
+            hit("crates/cortex-context/src/tests.rs", 44),
+            hit("crates/cortex-context/src/tests.rs", 79),
+            hit("crates/cortex-context/src/tests.rs", 110),
+            owner,
+        ],
+        6,
+        &[],
+        "Which tests should I run after changing compile_context?",
+    );
+    let suite: Vec<_> = unique
+        .iter()
+        .filter(|hit| hit.path.ends_with("cortex-context/src/tests.rs"))
+        .collect();
+    assert_eq!(suite.len(), 2, "{unique:?}");
+    assert_eq!(suite[0].line, 1);
+    assert_eq!(suite[1].line, 44);
 }
 
 #[test]
@@ -295,6 +319,7 @@ fn widened_pool_may_exceed_policy_source_tokens_but_not_the_budget_share() {
             before: SOURCE_BEFORE,
             after: 84,
             pool_fifths: 3,
+            max_per_file: 0,
         },
     );
     assert!(wide >= narrow);

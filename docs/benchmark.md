@@ -339,14 +339,14 @@ stay at 4k.
 | core | cortex-source | **14 434** | **41/41** |
 | core | cortex-targeted | **14 451** | **41/41** |
 | core | cortex-full (compile 32k) | **16 956** | **41/41** |
-| intent | cortex-source / targeted | **5 140** | **11/12** |
-| intent | cortex-full | **7 538** | **12/12** |
+| intent | cortex-source / targeted | **4 978** | **12/12** |
+| intent | cortex-full | **6 416** | **12/12** |
 
 Git 4/4 after `git_history` stopped asking for analytics (cochange
 ate the 800-token cap). Stack 4/4 after panic paths become source
-hits. Tests 3/4 on the quality path: the suite file opens, but the
-4k compile drops the line-1 window that names
-`selects_priority_order_and_reports_token_savings`. Full keeps it.
+hits. Tests 4/4 after the suite keeps the head window plus one later
+call site (~280 tokens each) and `module_map` is not planned — four
+mid-file slices used to spend the 4k compile on the wrong `fn`.
 
 Stage 4 on this machine: `liveComparison=false`, `serena=false`
 (`CORTEX_SERENA_ROOT` unset). That is a missing arm, not a silent

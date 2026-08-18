@@ -362,7 +362,7 @@ fn test_selection_intent_asks_for_select_tests_first() {
     let tools: Vec<&str> = operations.iter().map(|operation| operation.tool).collect();
     assert_eq!(tools.first().copied(), Some("select_tests"));
     assert!(
-        !tools.contains(&"context_bundle"),
+        !tools.contains(&"context_bundle") && !tools.contains(&"module_map"),
         "select_tests already walks dependents of the change"
     );
     let selected = operations

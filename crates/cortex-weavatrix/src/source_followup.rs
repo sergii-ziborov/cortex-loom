@@ -37,16 +37,16 @@ pub struct SourceWindow {
     pub after: u32,
     /// Numerator of the budget share the source pool may use (denominator 5).
     pub pool_fifths: u32,
+    /// Extra per-file ceiling. `0` means the pool split is the only cap.
+    pub max_per_file: u32,
 }
 
 impl SourceWindow {
     /// Window for one task: enumerating questions get the wide shape.
     ///
-    /// The pool grew from three fifths to four once graph answers were
-    /// rendered as text: `context_bundle` fell from ~1 500 tokens of JSON to
-    /// ~250 of prose, and a broad question was then compiling 2 518 of a
-    /// 4 000-token budget. Under-spending a granted budget on the one intent
-    /// that asks for breadth is the opposite of what this window exists for.
+    /// The pool grew to four fifths once graph answers rendered as text:
+    /// a broad question was compiling 2 518 of 4 000 and still missing
+    /// one-file-away facts.
     #[must_use]
     pub fn for_task(task: &str) -> Self {
         if crate::plan_intent::is_broad(task) {
@@ -55,17 +55,17 @@ impl SourceWindow {
                 before: SOURCE_BEFORE,
                 after: 120,
                 pool_fifths: 4,
+                max_per_file: 0,
             }
         } else if crate::plan_intent::detect(task) == crate::plan_intent::TaskIntent::TestSelection
         {
-            // Suite names sit at the top of tests.rs; a 48-line / 216-token
-            // slice around the first `compile_context` call starts at line
-            // 17 and never reaches either test head.
+            // Head + one later site: JSON token_budget from line 1 misses line 50.
             Self {
-                max_files: 4,
+                max_files: 2,
                 before: SOURCE_BEFORE,
-                after: 80,
-                pool_fifths: 3,
+                after: 32,
+                pool_fifths: 1,
+                max_per_file: 280,
             }
         } else {
             Self::default()
@@ -80,6 +80,7 @@ impl Default for SourceWindow {
             before: SOURCE_BEFORE,
             after: SOURCE_AFTER,
             pool_fifths: 2,
+            max_per_file: 0,
         }
     }
 }
@@ -314,6 +315,7 @@ pub fn unique_paths_for_patterns(
         }
     }
     reserve_uncovered_patterns(&mut chosen, &ranked, preferred_patterns, max_files);
+    extra_hits::keep_suite_head_and_one_later(&mut chosen, task);
     chosen
 }
 
@@ -478,7 +480,11 @@ pub fn per_file_budget_with(
         pool = share.max(200);
     }
     let count = u32::try_from(file_count).unwrap_or(u32::MAX).max(1);
-    (pool / count).max(200)
+    let mut per_file = (pool / count).max(200);
+    if window.max_per_file > 0 {
+        per_file = per_file.min(window.max_per_file).max(200);
+    }
+    per_file
 }
 
 #[cfg(test)]

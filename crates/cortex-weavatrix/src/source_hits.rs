@@ -112,6 +112,32 @@ fn rust_path_and_line(token: &str) -> Option<(String, u32)> {
     }
 }
 
+/// A test-selection question needs the suite head and one later call
+/// site, not four mid-file windows of the same `tests.rs`.
+pub fn keep_suite_head_and_one_later(chosen: &mut Vec<SearchHit>, task: &str) {
+    if crate::plan_intent::detect(task) != crate::plan_intent::TaskIntent::TestSelection {
+        return;
+    }
+    let mut suites: std::collections::BTreeMap<String, Vec<SearchHit>> =
+        std::collections::BTreeMap::new();
+    let mut others = Vec::new();
+    for hit in chosen.drain(..) {
+        let path = hit.path.replace('\\', "/");
+        if already_a_test_path(&path) {
+            suites.entry(path).or_default().push(hit);
+        } else {
+            others.push(hit);
+        }
+    }
+    let mut kept = Vec::new();
+    for mut hits in suites.into_values() {
+        hits.sort_by_key(|hit| hit.line);
+        kept.extend(hits.into_iter().take(2));
+    }
+    kept.extend(others);
+    *chosen = kept;
+}
+
 /// Put the owning crate's `tests.rs` ahead of mid-file search hits.
 pub fn prepend_sibling_test_hits(hits: &mut Vec<SearchHit>, task: &str, symbol: Option<&str>) {
     if crate::plan_intent::detect(task) != crate::plan_intent::TaskIntent::TestSelection {

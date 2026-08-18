@@ -448,7 +448,7 @@ fn plan_all(
     {
         operations.push(symbol_op(symbol, structural, policy));
     }
-    if intent != TaskIntent::ModuleTopology {
+    if intent != TaskIntent::ModuleTopology && intent != TaskIntent::TestSelection {
         operations.push(modules_op(policy));
     }
     if let Some(symbol) = symbol

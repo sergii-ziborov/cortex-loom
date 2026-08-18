@@ -97,7 +97,14 @@ fn compile_layered(
         task_item
     });
     items.extend(evidence.into_iter().map(|fragment| {
-        let (priority, state) = evidence_policy(fragment.kind, fragment.head, fragment.facet);
+        let (mut priority, state) = evidence_policy(fragment.kind, fragment.head, fragment.facet);
+        // Suite head answers "which tests?". Later slices of the same file
+        // stay Normal so a tight compile drops them first, not `tests.rs:1`.
+        if crate::plan_intent::detect(task) == crate::plan_intent::TaskIntent::TestSelection
+            && matches!(fragment.kind, EvidenceKind::SourceReads)
+        {
+            priority = EvidencePriority::High;
+        }
         let score = relevance.and_then(|scores| scores.get(&fragment.id).copied());
         let mut item = EvidenceItem::new(
             fragment.id,

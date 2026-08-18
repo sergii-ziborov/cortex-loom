@@ -14,7 +14,7 @@
 
 use std::fmt::Write as _;
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
 const MAX_EVIDENCE_CHARS: usize = 24_000;
 
@@ -113,18 +113,24 @@ fn symbol_inspection(value: &Value) -> Option<String> {
 
 /// `get_neighbors` returns the same relationship block without the wrapper.
 fn graph_neighbors(value: &Value) -> Option<String> {
-    value
-        .get("neighbors")
-        .is_some()
-        .then(|| neighbor_lines(value))
-        .filter(|rendered| !rendered.is_empty())
+    if value.get("neighbors").and_then(Value::as_array).is_some() {
+        let rendered = neighbor_lines(value);
+        return (!rendered.is_empty()).then_some(rendered);
+    }
+    // weavatrix-rust 2.6 names the array `dependents`.
+    if value.get("dependents").and_then(Value::as_array).is_some() {
+        let wrapped = json!({ "neighbors": value.get("dependents") });
+        let rendered = neighbor_lines(&wrapped);
+        return (!rendered.is_empty()).then_some(rendered);
+    }
+    None
 }
 
 fn neighbor_lines(relationships: &Value) -> String {
     let Some(neighbors) = relationships.get("neighbors").and_then(Value::as_array) else {
         return String::new();
     };
-    let mut out = format!("relationships: {}\n", neighbors.len());
+    let mut rows = Vec::new();
     for neighbor in neighbors {
         let relation = neighbor
             .get("relation")
@@ -154,10 +160,37 @@ fn neighbor_lines(relationships: &Value) -> String {
                 let _ = write!(line, " via {evidence}");
             }
         }
+        rows.push((neighbor_rank(&at, &line), at.clone(), line));
+    }
+    rows.sort_by(|left, right| left.0.cmp(&right.0).then(left.2.cmp(&right.2)));
+    let mut seen_files: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    let mut out = format!("relationships: {}\n", neighbors.len());
+    for (_, at, line) in rows {
+        let file = at.split(':').next().unwrap_or(at.as_str()).to_owned();
+        let count = seen_files.entry(file).or_insert(0);
+        *count += 1;
+        if *count > 2 {
+            continue;
+        }
         out.push_str(line.trim_end());
         out.push('\n');
     }
     out
+}
+
+fn neighbor_rank(at: &str, line: &str) -> i32 {
+    let haystack = format!("{at} {line}").replace('\\', "/").to_ascii_lowercase();
+    let mut score = 0_i32;
+    if haystack.contains("/tests/") || haystack.contains("tests.rs") {
+        score += 80;
+    }
+    if haystack.contains("/bench/") || haystack.contains("docs/") {
+        score += 60;
+    }
+    if haystack.contains("apps/") || haystack.contains("crates/") {
+        score -= 20;
+    }
+    score
 }
 
 fn node_line(prefix: &str, node: &Value) -> String {

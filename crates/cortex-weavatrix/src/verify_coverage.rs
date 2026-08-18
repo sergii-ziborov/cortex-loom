@@ -200,6 +200,11 @@ fn route_store_requirements(lower: &str, intent: TaskIntent) -> Vec<CoverageRequ
             &["fn permits", "pub fn permits"],
             &["fn permits", "pub fn permits"],
         ));
+        requirements.push(requirement(
+            "accelerator_devices",
+            &["device::gpu", "device::npu"],
+            &["Device::Gpu", "Device::Npu"],
+        ));
     }
     if intent == TaskIntent::ModuleTopology
         && lower.contains("run")

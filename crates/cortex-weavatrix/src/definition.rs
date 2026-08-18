@@ -92,6 +92,9 @@ mod tests {
     #[test]
     fn a_python_indent_block_is_complete_without_braces() {
         let text = "class ArchiveOptions:\n    enabled = True\n    max_entries = 32\n";
-        assert_eq!(definition_complete(text, "ArchiveOptions", None), Some(true));
+        assert_eq!(
+            definition_complete(text, "ArchiveOptions", None),
+            Some(true)
+        );
     }
 }

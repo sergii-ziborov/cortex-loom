@@ -148,6 +148,28 @@ fn blast_radius_intent_asks_for_dependents_first() {
 }
 
 #[test]
+fn a_versus_callers_question_searches_every_named_function() {
+    let operations = plan(
+        "Who calls `compile_evidence_bundle` versus `compile_probe_bundle`, and what breaks if the generic path starts refusing more packets?",
+        Some("compile_evidence_bundle"),
+        4_000,
+    );
+    let query = operations
+        .iter()
+        .find(|operation| operation.tool == "search_code")
+        .and_then(|operation| operation.arguments["query"].as_str())
+        .expect("blast-radius plan searches callers");
+    assert!(
+        query.contains("match)\\s+compile_evidence_bundle"),
+        "seed caller missing: {query}"
+    );
+    assert!(
+        query.contains("match)\\s+compile_probe_bundle"),
+        "the named counterpart must be searched too: {query}"
+    );
+}
+
+#[test]
 fn api_contract_intent_asks_for_endpoints() {
     let operations = plan(
         "What breaks if the `/api/skills/compile` HTTP contract changes?",

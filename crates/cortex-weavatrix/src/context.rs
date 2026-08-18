@@ -175,8 +175,7 @@ const fn evidence_policy(
 ) -> (EvidencePriority, EvidenceState) {
     match (kind, facet, head) {
         (EvidenceKind::ChangePlan, _, _) => (EvidencePriority::High, EvidenceState::Unverified),
-        (_, EvidenceFacet::Definition | EvidenceFacet::CallerSignature, true)
-        | (EvidenceKind::SymbolContext, _, true) => {
+        (_, EvidenceFacet::Definition, true) | (EvidenceKind::SymbolContext, _, true) => {
             (EvidencePriority::Critical, EvidenceState::Verified)
         }
         (_, EvidenceFacet::SourceWindow, _) | (EvidenceKind::SourceReads, _, false) => {

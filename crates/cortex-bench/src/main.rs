@@ -14,8 +14,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
 
-use cortex_bench::naive::{NaiveScan, scan};
 use cortex_bench::lang_tasks::lang_tasks;
+use cortex_bench::naive::{NaiveScan, scan};
 use cortex_bench::probe_tasks::probe_tasks;
 use cortex_bench::report::render;
 use cortex_bench::schedule::alternating_orders;

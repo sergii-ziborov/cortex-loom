@@ -54,6 +54,31 @@ pub(super) fn blast_search_pattern(symbol: &str) -> String {
     )
 }
 
+/// Call-site search for every named identifier, not just the seed symbol.
+///
+/// A "who calls A versus B" question is blast-radius. Searching only `A`
+/// misses the `match B(` caller (measured: compile-bundle 2/4 after the
+/// `compile_probe_bundle` split).
+pub(super) fn blast_search_query(symbol: Option<&str>, identifiers: &[String]) -> String {
+    let mut names = Vec::new();
+    if let Some(symbol) = symbol {
+        names.push(symbol.to_owned());
+    }
+    for identifier in identifiers {
+        if !names.iter().any(|seen| seen == identifier) {
+            names.push(identifier.clone());
+        }
+        if names.len() == super::MAX_IDENTIFIERS {
+            break;
+        }
+    }
+    names
+        .iter()
+        .map(|name| blast_search_pattern(name))
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
 pub(super) fn asks_for_change_plan(task: &str) -> bool {
     const CUES: &[&str] = &[
         "change plan",

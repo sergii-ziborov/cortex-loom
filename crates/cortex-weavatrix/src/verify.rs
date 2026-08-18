@@ -342,9 +342,8 @@ fn definition_group_complete(profile: &EvidenceProfile, symbol: &str) -> bool {
     if profile.declared_complete {
         return true;
     }
-    let complete = |body: &str| {
-        crate::definition::definition_complete(body, symbol, None) == Some(true)
-    };
+    let complete =
+        |body: &str| crate::definition::definition_complete(body, symbol, None) == Some(true);
     profile.coverage_fragments.iter().any(|body| complete(body))
         || profile.grouped.values().any(|body| complete(body))
 }

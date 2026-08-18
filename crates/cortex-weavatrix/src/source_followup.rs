@@ -278,18 +278,54 @@ pub fn unique_paths_for_patterns(
         .collect();
     ranked.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(&right.1)));
     let mut chosen = Vec::new();
-    for (_, _, hit) in ranked {
+    for (_, _, hit) in &ranked {
         if chosen.iter().any(|seen: &SearchHit| {
             seen.path == hit.path && seen.line.abs_diff(hit.line) <= SOURCE_BEFORE
         }) {
             continue;
         }
-        chosen.push(hit.clone());
+        chosen.push((*hit).clone());
         if chosen.len() == max_files {
             break;
         }
     }
+    reserve_uncovered_patterns(&mut chosen, &ranked, preferred_patterns, max_files);
     chosen
+}
+
+/// Keep one window for each preferred term no selected hit carries.
+///
+/// Ranked gather otherwise spends every slot on `CORTEX_LLM` config/wiring
+/// files and never opens `merge_tiers` / `LlmRouter` (measured: contract
+/// retry stayed thin after the source pool grew).
+fn reserve_uncovered_patterns(
+    chosen: &mut Vec<SearchHit>,
+    ranked: &[(i32, usize, &SearchHit)],
+    preferred_patterns: &[String],
+    max_files: usize,
+) {
+    for pattern in preferred_patterns {
+        let needle = pattern.to_ascii_lowercase();
+        if needle.is_empty()
+            || chosen
+                .iter()
+                .any(|hit| hit.text.to_ascii_lowercase().contains(&needle))
+        {
+            continue;
+        }
+        let Some((_, _, hit)) = ranked.iter().find(|(_, _, hit)| {
+            hit.text.to_ascii_lowercase().contains(&needle)
+                && !chosen.iter().any(|seen| {
+                    seen.path == hit.path && seen.line.abs_diff(hit.line) <= SOURCE_BEFORE
+                })
+        }) else {
+            continue;
+        };
+        if chosen.len() == max_files {
+            chosen.pop();
+        }
+        chosen.push((*hit).clone());
+    }
 }
 
 fn preference_score(text: &str, patterns: &[String]) -> i32 {
@@ -314,14 +350,18 @@ fn path_rank(path: &str, task: &str) -> i32 {
         || task_fold.contains("tsx")
         || task_fold.contains("react")
         || task_fold.contains("css");
-    let wants_tests = crate::plan_intent::detect(task) == crate::plan_intent::TaskIntent::TestSelection
+    let wants_tests = crate::plan_intent::detect(task)
+        == crate::plan_intent::TaskIntent::TestSelection
         || task_fold.contains("test");
     let extension = std::path::Path::new(&lower)
         .extension()
         .and_then(|ext| ext.to_str())
         .unwrap_or("");
     let mut score = 0_i32;
-    if matches!(extension, "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go" | "java" | "cs") {
+    if matches!(
+        extension,
+        "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go" | "java" | "cs"
+    ) {
         score += 40;
     } else if matches!(extension, "json" | "toml" | "yaml" | "yml") {
         score += 25;
@@ -346,14 +386,17 @@ fn path_rank(path: &str, task: &str) -> i32 {
     if is_test_path {
         score += if wants_tests { 35 } else { -15 };
     }
+    // Fixture lists and docs, not the bench binary itself. `main.rs` is
+    // the `compile_probe_bundle` / `cortex_arm` caller the compile-bundle
+    // probe has to open; penalising the whole crate drops those facts.
     if lower.contains("/bench/")
-        || lower.contains("/cortex-bench/")
         || lower.ends_with("/probe_tasks.rs")
         || lower.ends_with("/tasks.rs")
         || lower.contains("/fixtures/")
         || lower.contains("plan_tests.rs")
         || lower.contains("plan_intent.rs")
         || lower.contains("source_followup.rs")
+        || lower.contains("verify_coverage.rs")
         || lower.starts_with("docs/")
         || lower.starts_with("readme")
     {
@@ -363,15 +406,20 @@ fn path_rank(path: &str, task: &str) -> i32 {
 }
 
 /// Arguments for one bounded `read_source` call around a hit.
+///
+/// A 216-token slice cannot pay for 24 lines of preamble: Weavatrix trims
+/// from `start_line`, so the enclosing `fn cortex_arm` (six lines above
+/// `match compile_probe_bundle`) never arrived. Spend the slice around the
+/// hit, keeping at least eight lines above.
 #[must_use]
 pub fn read_arguments_with(hit: &SearchHit, token_budget: u32, window: SourceWindow) -> Value {
-    let bounded_before = window.before.min(token_budget / 48);
-    let start_line = hit.line.saturating_sub(bounded_before).max(1);
+    let affordable_before = token_budget.saturating_div(48).clamp(8, window.before);
+    let start_line = hit.line.saturating_sub(affordable_before).max(1);
     json!({
         "path": hit.path,
         "start_line": start_line,
         "before": 0,
-        "after": bounded_before + window.after,
+        "after": hit.line.saturating_sub(start_line) + window.after,
         "token_budget": token_budget.max(200),
     })
 }
@@ -402,176 +450,8 @@ pub fn per_file_budget_with(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    fn hit(path: &str, line: u32) -> SearchHit {
-        SearchHit {
-            path: path.to_owned(),
-            line,
-            text: String::new(),
-        }
-    }
-
-    #[test]
-    fn hits_are_deduplicated_by_path_keeping_first_line() {
-        let value = json!({
-            "matches": [
-                {"path": "crates/a/src/a.rs", "line": 10},
-                {"path": "crates/b/src/b.rs", "line": 2},
-                {"path": "crates/a/src/a.rs", "line": 20},
-                {"path": "crates/c/src/c.rs", "line": 1},
-            ]
-        });
-        let hits = hits_from_search(&value);
-        let unique = unique_paths_for_patterns(&hits, 2, &[], "");
-        assert_eq!(
-            unique,
-            vec![hit("crates/a/src/a.rs", 10), hit("crates/b/src/b.rs", 2),]
-        );
-    }
-
-    #[test]
-    fn distant_hits_in_one_file_keep_separate_source_windows() {
-        let hits = vec![
-            hit("crates/a/src/lib.rs", 10),
-            hit("crates/a/src/lib.rs", 200),
-        ];
-        assert_eq!(unique_paths_for_patterns(&hits, 6, &[], ""), hits);
-    }
-
-    #[test]
-    fn product_rust_outranks_docs_ui_and_bench_fixtures() {
-        let hits = vec![
-            hit("README.md", 1),
-            hit("crates/cortex-bench/src/tasks.rs", 2),
-            hit("crates/cortex-bench/src/probe_tasks.rs", 2),
-            hit("docs/benchmark.md", 3),
-            hit("ui/src/api/client.ts", 22),
-            hit("apps/cortex-server/src/main.rs", 207),
-            hit("apps/cortex-server/src/library.rs", 39),
-        ];
-        let unique = unique_paths_for_patterns(&hits, 2, &[], "rename compile_context");
-        assert_eq!(unique[0].path, "apps/cortex-server/src/main.rs");
-        assert_eq!(unique[1].path, "apps/cortex-server/src/library.rs");
-    }
-
-    #[test]
-    fn runtime_config_outranks_docs_and_ui() {
-        let hits = vec![
-            hit("docs/local-models.md", 20),
-            hit("ui/src/types.ts", 10),
-            hit("config/llm-profiles.json", 15),
-        ];
-        let unique = unique_paths_for_patterns(&hits, 1, &[], "How does CORTEX_LLM read config?");
-        assert_eq!(unique[0].path, "config/llm-profiles.json");
-    }
-
-    #[test]
-    fn a_frontend_task_keeps_ui_and_a_test_task_keeps_tests() {
-        let hits = vec![
-            hit("docs/benchmark.md", 1),
-            hit("ui/src/api/client.ts", 22),
-            hit("crates/cortex-run/src/tests.rs", 10),
-        ];
-        let ui = unique_paths_for_patterns(&hits, 1, &[], "fix the React frontend in ui/");
-        assert_eq!(ui[0].path, "ui/src/api/client.ts");
-        let tests = unique_paths_for_patterns(&hits, 1, &[], "which tests should I run?");
-        assert_eq!(tests[0].path, "crates/cortex-run/src/tests.rs");
-    }
-
-    #[test]
-    fn missing_contract_term_outranks_generic_router_matches() {
-        let mut generic = hit("apps/cortex-server/src/docs.rs", 10);
-        generic.text = "use axum::{Json, Router};".to_owned();
-        let mut contract = hit("crates/cortex-mcp/src/llm_route.rs", 99);
-        contract.text = "let classification = merge_tiers(lexical, tier);".to_owned();
-        let chosen = unique_paths_for_patterns(&[generic, contract], 1, &["merge_".to_owned()], "");
-        assert_eq!(chosen[0].path, "crates/cortex-mcp/src/llm_route.rs");
-    }
-
-    #[test]
-    fn definition_completeness_tracks_brace_balance_not_head_presence() {
-        let complete = "pub struct ArchiveOptions {\n  a: u64,\n  b: usize,\n}\n";
-        let truncated = "pub struct ArchiveOptions {\n  a: u64,\n";
-        let absent = "let options = ArchiveOptions::default();";
-        let bodiless = "pub struct Marker;\n";
-        let nested = "fn outer() {\n  if x {\n    y();\n  }\n}\nmore text";
-        assert_eq!(
-            definition_is_complete(complete, "ArchiveOptions"),
-            Some(true)
-        );
-        assert_eq!(
-            definition_is_complete(truncated, "ArchiveOptions"),
-            Some(false)
-        );
-        assert_eq!(definition_is_complete(absent, "ArchiveOptions"), None);
-        assert_eq!(definition_is_complete(bodiless, "Marker"), Some(true));
-        assert_eq!(definition_is_complete(nested, "outer"), Some(true));
-    }
-
-    #[test]
-    fn definition_head_requires_a_word_boundary() {
-        assert!(definition_head_index("pub fn permits(&self)", "permits").is_some());
-        assert!(definition_head_index("pub fn permits_all()", "permits").is_none());
-        assert!(definition_head_index("permits(&self)", "permits").is_none());
-        assert!(
-            definition_head_index(
-                "export function formatGroupedResult()",
-                "formatGroupedResult"
-            )
-            .is_some()
-        );
-        assert!(definition_head_index("class Handler {", "Handler").is_some());
-        assert!(definition_head_index("def load_rows(self):", "load_rows").is_some());
-        assert_eq!(
-            definition_is_complete(r#"fn foo() { let s = "{"; }"#, "foo"),
-            Some(true),
-            "braces inside strings must not unbalance a definition"
-        );
-    }
-
-    #[test]
-    fn broad_tasks_widen_the_source_window() {
-        let broad = SourceWindow::for_task(
-            "List every mechanism in this crate that can silently cause a miss.",
-        );
-        let narrow = SourceWindow::for_task("Rename `read_limited` in containers.rs");
-        assert!(broad.max_files > narrow.max_files);
-        assert!(broad.after > narrow.after);
-        assert!(broad.pool_fifths > narrow.pool_fifths);
-        assert_eq!(narrow, SourceWindow::default());
-    }
-
-    #[test]
-    fn widened_pool_may_exceed_policy_source_tokens_but_not_the_budget_share() {
-        let policy = PlanPolicy::default();
-        let narrow = per_file_budget_with(4_000, 4, policy, SourceWindow::default());
-        let wide = per_file_budget_with(
-            4_000,
-            4,
-            policy,
-            SourceWindow {
-                max_files: 9,
-                before: SOURCE_BEFORE,
-                after: 84,
-                pool_fifths: 3,
-            },
-        );
-        assert!(wide >= narrow);
-        assert!(wide <= 4_000 * 3 / 5 / 4 + 200);
-    }
-
-    #[test]
-    fn read_arguments_open_a_window_around_the_hit() {
-        let hit = hit("crates/cortex-mcp/src/http.rs", 63);
-        let args = read_arguments_with(&hit, 400, SourceWindow::default());
-        assert_eq!(args["path"], "crates/cortex-mcp/src/http.rs");
-        assert_eq!(args["start_line"], 55);
-        assert_eq!(args["token_budget"], 400);
-    }
-}
+#[path = "source_followup_unit_tests.rs"]
+mod tests;
 
 #[cfg(test)]
 #[path = "source_followup_live_tests.rs"]

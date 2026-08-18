@@ -125,7 +125,14 @@ pub(super) fn fragments(
     source: &str,
     value: &Value,
 ) -> Vec<EvidenceFragment> {
-    let content = extract_text(value);
+    let content = {
+        let raw = extract_text(value);
+        if kind == EvidenceKind::Dependents {
+            cap_dependents(&raw, 48)
+        } else {
+            raw
+        }
+    };
     let mut locator = locator_from(source, value);
     apply_blob_hash(&mut locator, &content);
     let facet = facet_for(id, kind);
@@ -196,6 +203,45 @@ fn facet_for(id: &str, kind: EvidenceKind) -> EvidenceFacet {
         | EvidenceKind::StackTrace
         | EvidenceKind::TestSelection => EvidenceFacet::Structure,
     }
+}
+
+fn cap_dependents(content: &str, max_lines: usize) -> String {
+    let mut rows: Vec<(i32, String, String)> = content
+        .lines()
+        .map(|line| {
+            let file = line
+                .split([' ', ':'])
+                .find(|part| part.contains('/') || part.contains('\\'))
+                .unwrap_or("")
+                .replace('\\', "/");
+            let rank = if file.contains("/tests/") || file.ends_with("tests.rs") {
+                2
+            } else if file.contains("/bench/") || file.contains("docs/") {
+                1
+            } else {
+                0
+            };
+            (rank, file, line.to_owned())
+        })
+        .collect();
+    rows.sort_by(|left, right| left.0.cmp(&right.0).then(left.1.cmp(&right.1)));
+    let mut seen: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    let mut kept = Vec::new();
+    for (_, file, line) in rows {
+        if kept.len() >= max_lines {
+            break;
+        }
+        let count = seen.entry(file).or_insert(0);
+        *count += 1;
+        if *count > 2 {
+            continue;
+        }
+        kept.push(line);
+    }
+    if kept.is_empty() {
+        return content.to_owned();
+    }
+    kept.join("\n")
 }
 
 pub(super) fn split_content(content: &str, max_chars: usize) -> Vec<String> {

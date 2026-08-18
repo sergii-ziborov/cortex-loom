@@ -21,7 +21,7 @@ use crate::{EvidenceKind, PlanHints, PriorRunMemory};
 mod operations;
 
 use operations::{
-    asks_for_change_plan, blast_search_pattern, dependents_op, endpoints_op, git_history_op,
+    asks_for_change_plan, blast_search_query, dependents_op, endpoints_op, git_history_op,
     memory_op, modules_op, neighbors_op, search_op, search_pattern_op, select_tests_op, share,
     stacktrace_op, symbol_op, verify_op,
 };
@@ -313,15 +313,7 @@ pub fn plan_with_prior(
     prior: Option<&PriorRunMemory>,
     inventory_glob: Option<&str>,
 ) -> Vec<PlannedOperation> {
-    let mut operations = plan_all(
-        task,
-        symbol,
-        budget,
-        policy,
-        hints,
-        prior,
-        inventory_glob,
-    );
+    let mut operations = plan_all(task, symbol, budget, policy, hints, prior, inventory_glob);
     let ceiling = budget.saturating_mul(policy.overcommit.max(1));
     let mut committed = 0_u32;
     operations.retain(|operation| {
@@ -428,16 +420,17 @@ fn plan_all(
                 policy,
                 "config/**",
             ));
-        } else if intent == TaskIntent::BlastRadius
-            && let Some(symbol) = symbol
-        {
-            operations.push(search_pattern_op(
-                "WX-SEARCH",
-                &blast_search_pattern(symbol),
-                search_budget,
-                policy,
-                glob.as_str(),
-            ));
+        } else if intent == TaskIntent::BlastRadius {
+            let query = blast_search_query(symbol, &identifiers);
+            if !query.is_empty() {
+                operations.push(search_pattern_op(
+                    "WX-SEARCH",
+                    &query,
+                    search_budget,
+                    policy,
+                    glob.as_str(),
+                ));
+            }
         } else {
             operations.push(search_op(
                 "WX-SEARCH",

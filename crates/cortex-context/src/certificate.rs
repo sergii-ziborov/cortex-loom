@@ -53,6 +53,21 @@ pub struct CoverageCertificate {
     pub sufficient: bool,
     #[serde(default)]
     pub expansions_performed: u32,
+    /// How each satisfied facet was closed. Empty when nothing validated.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub claims: Vec<FacetClaim>,
+}
+
+/// One validated facet close: not "a Dependents fragment existed".
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct FacetClaim {
+    pub facet: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    pub evidence_ids: Vec<String>,
+    pub validator: String,
+    pub cardinality: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -81,6 +96,7 @@ impl CoverageCertificate {
             && self.missing == other.missing
             && self.sufficient == other.sufficient
             && self.contradictions == other.contradictions
+            && self.claims == other.claims
     }
 
     #[must_use]

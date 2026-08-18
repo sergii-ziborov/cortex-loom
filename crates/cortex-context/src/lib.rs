@@ -8,8 +8,8 @@ mod tokens;
 pub use certificate::{
     ContradictionGroup, CoverageCertificate, FACET_CALLERS, FACET_CONFIG, FACET_DEFAULTS,
     FACET_DEFINITION, FACET_ERRORS, FACET_EXPANSION_ORDER, FACET_GIT, FACET_GUARDS, FACET_MEMORY,
-    FACET_PUBLIC_API, FACET_SIGNATURES, FACET_TESTS, is_critical_facet, render_decision_map,
-    render_expansions,
+    FACET_PUBLIC_API, FACET_SIGNATURES, FACET_TESTS, FacetClaim, is_critical_facet,
+    render_decision_map, render_expansions,
 };
 pub use evidence::{
     EvidenceDerivation, EvidenceFacet, EvidenceItem, EvidenceLocator, EvidencePriority,

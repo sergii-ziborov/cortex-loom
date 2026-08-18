@@ -254,6 +254,7 @@ fn assess(
         fragments,
         required_facets(task, symbol, hints, source_followup),
         definition_complete,
+        symbol,
     );
     certificate.expansions_performed = u32::from(retry_performed);
     EvidenceSufficiency {

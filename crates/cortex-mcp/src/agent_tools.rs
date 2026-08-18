@@ -14,8 +14,7 @@ use serde_json::json;
 
 use crate::CortexMcpState;
 use crate::compile_session::{CompileArgs, compile_weavatrix};
-use crate::packet_store::{StoredPacket, packet_id};
-use cortex_context::snapshot_is_stale;
+use crate::packet_store::{StoredPacket, certificate_hash, packet_stale, task_hash};
 use cortex_weavatrix::repository_snapshot;
 
 #[derive(Debug, Deserialize)]
@@ -64,7 +63,7 @@ pub(crate) fn register(
         )
         .typed_tool(
             "cortex_expand",
-            "Fetch one missing facet of a packet returned by cortex_prepare. Do not invent a packetId.",
+            "Fetch one missing facet of a packet returned by cortex_prepare. The packetId is revision-bound. If the tree moved, the tool refuses and the caller must cortex_prepare again.",
             json!({
                 "type": "object",
                 "properties": {
@@ -122,15 +121,22 @@ fn prepare(state: &CortexMcpState, arguments: PrepareArgs) -> ToolReply {
         .as_ref()
         .map(|report| report.missing_evidence.clone())
         .unwrap_or_default();
-    let id = packet_id(&arguments.repository.to_string_lossy(), &arguments.task);
+    let Some(id) = compiled.context.packet_id.clone() else {
+        return ToolReply::error("compiled packet has no packetId");
+    };
     let snapshot = compiled.context.snapshot_id.clone();
     state.packets.insert(StoredPacket {
         id: id.clone(),
         repository: arguments.repository,
-        task: arguments.task,
+        task: arguments.task.clone(),
+        task_hash: task_hash(&arguments.task),
         run_id: arguments.run_id,
         symbols,
         snapshot_id: snapshot.clone(),
+        certificate_hash: compiled
+            .sufficiency
+            .as_ref()
+            .map(|report| certificate_hash(&report.certificate)),
         max_tokens,
     });
     let handles: Vec<_> = missing
@@ -140,6 +146,11 @@ fn prepare(state: &CortexMcpState, arguments: PrepareArgs) -> ToolReply {
     ToolReply::text(json!({
         "packetId": id,
         "snapshotId": snapshot,
+        "taskHash": task_hash(&arguments.task),
+        "certificateHash": compiled
+            .sufficiency
+            .as_ref()
+            .map(|report| certificate_hash(&report.certificate)),
         "routing": routing,
         "mutationLikely": classification.mutation_likely,
         "workflowStep": workflow,
@@ -159,7 +170,9 @@ fn expand(state: &CortexMcpState, arguments: &ExpandArgs) -> ToolReply {
         return ToolReply::error(format!("unknown packetId: {}", arguments.packet_id));
     };
     let current_snapshot = repository_snapshot(&stored.repository);
-    let revision_stale = snapshot_is_stale(stored.snapshot_id.as_deref(), &current_snapshot);
+    if let Some(blocked) = packet_stale(&stored, &current_snapshot) {
+        return ToolReply::error(blocked.to_string());
+    }
     let (task, hints) = facet_request(&stored.task, &stored.symbols, &arguments.facet);
     match compile_weavatrix(
         state,
@@ -176,8 +189,10 @@ fn expand(state: &CortexMcpState, arguments: &ExpandArgs) -> ToolReply {
     ) {
         Ok(packet) => ToolReply::text(json!({
             "packetId": stored.id,
-            "stale": revision_stale,
+            "stale": false,
             "snapshotId": packet.context.snapshot_id,
+            "taskHash": stored.task_hash,
+            "certificateHash": stored.certificate_hash,
             "facet": arguments.facet,
             "context": packet.context,
             "coverage": packet.sufficiency,

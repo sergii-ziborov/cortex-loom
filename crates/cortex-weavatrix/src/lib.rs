@@ -1,6 +1,7 @@
 mod adapter;
 mod budget;
 mod certificate;
+mod certified;
 mod context;
 mod definition;
 mod fold;
@@ -21,6 +22,7 @@ pub use adapter::{
     WeavatrixError,
 };
 pub use budget::{BudgetPin, adaptive_budget};
+pub use certified::compile_certified_bundle;
 pub use context::{
     CompiledEvidenceBundle, compile_evidence_bundle, compile_evidence_bundle_layered,
     compile_probe_bundle,

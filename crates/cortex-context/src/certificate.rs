@@ -72,6 +72,17 @@ impl CoverageCertificate {
             .collect()
     }
 
+    /// Facets and citations the L0 map prints. Packet/snapshot ids are
+    /// stamped later and must not count as a ledger change.
+    #[must_use]
+    pub fn ledger_matches(&self, other: &Self) -> bool {
+        self.required == other.required
+            && self.satisfied == other.satisfied
+            && self.missing == other.missing
+            && self.sufficient == other.sufficient
+            && self.contradictions == other.contradictions
+    }
+
     #[must_use]
     pub fn next_expansion(&self) -> Option<&str> {
         FACET_EXPANSION_ORDER
@@ -209,5 +220,21 @@ mod tests {
         assert!(map.contains("target.complete_definition [CRITICAL] ev_a91"));
         assert!(map.contains("direct_callers [CRITICAL] MISSING → EXPAND callers"));
         assert!(render_expansions(&certificate).contains("EXPAND callers — direct_callers"));
+    }
+
+    #[test]
+    fn ledger_ignores_packet_identity() {
+        let mut left = CoverageCertificate {
+            required: vec![FACET_CALLERS.to_owned()],
+            missing: vec![FACET_CALLERS.to_owned()],
+            sufficient: false,
+            packet_id: Some("a".to_owned()),
+            ..CoverageCertificate::default()
+        };
+        let mut right = left.clone();
+        right.packet_id = Some("b".to_owned());
+        assert!(left.ledger_matches(&right));
+        left.missing.clear();
+        assert!(!left.ledger_matches(&right));
     }
 }

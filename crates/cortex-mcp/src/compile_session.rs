@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use cortex_shadow::{CompressionSnapshot, ShadowEvidence, ShadowTask};
 use cortex_store::{UsageOperation, UsageSample};
-use cortex_weavatrix::{CompiledEvidenceBundle, PlanHints, assess_compiled};
+use cortex_weavatrix::{CompiledEvidenceBundle, PlanHints};
 
 use crate::{CortexMcpState, plan_hints, record_usage};
 
@@ -30,7 +30,6 @@ pub(crate) fn compile_weavatrix(
     let prior = crate::context_memory::load_prior(&state.store, arguments.run_id.as_deref());
     let (prepared, retry) = gather(state, arguments, hints, prior);
     let mut bundle = prepared.map_err(|error| error.to_string())?;
-    let verification = bundle.clone();
     let shadow_evidence = state.shadow.as_ref().map(|_| {
         bundle
             .evidence
@@ -45,57 +44,28 @@ pub(crate) fn compile_weavatrix(
     let started = Instant::now();
     let mut semantic_note = None;
     let relevance = score(state, arguments, &mut bundle, &mut semantic_note);
-    let mut packet = cortex_weavatrix::compile_evidence_bundle(
-        bundle.clone(),
-        &arguments.task,
-        arguments.max_tokens,
-        relevance.as_ref(),
-    )
-    .map_err(|error| error.to_string())?;
-    packet.semantic_ranking = semantic_note.clone();
-    apply_sufficiency(
-        &mut packet,
-        &verification,
-        arguments,
-        hints,
-        source_followup,
-        retry.clone(),
-    );
-    if let Some(report) = packet.sufficiency.as_ref() {
-        let mut certificate = report.certificate.clone();
-        certificate.packet_id.clone_from(&packet.context.packet_id);
-        certificate
-            .snapshot_id
-            .clone_from(&packet.context.snapshot_id);
-        let mut layered = cortex_weavatrix::compile_evidence_bundle_layered(
+    let mut packet = if retry.is_some() {
+        cortex_weavatrix::compile_certified_bundle(
+            bundle,
+            &arguments.task,
+            arguments.symbol.as_deref(),
+            arguments.max_tokens,
+            relevance.as_ref(),
+            hints,
+            source_followup,
+            retry.as_ref().is_some_and(|report| report.retry_performed),
+        )
+        .map_err(|error| error.to_string())?
+    } else {
+        cortex_weavatrix::compile_evidence_bundle(
             bundle,
             &arguments.task,
             arguments.max_tokens,
             relevance.as_ref(),
-            Some(&certificate),
         )
-        .map_err(|error| error.to_string())?;
-        layered.semantic_ranking = semantic_note;
-        apply_sufficiency(
-            &mut layered,
-            &verification,
-            arguments,
-            hints,
-            source_followup,
-            retry,
-        );
-        if let Some(final_report) = layered.sufficiency.as_mut() {
-            final_report
-                .certificate
-                .packet_id
-                .clone_from(&layered.context.packet_id);
-            final_report
-                .certificate
-                .snapshot_id
-                .clone_from(&layered.context.snapshot_id);
-        }
-        packet = layered;
-    }
+        .map_err(|error| error.to_string())?
+    };
+    packet.semantic_ranking = semantic_note;
     record_compile(state, arguments, &packet, started);
     observe_shadow(state, arguments, shadow_evidence, &packet);
     Ok(packet)
@@ -180,36 +150,6 @@ fn score(
             }
         }
     })
-}
-
-fn apply_sufficiency(
-    packet: &mut CompiledEvidenceBundle,
-    verification: &cortex_weavatrix::EvidenceBundle,
-    arguments: &CompileArgs,
-    hints: PlanHints,
-    source_followup: bool,
-    retry: Option<cortex_weavatrix::EvidenceSufficiency>,
-) {
-    let Some(gather_report) = retry else {
-        return;
-    };
-    let final_report = assess_compiled(
-        verification,
-        &packet.context.included_ids,
-        &arguments.task,
-        arguments.symbol.as_deref(),
-        hints,
-        source_followup,
-        gather_report.retry_performed,
-    );
-    if !final_report.sufficient {
-        packet.context.requires_upstream = true;
-        packet.warnings.push(format!(
-            "evidence remains thin after verification: {}",
-            final_report.missing_evidence.join(", ")
-        ));
-    }
-    packet.sufficiency = Some(final_report);
 }
 
 fn record_compile(

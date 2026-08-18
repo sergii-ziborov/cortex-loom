@@ -17,7 +17,7 @@ use crate::{EvidenceBundle, EvidenceKind, PlanHints};
 
 #[path = "verify_coverage.rs"]
 mod coverage;
-use coverage::{coverage_requirements, is_sibling_surface_label};
+use coverage::coverage_requirements;
 
 /// Result of the gather/verify phase exposed with the compiled context.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -324,22 +324,18 @@ pub(crate) fn retry_search_queries(
     queries
 }
 
-/// Search queries for sibling-file facts implied by the task, not named in it.
+/// Search queries for facts the task implies but does not name.
 ///
-/// First-pass gather injects these hits so source windows open on the right
-/// lines without waiting for a remaining-token retry.
+/// First-pass gather injects these hits so targeted (no sufficiency retry)
+/// opens the same preferred windows source would recover on retry:
+/// `gate_passed`, `merge_tiers`, `fn observe`, `run_store`, and the sibling
+/// terms. Identifier queries stay out: the planned search already has them.
 pub(crate) fn implied_coverage_queries(
     task: &str,
     symbol: Option<&str>,
     hints: PlanHints,
 ) -> Vec<String> {
-    let intent = hints.intent_or_detect(task);
-    coverage_requirements(task, symbol, intent)
-        .into_iter()
-        .filter(|requirement| is_sibling_surface_label(&requirement.label))
-        .map(|requirement| requirement.search_patterns.join("|"))
-        .filter(|query| !query.is_empty())
-        .collect()
+    retry_search_queries(task, symbol, hints, &["source_term:implied".to_owned()])
 }
 
 pub(crate) fn source_priority_patterns(

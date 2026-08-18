@@ -126,12 +126,23 @@ pub(super) fn fragments(
     value: &Value,
 ) -> Vec<EvidenceFragment> {
     let content = {
-        let raw = extract_text(value);
+        let mut raw = extract_text(value);
         if kind == EvidenceKind::Dependents {
-            cap_dependents(&raw, 48)
-        } else {
-            raw
+            raw = cap_dependents(&raw, 48);
         }
+        // A source window without its path cannot name the crate or file
+        // (measured: probe-store crate-name vanished when module_map was
+        // omitted). Search already greps as `path:line:`; keep that shape.
+        if matches!(
+            kind,
+            EvidenceKind::SourceReads | EvidenceKind::TypeExpansion
+        ) && let Some(path) = value.get("path").and_then(Value::as_str)
+            && !path.is_empty()
+            && !raw.contains(path)
+        {
+            raw = format!("{path}\n{raw}");
+        }
+        raw
     };
     let mut locator = locator_from(source, value);
     apply_blob_hash(&mut locator, &content);

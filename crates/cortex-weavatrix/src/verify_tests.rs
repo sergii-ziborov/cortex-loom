@@ -323,6 +323,29 @@ fn split_definition_pieces_complete_when_they_share_a_group() {
 }
 
 #[test]
+fn first_pass_implied_queries_include_probe_retry_terms() {
+    let profile = implied_coverage_queries(
+        "How does `ProfileRegistry` refuse an uncalibrated classification profile?",
+        Some("ProfileRegistry"),
+        PlanHints::default(),
+    );
+    let joined = profile.join(" ");
+    assert!(joined.contains("gate_passed"), "{profile:?}");
+    assert!(joined.contains("NotCalibrated"), "{profile:?}");
+    assert!(joined.contains("fn select"), "{profile:?}");
+
+    let compile = implied_coverage_queries(
+        "Who calls `compile_evidence_bundle` versus `compile_probe_bundle`?",
+        Some("compile_evidence_bundle"),
+        PlanHints::default(),
+    );
+    assert!(
+        !compile.iter().any(|query| query.contains("build_server")),
+        "compile-bundle probe must not pick up compile_context siblings: {compile:?}"
+    );
+}
+
+#[test]
 fn named_identifiers_may_close_from_search_hits() {
     let bundle = EvidenceBundle {
         repository: "repo".to_owned(),

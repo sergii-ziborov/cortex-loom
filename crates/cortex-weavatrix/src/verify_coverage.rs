@@ -46,10 +46,8 @@ pub(super) fn coverage_requirements(
     requirements
 }
 
-/// Labels whose first-pass search may run before source windows open.
-///
-/// These are implied by task wording, not named identifiers. Probe prompts
-/// do not trip them, so injecting their hits cannot reorder a 40/40 packet.
+/// Labels that are implied by core-task wording, not by probe prompts.
+#[cfg(test)]
 pub(super) fn is_sibling_surface_label(label: &str) -> bool {
     matches!(
         label,

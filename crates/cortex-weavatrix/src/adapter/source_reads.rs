@@ -182,7 +182,7 @@ pub(super) fn append_definition_read_as(
     let token_budget = if widen {
         (budget / 3).max(1_200)
     } else {
-        (budget / 5).max(600)
+        (budget / 4).max(800)
     };
     let start_line = graph_span
         .as_ref()
@@ -198,11 +198,10 @@ pub(super) fn append_definition_read_as(
                 _ => None,
             });
     // A short graph span (measured: import_skill_markdown reported 126
-    // lines, the item is ~280) must not freeze the window. Widen past it.
+    // lines, the item is ~280) must not freeze the window. Ask past it
+    // on the first read so targeted, which has no retry, still sees the body.
     let mut after = span_after.unwrap_or(if widen { 224 } else { 96 });
-    if widen {
-        after = after.max(280);
-    }
+    after = after.max(if widen { 280 } else { 224 });
     for attempt in 0..3 {
         let arguments = json!({
             "path": hit.path,

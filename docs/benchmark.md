@@ -273,10 +273,10 @@ matches source recall on this set. `cortex-loom` (four operations, no
 windows) stays 18/41. Resources: **14.2 s wall**, **22.8 s CPU**,
 **80.7 MB** peak.
 
-Probe stamp `targeted-source-probe`: source **18 895 / 40/40**
-(sufficient on all ten), targeted **16 800 / 31/40**. The nine probe
-misses on targeted are retry-only facts (`fn select`, `NotCalibrated`,
-`LlmRouter`, `merge_tiers`, `fn permits`, `fn observe`, `run_store`).
+Stamp `close-2-probe` (2026-08-18): first-pass semantic hits plus
+source windows that name their path. Source and targeted both
+**19 035 / 40/40**. `cortex-loom` stays 24/40. Resources: **21.6 s
+wall**, **30.8 s CPU**, **86.2 MB** peak.
 
 ### Languages — 6 tiny fixtures (TS, JS, Python, Go, Java, C#)
 

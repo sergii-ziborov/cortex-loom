@@ -137,34 +137,32 @@ device.** The context bench does not use the GPU.
 Ten tasks, 40 facts, this repository. Historical baseline
 2026-08-13 was 21 363 / 40/40. The restore stamp is **18 698 / 40/40**
 (same facts, compact dependents render — not a cheaper counter).
-Recheck after sibling coverage, targeted source windows, and
-sufficiency honesty: **18 895 / 40/40**.
+Recheck after first-pass semantic windows (no extra retry):
+**19 035 / 40/40**.
 
 | arm | selected tokens | delivered over MCP | facts |
 | --- | ---: | ---: | ---: |
-| naive known directories | 403 088 | — | 40/40 |
+| naive known directories | 403 238 | — | 40/40 |
 | raw Weavatrix | 95 927 | — | 28/40 |
-| Cortex targeted + source windows | 16 800 | 20 492 | 31/40 |
-| **Cortex + verified source** | **18 895** | **22 946** | **40/40** |
+| Cortex targeted + source windows | 19 035 | 22 850 | **40/40** |
+| **Cortex + verified source** | **19 035** | **22 936** | **40/40** |
 
 **95.3% fewer** selected tokens than naive at equal recall. Targeted
-now opens the same bounded source windows, but it has no sufficiency
-retry — it still drops 9 probe facts. Do not ship it as the quality
-arm.
+now opens the same preferred windows on the first pass (`gate_passed`,
+`merge_tiers`, `fn observe`, `run_store`), so it matches source recall
+without becoming the retry loop. `cortex-loom` stays the four-operation
+control.
 
 | set | tasks / facts | cortex-source | targeted | wall | CPU | peak RSS |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| probe @ 4k | 10 / 40 | **18 895 / 40/40** | 16 800 / 31/40 | 16.2 s | 13.2 s | 85.4 MB |
+| probe @ 4k | 10 / 40 | **19 035 / 40/40** | **19 035 / 40/40** | 21.6 s | 30.8 s | 86.2 MB |
 | probe @ 16k | 10 / 40 | **22 818 / 40/40** | — | 22.9 s | 14.4 s | 80.5 MB |
-| core @ 4k | 7 / 41 | **13 449 / 41/41** | **13 147 / 41/41** | 14.2 s | 22.8 s | 80.7 MB |
-| langs @ 4k | 6 / 12 | **3 733 / 12/12** | **3 733 / 12/12** | 8.6 s | 4.3 s | 81.1 MB |
+| core @ 4k | 7 / 41 | **14 461 / 41/41** | **14 478 / 41/41** | 16.1 s | 29.2 s | 82.7 MB |
+| langs @ 4k | 6 / 12 | **4 146 / 12/12** | **4 146 / 12/12** | 10.4 s | 5.3 s | 78.3 MB |
 
-Core sibling facts (limit constants, fail-closed errors, frontmatter
-helpers, MCP session header) land via implied coverage. Every
-`cortex-source` task on these three sets now reports `sufficient:
-true` — the earlier false-negatives (identifier-only-in-search,
-Python `def` vs a later `{`, short definition windows) are closed.
-`lang_tasks.rs` can no longer satisfy its own anchors. Sampler:
+Every `cortex-source` task on these three sets reports `sufficient:
+true`. Source windows now name their path, so a crate fact such as
+`cortex-store` survives when `module_map` is omitted. Sampler:
 `scripts/measure-bench.ps1`.
 
 ### Sequence methodology — 28 scenarios, no model
@@ -186,12 +184,10 @@ in this pass.
 ### Still open (do not paper over)
 
 - **`cortex-loom` is still the four-operation control.** 18/41 core,
-  24/40 probe, 8/12 langs. That arm has no search plan and no source
-  windows; collapsing it into targeted would delete the comparison.
-- **Targeted without retry is not the quality arm.** It now matches
-  source on core (41/41) and langs (12/12), but probe is **31/40**
-  because profile-gate / `merge_tiers` / `fn observe` still need the
-  sufficiency retry. Quality path remains `cortex-source`.
+  24/40 probe, 8/12 langs. Collapsing it into targeted would delete
+  the comparison.
+- **`cortex-full` (untrimmed) can drop facts.** Core 38/41 on this
+  stamp — overcommit plus larger windows is not the quality path.
 - **No git / stack-trace / test-selection fixture set** in
   `cortex-bench --set`. Those intents have unit tests, not a scored
   recall table on this repo.

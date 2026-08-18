@@ -39,6 +39,17 @@ fn read_source_lines_become_plain_source_instead_of_json() {
         extract_text(&value),
         "pub struct ArchiveOptions {\n    pub enabled: bool,\n}"
     );
+    let parts = fragments(
+        "WX-SOURCE",
+        EvidenceKind::SourceReads,
+        "weavatrix:read_source",
+        &value,
+    );
+    assert!(
+        parts[0].content.starts_with("src/options/types.rs\n"),
+        "source window must name its file: {}",
+        parts[0].content
+    );
 }
 
 #[test]

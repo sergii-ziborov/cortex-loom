@@ -168,7 +168,7 @@ fn run_arm_inner(
             |error| unavailable(kind, error),
             |bundle| cortex_arm(kind, settings, task, bundle),
         ),
-        ArmKind::WeavatrixPlanned | ArmKind::CortexLoomTargeted => adapter
+        ArmKind::WeavatrixPlanned => adapter
             .prepare_targeted_context(
                 &settings.repository,
                 task.prompt,
@@ -177,13 +177,22 @@ fn run_arm_inner(
             )
             .map_or_else(
                 |error| unavailable(kind, error.to_string()),
-                |bundle| {
-                    if kind == ArmKind::WeavatrixPlanned {
-                        planned_raw_arm(task, &bundle)
-                    } else {
-                        cortex_arm(kind, settings, task, bundle)
-                    }
-                },
+                |bundle| planned_raw_arm(task, &bundle),
+            ),
+        // Planned gather plus the same bounded source windows as the
+        // quality arm, without the sufficiency retry. `cortex-loom` stays
+        // the four-operation control so that comparison does not collapse.
+        ArmKind::CortexLoomTargeted => adapter
+            .prepare_targeted_context_with_source_reads(
+                &settings.repository,
+                task.prompt,
+                task.symbol,
+                settings.budget,
+                PlanPolicy::default(),
+            )
+            .map_or_else(
+                |error| unavailable(kind, error.to_string()),
+                |bundle| cortex_arm(kind, settings, task, bundle),
             ),
         ArmKind::CortexLoomFull => {
             let untrimmed = PlanPolicy {
@@ -191,7 +200,7 @@ fn run_arm_inner(
                 ..PlanPolicy::default()
             };
             adapter
-                .prepare_targeted_context_with(
+                .prepare_targeted_context_with_source_reads(
                     &settings.repository,
                     task.prompt,
                     task.symbol,

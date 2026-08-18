@@ -128,37 +128,76 @@ Full tables, stamps, host, and caveats:
 four-character unit. Runtime compile uses `conservative/v1`. Recall
 means declared literals were in the packet, not that a model answered.
 
-Host for the 2026-08-15 runs: Windows 11, Intel Core Ultra 7 255U
-(14 threads), 47.5 GB RAM, Intel Graphics. **No NVIDIA device.** The
-context bench does not use the GPU.
+Host for the 2026-08-15 and 2026-08-18 runs: Windows 11, Intel Core
+Ultra 7 255U (14 threads), 47.5 GB RAM, Intel Graphics. **No NVIDIA
+device.** The context bench does not use the GPU.
 
 ### Probe — quality stamp (`restore-40-final`, 4 000 tokens)
 
 Ten tasks, 40 facts, this repository. Historical baseline
-2026-08-13 was 21 363 / 40/40. This stamp is **18 698 / 40/40**
+2026-08-13 was 21 363 / 40/40. The restore stamp is **18 698 / 40/40**
 (same facts, compact dependents render — not a cheaper counter).
+Recheck after sibling coverage, targeted source windows, and
+sufficiency honesty: **18 895 / 40/40**.
 
 | arm | selected tokens | delivered over MCP | facts |
 | --- | ---: | ---: | ---: |
-| naive known directories | 398 441 | — | 40/40 |
+| naive known directories | 403 088 | — | 40/40 |
 | raw Weavatrix | 95 927 | — | 28/40 |
-| Cortex targeted | 9 282 | 12 231 | 29/40 |
-| **Cortex + verified source** | **18 698** | **22 794** | **40/40** |
+| Cortex targeted + source windows | 16 800 | 20 492 | 31/40 |
+| **Cortex + verified source** | **18 895** | **22 946** | **40/40** |
 
 **95.3% fewer** selected tokens than naive at equal recall. Targeted
-is cheaper and drops 11 facts — do not ship it as the quality arm.
+now opens the same bounded source windows, but it has no sufficiency
+retry — it still drops 9 probe facts. Do not ship it as the quality
+arm.
 
-| set | tasks / facts | cortex-source | wall | CPU | peak RSS |
-| --- | --- | ---: | ---: | ---: | ---: |
-| probe @ 4k | 10 / 40 | **18 698 / 40/40** | 14.9 s | 13.8 s | 83.5 MB |
-| probe @ 16k | 10 / 40 | **22 818 / 40/40** | 22.9 s | 14.4 s | 80.5 MB |
-| core @ 4k | 7 / 41 | 12 998 / **29/41** | 15.9 s | 6.2 s | 80.6 MB |
-| langs @ 4k | 6 / 12 | 2 973 / **12/12** | 8.6 s | 4.1 s | 79.5 MB |
+| set | tasks / facts | cortex-source | targeted | wall | CPU | peak RSS |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| probe @ 4k | 10 / 40 | **18 895 / 40/40** | 16 800 / 31/40 | 16.2 s | 13.2 s | 85.4 MB |
+| probe @ 16k | 10 / 40 | **22 818 / 40/40** | — | 22.9 s | 14.4 s | 80.5 MB |
+| core @ 4k | 7 / 41 | **13 449 / 41/41** | **13 147 / 41/41** | 14.2 s | 22.8 s | 80.7 MB |
+| langs @ 4k | 6 / 12 | **3 733 / 12/12** | **3 733 / 12/12** | 8.6 s | 4.3 s | 81.1 MB |
 
-Core is a harder fixture set (29/41 is not the quality stamp). Langs
-are tiny checked-in samples — naive is cheap there because the files
-are tiny, not because dumping a repo is free. Sampler:
+Core sibling facts (limit constants, fail-closed errors, frontmatter
+helpers, MCP session header) land via implied coverage. Every
+`cortex-source` task on these three sets now reports `sufficient:
+true` — the earlier false-negatives (identifier-only-in-search,
+Python `def` vs a later `{`, short definition windows) are closed.
+`lang_tasks.rs` can no longer satisfy its own anchors. Sampler:
 `scripts/measure-bench.ps1`.
+
+### Sequence methodology — 28 scenarios, no model
+
+Stamp `sequence-after-core-fix`. Cortex-native active-step packets
+**28/28**, **10 401 → 3 812** tokens vs bundled skill prose.
+`promoted` stays false on this machine: the Superpowers raw baseline
+was not supplied (`--superpowers-root`). That is a missing comparison
+arm, not a native fail. Same 28/28 as the README methodology table.
+
+### Tests run with this stamp
+
+`cargo test --workspace` passed (including doctests).
+`cargo test -p cortex-mcp --tests` passed, including the five
+adversarial transport cases. `cortex-eval --discover` saw Ollama
+0.32.13 and the three local profiles; no live model suite was run
+in this pass.
+
+### Still open (do not paper over)
+
+- **`cortex-loom` is still the four-operation control.** 18/41 core,
+  24/40 probe, 8/12 langs. That arm has no search plan and no source
+  windows; collapsing it into targeted would delete the comparison.
+- **Targeted without retry is not the quality arm.** It now matches
+  source on core (41/41) and langs (12/12), but probe is **31/40**
+  because profile-gate / `merge_tiers` / `fn observe` still need the
+  sufficiency retry. Quality path remains `cortex-source`.
+- **No git / stack-trace / test-selection fixture set** in
+  `cortex-bench --set`. Those intents have unit tests, not a scored
+  recall table on this repo.
+- **Stage 4 release comparison** (native / Weavatrix / Cortex /
+  Serena on one model) is still unrun here. Live 9B numbers below
+  are the 2026-08-10 stamp, not this pass.
 
 ### Live server — one question, every approach
 

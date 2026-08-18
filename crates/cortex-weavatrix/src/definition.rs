@@ -48,13 +48,15 @@ fn indent_block_complete(text: &str, symbol: &str) -> bool {
         return false;
     };
     let rest = &text[head..];
-    if rest.contains('{') {
-        return false;
-    }
     let mut lines = rest.lines();
     let Some(first) = lines.next() else {
         return false;
     };
+    // A later `{` in the same fragment (JSON tail, another item) is not
+    // this definition. Only a brace on the head means C-like syntax.
+    if first.contains('{') {
+        return false;
+    }
     let head_indent = first.chars().take_while(|ch| ch.is_whitespace()).count();
     let colon_head = first.trim_end().ends_with(':');
     let mut body = 0_usize;
@@ -94,6 +96,20 @@ mod tests {
         let text = "class ArchiveOptions:\n    enabled = True\n    max_entries = 32\n";
         assert_eq!(
             definition_complete(text, "ArchiveOptions", None),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn a_python_def_stays_complete_when_a_later_brace_is_unrelated() {
+        let text = "PY_RETRY_CAP = 8\n\ndef schedule_py_retry(attempt: int) -> int:\n    if attempt >= PY_RETRY_CAP:\n        return 0\n    return 2**attempt\n";
+        assert_eq!(
+            definition_complete(text, "schedule_py_retry", None),
+            Some(true)
+        );
+        let with_json_tail = format!("{text}{{\"path\":\"retry.py\"}}\n");
+        assert_eq!(
+            definition_complete(&with_json_tail, "schedule_py_retry", None),
             Some(true)
         );
     }

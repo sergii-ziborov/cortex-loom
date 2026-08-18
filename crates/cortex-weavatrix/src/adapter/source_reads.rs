@@ -14,6 +14,47 @@ pub(super) struct SourceReadPlan<'a> {
     pub task: &'a str,
 }
 
+/// Search implied sibling terms and keep only the hits, not the fragments.
+///
+/// The first-pass identifier query never sees `MAX_RETRY` / `unquote` /
+/// `mcp-session-id`. Adding those hits lets preferred windows land on the
+/// sibling file without spending compile budget on another search dump.
+pub(super) fn append_implied_coverage_hits(
+    engine: &mut Weavatrix,
+    search_hits: &mut Vec<crate::source_followup::SearchHit>,
+    warnings: &mut Vec<String>,
+    task: &str,
+    symbol: Option<&str>,
+    hints: crate::PlanHints,
+) {
+    let queries = crate::verify::implied_coverage_queries(task, symbol, hints);
+    if queries.is_empty() {
+        return;
+    }
+    warnings.push(format!(
+        "implied coverage search: {} quer{}",
+        queries.len(),
+        if queries.len() == 1 { "y" } else { "ies" }
+    ));
+    for query in queries {
+        let arguments = json!({
+            "query": query,
+            "is_regex": true,
+            "before": 2,
+            "after": 2,
+            "max_results": 24,
+            "glob": "{src,apps,crates,ui,config}/**/*",
+            "token_budget": 400,
+        });
+        match native_call(engine, "search_code", arguments) {
+            Ok(value) => {
+                search_hits.extend(crate::source_followup::hits_from_search(&value));
+            }
+            Err(error) => warnings.push(format!("implied coverage search unavailable: {error}")),
+        }
+    }
+}
+
 pub(super) fn append_source_reads(
     engine: &mut Weavatrix,
     evidence: &mut Vec<EvidenceFragment>,
@@ -105,7 +146,7 @@ pub(super) fn append_definition_read_as(
     if evidence.iter().any(|fragment| {
         fragment.facet == EvidenceFacet::Definition
             && (fragment.declared_complete == Some(true)
-                || crate::source_followup::definition_is_complete(&fragment.content, symbol)
+                || crate::definition::definition_complete(&fragment.content, symbol, None)
                     == Some(true))
     }) {
         return true;
@@ -138,21 +179,31 @@ pub(super) fn append_definition_read_as(
         ));
         return false;
     };
-    let token_budget = (budget / 5).max(600);
+    let token_budget = if widen {
+        (budget / 3).max(1_200)
+    } else {
+        (budget / 5).max(600)
+    };
     let start_line = graph_span
         .as_ref()
         .and_then(|locator| locator.start_line)
         .unwrap_or_else(|| hit.line.saturating_sub(4).max(1));
-    let mut after = graph_span
-        .as_ref()
-        .and_then(|locator| match (locator.start_line, locator.end_line) {
-            (Some(start), Some(end)) if end >= start => {
-                Some(end.saturating_sub(start).saturating_add(2))
-            }
-            _ => None,
-        })
-        .unwrap_or(if widen { 224 } else { 96 });
-    for attempt in 0..2 {
+    let span_after =
+        graph_span
+            .as_ref()
+            .and_then(|locator| match (locator.start_line, locator.end_line) {
+                (Some(start), Some(end)) if end >= start => {
+                    Some(end.saturating_sub(start).saturating_add(2))
+                }
+                _ => None,
+            });
+    // A short graph span (measured: import_skill_markdown reported 126
+    // lines, the item is ~280) must not freeze the window. Widen past it.
+    let mut after = span_after.unwrap_or(if widen { 224 } else { 96 });
+    if widen {
+        after = after.max(280);
+    }
+    for attempt in 0..3 {
         let arguments = json!({
             "path": hit.path,
             "start_line": start_line,
@@ -164,7 +215,7 @@ pub(super) fn append_definition_read_as(
             Ok(value) => {
                 let text = super::render::extract_text(&value);
                 let complete = definition_complete(&value, &text, symbol, graph_span.as_ref());
-                if complete || attempt == 1 {
+                if complete || attempt == 2 {
                     evidence.retain(|fragment| fragment.facet != EvidenceFacet::Definition);
                     let mut added = fragments(
                         id,
@@ -222,12 +273,18 @@ fn definition_complete(
     symbol: &str,
     span: Option<&cortex_context::EvidenceLocator>,
 ) -> bool {
+    if crate::definition::definition_complete(text, symbol, span) == Some(true) {
+        return true;
+    }
+    // A short Weavatrix span must not freeze a truncated body as complete.
     if let (Some(span), Some((got_start, got_end))) = (span, lines_range(value))
         && let (Some(need_start), Some(need_end)) = (span.start_line, span.end_line)
+        && range_covers(got_start, got_end, need_start, need_end)
+        && crate::definition::definition_complete(text, symbol, None) != Some(false)
     {
-        return range_covers(got_start, got_end, need_start, need_end);
+        return true;
     }
-    crate::definition::definition_complete(text, symbol, span) == Some(true)
+    false
 }
 
 fn locate_definition(

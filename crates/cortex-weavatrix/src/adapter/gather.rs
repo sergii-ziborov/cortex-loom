@@ -8,7 +8,9 @@ use super::evidence::{
     stamp_bundle,
 };
 use super::expand::{append_type_expansion_reads, callee_hits_from_evidence};
-use super::source_reads::{SourceReadPlan, append_definition_read, append_source_reads};
+use super::source_reads::{
+    SourceReadPlan, append_definition_read, append_implied_coverage_hits, append_source_reads,
+};
 use super::{WeavatrixAdapter, WeavatrixError};
 
 pub(super) struct TargetedEvidence {
@@ -339,6 +341,14 @@ impl WeavatrixAdapter {
             }
         }
         if source_followup {
+            append_implied_coverage_hits(
+                engine,
+                &mut search_hits,
+                &mut warnings,
+                task,
+                symbol,
+                hints,
+            );
             if crate::plan_intent::is_broad(task) {
                 search_hits.extend(callee_hits_from_evidence(&evidence));
             }

@@ -53,6 +53,19 @@ fn product_rust_outranks_docs_ui_and_bench_fixtures() {
 }
 
 #[test]
+fn language_samples_outrank_the_lang_task_list() {
+    let hits = vec![
+        hit("crates/cortex-bench/src/lang_tasks.rs", 12),
+        hit("crates/cortex-bench/fixtures/langs/retry.py", 4),
+    ];
+    let unique = unique_paths_for_patterns(&hits, 1, &[], "How does schedule_py_retry cap?");
+    assert_eq!(
+        unique[0].path, "crates/cortex-bench/fixtures/langs/retry.py",
+        "lang fixture source must beat the task list: {unique:?}"
+    );
+}
+
+#[test]
 fn a_bench_caller_is_kept_when_fixture_lists_are_not() {
     let mut caller = hit("crates/cortex-bench/src/main.rs", 330);
     caller.text =

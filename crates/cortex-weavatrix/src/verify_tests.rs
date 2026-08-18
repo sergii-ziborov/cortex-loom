@@ -323,6 +323,53 @@ fn split_definition_pieces_complete_when_they_share_a_group() {
 }
 
 #[test]
+fn named_identifiers_may_close_from_search_hits() {
+    let bundle = EvidenceBundle {
+        repository: "repo".to_owned(),
+        evidence: vec![
+            fragment(
+                "WX-SEARCH",
+                EvidenceKind::SearchHits,
+                "search matches: 1\ncrates/cortex-mcp/src/route_metric_tools.rs:189: quality_summary",
+            ),
+            fragment(
+                "WX-SOURCE",
+                EvidenceKind::SourceReads,
+                "tools/list\nweavatrix_context_compile\n",
+            ),
+        ],
+        warnings: Vec::new(),
+        ..EvidenceBundle::default()
+    };
+    let report = assess_compiled(
+        &bundle,
+        &["WX-SEARCH".to_owned(), "WX-SOURCE".to_owned()],
+        "Expose the token-accounting `quality_summary` as a bounded MCP \
+tool alongside the existing `usage_read` and `usage_report` tools.",
+        None,
+        PlanHints::default(),
+        true,
+        false,
+    );
+    assert!(
+        !report
+            .missing_evidence
+            .iter()
+            .any(|item| item == "source_term:identifier:quality_summary"),
+        "identifier still missing from search: {:?}",
+        report.missing_evidence
+    );
+    assert!(
+        report
+            .missing_evidence
+            .iter()
+            .any(|item| item == "source_term:identifier:usage_read"),
+        "semantic-style identifiers without a search hit must stay open: {:?}",
+        report.missing_evidence
+    );
+}
+
+#[test]
 fn identifier_only_semantic_retry_keeps_its_search_query() {
     let identifier = ["compile", "Markdown"].concat();
     let task = format!("Where does the `{identifier}` client call live?");

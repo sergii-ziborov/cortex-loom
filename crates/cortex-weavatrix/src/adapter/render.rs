@@ -179,7 +179,9 @@ fn neighbor_lines(relationships: &Value) -> String {
 }
 
 fn neighbor_rank(at: &str, line: &str) -> i32 {
-    let haystack = format!("{at} {line}").replace('\\', "/").to_ascii_lowercase();
+    let haystack = format!("{at} {line}")
+        .replace('\\', "/")
+        .to_ascii_lowercase();
     let mut score = 0_i32;
     if haystack.contains("/tests/") || haystack.contains("tests.rs") {
         score += 80;

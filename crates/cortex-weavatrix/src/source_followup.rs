@@ -389,10 +389,18 @@ fn path_rank(path: &str, task: &str) -> i32 {
     // Fixture lists and docs, not the bench binary itself. `main.rs` is
     // the `compile_probe_bundle` / `cortex_arm` caller the compile-bundle
     // probe has to open; penalising the whole crate drops those facts.
+    // Language samples under `fixtures/langs/` *are* the answering source
+    // — do not treat them like Markdown skill fixtures or `lang_tasks.rs`.
+    let fixture_list = lower.contains("/fixtures/")
+        && !matches!(
+            extension,
+            "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go" | "java" | "cs"
+        );
     if lower.contains("/bench/")
         || lower.ends_with("/probe_tasks.rs")
+        || lower.ends_with("/lang_tasks.rs")
         || lower.ends_with("/tasks.rs")
-        || lower.contains("/fixtures/")
+        || fixture_list
         || lower.contains("plan_tests.rs")
         || lower.contains("plan_intent.rs")
         || lower.contains("source_followup.rs")

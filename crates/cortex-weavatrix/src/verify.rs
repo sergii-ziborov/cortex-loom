@@ -17,7 +17,7 @@ use crate::{EvidenceBundle, EvidenceKind, PlanHints};
 
 #[path = "verify_coverage.rs"]
 mod coverage;
-use coverage::coverage_requirements;
+use coverage::{coverage_requirements, is_sibling_surface_label};
 
 /// Result of the gather/verify phase exposed with the compiled context.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -38,6 +38,10 @@ struct EvidenceProfile {
     kinds: HashSet<EvidenceKind>,
     search_hits: usize,
     coverage_text: String,
+    /// Search / symbol prose. Named identifiers often live here after a
+    /// sibling window took the source slot; requiring the same string in a
+    /// source window was a false-negative at full recall.
+    identifier_text: String,
     /// Original-case bodies for structural, boundary-sensitive checks.
     coverage_fragments: Vec<String>,
     grouped: std::collections::HashMap<String, String>,
@@ -120,6 +124,15 @@ fn profile<'a>(evidence: impl Iterator<Item = &'a crate::EvidenceFragment>) -> E
         }
         if matches!(
             item.kind,
+            EvidenceKind::SearchHits | EvidenceKind::SymbolContext
+        ) {
+            profile
+                .identifier_text
+                .push_str(&item.content.to_ascii_lowercase());
+            profile.identifier_text.push('\n');
+        }
+        if matches!(
+            item.kind,
             EvidenceKind::SourceReads | EvidenceKind::SymbolContext | EvidenceKind::TypeExpansion
         ) {
             profile.coverage_fragments.push(item.content.clone());
@@ -199,11 +212,19 @@ fn assess(
         for coverage in coverage_requirements(task, symbol, intent) {
             let name = format!("source_term:{}", coverage.label);
             required.push(name.clone());
-            if coverage
+            let in_source = coverage
                 .content_patterns
                 .iter()
-                .any(|pattern| profile.coverage_text.contains(pattern))
-            {
+                .any(|pattern| profile.coverage_text.contains(pattern));
+            // Only named identifiers may close from search/symbol prose.
+            // Semantic contracts (`fn rank`, `merge_tiers`) still need a
+            // source window, or the first pass skips the retry that finds them.
+            let in_search = coverage.label.starts_with("identifier:")
+                && coverage
+                    .content_patterns
+                    .iter()
+                    .any(|pattern| profile.identifier_text.contains(pattern));
+            if in_source || in_search {
                 present.push(name);
             } else {
                 missing.push(name);
@@ -301,6 +322,24 @@ pub(crate) fn retry_search_queries(
         return (!query.is_empty()).then_some(query).into_iter().collect();
     }
     queries
+}
+
+/// Search queries for sibling-file facts implied by the task, not named in it.
+///
+/// First-pass gather injects these hits so source windows open on the right
+/// lines without waiting for a remaining-token retry.
+pub(crate) fn implied_coverage_queries(
+    task: &str,
+    symbol: Option<&str>,
+    hints: PlanHints,
+) -> Vec<String> {
+    let intent = hints.intent_or_detect(task);
+    coverage_requirements(task, symbol, intent)
+        .into_iter()
+        .filter(|requirement| is_sibling_surface_label(&requirement.label))
+        .map(|requirement| requirement.search_patterns.join("|"))
+        .filter(|query| !query.is_empty())
+        .collect()
 }
 
 pub(crate) fn source_priority_patterns(

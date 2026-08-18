@@ -42,6 +42,117 @@ pub(super) fn coverage_requirements(
     requirements.extend(broad_silence_requirements(&lower));
     requirements.extend(quiet_mode_requirements(&lower));
     requirements.extend(block_join_requirements(&lower));
+    requirements.extend(sibling_surface_requirements(&lower, intent));
+    requirements
+}
+
+/// Labels whose first-pass search may run before source windows open.
+///
+/// These are implied by task wording, not named identifiers. Probe prompts
+/// do not trip them, so injecting their hits cannot reorder a 40/40 packet.
+pub(super) fn is_sibling_surface_label(label: &str) -> bool {
+    matches!(
+        label,
+        "retry_limit_constant"
+            | "retry_limit_error"
+            | "fail_closed_error"
+            | "priority_rank"
+            | "token_estimator"
+            | "scalar_decoder"
+            | "title_heading"
+            | "step_depends"
+            | "tool_registry"
+            | "compile_tool"
+            | "session_header"
+            | "mcp_server_builder"
+            | "http_transport"
+    )
+}
+
+/// Facts the task implies but does not name — sibling files and two-hop
+/// transport readers. Pointed identifier search never opens those files;
+/// retry + preferred windows do, the same way profile-gate coverage works.
+fn sibling_surface_requirements(lower: &str, intent: TaskIntent) -> Vec<CoverageRequirement> {
+    let mut requirements = Vec::new();
+    if lower.contains("retry")
+        && (lower.contains("maxattempts")
+            || lower.contains("max_attempts")
+            || lower.contains("bounded retry"))
+    {
+        requirements.push(requirement(
+            "retry_limit_constant",
+            &["max_retry"],
+            &["MAX_RETRY"],
+        ));
+        requirements.push(requirement(
+            "retry_limit_error",
+            &["retrylimittoolarge"],
+            &["RetryLimitTooLarge"],
+        ));
+    }
+    if lower.contains("fail-closed") || lower.contains("fail closed") {
+        requirements.push(requirement(
+            "fail_closed_error",
+            &["criticalitemexceedsbudget"],
+            &["CriticalItemExceedsBudget"],
+        ));
+    }
+    if lower.contains("priority") && (lower.contains("band") || lower.contains("evidencepriority"))
+    {
+        requirements.push(requirement("priority_rank", &["fn rank"], &["fn rank"]));
+        requirements.push(requirement(
+            "token_estimator",
+            &["estimate_tokens"],
+            &["estimate_tokens"],
+        ));
+    }
+    if lower.contains("frontmatter") {
+        requirements.push(requirement("scalar_decoder", &["unquote"], &["unquote"]));
+        requirements.push(requirement(
+            "title_heading",
+            &["heading_text"],
+            &["heading_text"],
+        ));
+        requirements.push(requirement(
+            "step_depends",
+            &["dependency_numbers", "[depends:"],
+            &["dependency_numbers", r"\[depends:"],
+        ));
+    }
+    if lower.contains("mcp")
+        && lower.contains("tool")
+        && (lower.contains("usage") || lower.contains("quality"))
+    {
+        requirements.push(requirement(
+            "tool_registry",
+            &["tools/list"],
+            &["tools/list"],
+        ));
+        requirements.push(requirement(
+            "compile_tool",
+            &["weavatrix_context_compile"],
+            &["weavatrix_context_compile"],
+        ));
+    }
+    if lower.contains("/mcp") || lower.contains("streamable http") {
+        requirements.push(requirement(
+            "session_header",
+            &["mcp-session-id"],
+            &["mcp-session-id", "Mcp-Session-Id"],
+        ));
+    }
+    if intent == TaskIntent::BlastRadius && lower.contains("compile_context") {
+        requirements.push(requirement(
+            "mcp_server_builder",
+            &["build_server"],
+            &["build_server"],
+        ));
+        requirements.push(requirement(
+            "http_transport",
+            &["serve_http"],
+            &["serve_http"],
+        ));
+    }
     requirements
 }
 
@@ -268,3 +379,7 @@ fn requirement(
             .collect(),
     }
 }
+
+#[cfg(test)]
+#[path = "verify_coverage_tests.rs"]
+mod tests;

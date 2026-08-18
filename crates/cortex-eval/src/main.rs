@@ -8,11 +8,12 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use cortex_eval::backend::{EvalBackend, OllamaEvalBackend};
-use cortex_eval::fixtures::default_fixtures;
+use cortex_eval::fixtures::{default_fixtures, micro_extraction_fixtures};
 use cortex_eval::openai_backend::OpenAiEvalBackend;
 use cortex_eval::report::{EvalReport, render_markdown, write_json};
 use cortex_eval::runner::{
-    EmbeddingProfile, EvalProfile, SuiteSelection, run_embedding_profile, run_profile,
+    EmbeddingProfile, EvalProfile, MicroExtractReport, SuiteSelection, run_embedding_profile,
+    run_micro_extract_profile, run_profile,
 };
 use cortex_eval::sequence_suite::{SequenceLiveOptions, run_sequence_suite};
 use cortex_eval::{EvalError, PROMPT_VERSION, SCHEMA_VERSION};
@@ -165,6 +166,7 @@ fn run() -> Result<(), EvalError> {
         Vec::new()
     };
     let embeddings = run_embeddings(backend, &config, &options, &fixtures);
+    let micro_extractions = run_micro_extractions(backend, &selected, &options)?;
     let sequences = run_sequences(backend, &selected, &options)?;
     let report = EvalReport {
         generated_at_unix: unix_now(),
@@ -173,6 +175,7 @@ fn run() -> Result<(), EvalError> {
         schema_version: SCHEMA_VERSION.to_owned(),
         profiles,
         embeddings,
+        micro_extractions,
         sequences,
     };
     let path = write_json(&options.report_dir, &report)?;
@@ -248,6 +251,21 @@ fn run_embeddings(
             )
         })
         .collect()
+}
+
+fn run_micro_extractions(
+    backend: &dyn EvalBackend,
+    selected: &[EvalProfile],
+    options: &CliOptions,
+) -> Result<Vec<MicroExtractReport>, EvalError> {
+    if !options.suites.micro {
+        return Ok(Vec::new());
+    }
+    let fixtures = micro_extraction_fixtures()?;
+    Ok(selected
+        .iter()
+        .map(|profile| run_micro_extract_profile(backend, profile, &fixtures, options.limit))
+        .collect())
 }
 
 fn run_sequences(
@@ -380,6 +398,7 @@ fn parse_suites(value: &str) -> Result<SuiteSelection, EvalError> {
         extraction: false,
         compression: false,
         retrieval: false,
+        micro: false,
         sequence: false,
     };
     for part in value.split(',') {
@@ -389,6 +408,7 @@ fn parse_suites(value: &str) -> Result<SuiteSelection, EvalError> {
             "extraction" => selection.extraction = true,
             "compression" => selection.compression = true,
             "retrieval" => selection.retrieval = true,
+            "micro" => selection.micro = true,
             "sequence" => selection.sequence = true,
             other => return Err(EvalError::Config(format!("unknown suite {other}"))),
         }
@@ -397,6 +417,7 @@ fn parse_suites(value: &str) -> Result<SuiteSelection, EvalError> {
         || selection.extraction
         || selection.compression
         || selection.retrieval
+        || selection.micro
         || selection.sequence)
     {
         return Err(EvalError::Config("no suite selected".to_owned()));

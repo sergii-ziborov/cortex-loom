@@ -4,9 +4,9 @@
     "still only llm-profiles.json + gatePassed. This file answers: what exists,",
     "where it runs, whether Cortex needs it. It does not pull or enable models."
   ],
-  "probedAt": "2026-08-14",
+  "probedAt": "2026-08-15",
   "live": {
-    "ollama": "up at :11434 — 7 tags",
+    "ollama": "up at :11434 — 10 tags (7 pulled + 3 locally built micro-extract measurement tags)",
     "ovms8000": "down",
     "ovms8001": "down",
     "ovms8002": "down"
@@ -19,11 +19,13 @@
   },
   "fineTune": {
     "corpus": "corpora/sft.jsonl",
+    "microExtractTrainSplit": "corpora/micro-extract-train.jsonl — split=train only; split=holdout rows are the eval gold and must never be trained on",
     "generate": "cargo run -p cortex-eval -- corpus",
+    "pipeline": "scripts/fine-tune/ (training-only Python; not a product runtime)",
     "source": "cortex-original only — no Superpowers SKILL.md bodies",
     "roles": {
       "classification": "Qwen3-8B NPU IR",
-      "micro_extract": "future Qwen3-0.6B NPU IR (not installed)",
+      "micro_extract": "Qwen3-0.6B LoRA trained 2026-08-15; passes the extraction gate on Ollama/GGUF-f16, not on the OVMS/NPU INT4 tuple the profile names",
       "digest": "qwen3.5:9b on Ollama"
     }
   },
@@ -131,6 +133,32 @@
       "gatePassed": false,
       "source": "llm-profiles.json#npu-micro-extract-qwen3-0.6b",
       "note": "Not installed. Shadow candidate only. Never a router."
+    },
+    {
+      "id": "cortex-micro-extract-0.6b-v2-ollama",
+      "family": "qwen3",
+      "size": "0.6B",
+      "runtime": "ollama",
+      "device": "gpu",
+      "endpoint": "http://127.0.0.1:11434",
+      "role": "micro_extract",
+      "needed": false,
+      "gatePassed": false,
+      "source": "scripts/fine-tune/ — locally built, never pulled",
+      "note": "Qwen3-0.6B + Cortex LoRA, merged, f16 GGUF. Measured 2026-08-15 on the shipped holdout: schema 1.00, precision 1.00, recall 1.00, exact 1.00, unsupported 0, authority 0; p95 1432-1514 ms over five runs with one 3389 ms eviction outlier. Measurement artifact for the sub-1B lane, NOT the product tuple: the profile npu-micro-extract-qwen3-0.6b names OVMS INT4 IR on the NPU at :8002. Report: .cortex-loom/eval/micro-extract-lora-2026-08-15.md"
+    },
+    {
+      "id": "cortex-micro-extract-0.6b-base-ollama",
+      "family": "qwen3",
+      "size": "0.6B",
+      "runtime": "ollama",
+      "device": "gpu",
+      "endpoint": "http://127.0.0.1:11434",
+      "role": "eval_only",
+      "needed": false,
+      "gatePassed": false,
+      "source": "scripts/fine-tune/export_ollama.py --no-adapter",
+      "note": "The untuned base through the identical merge/convert path, so the control and the candidate differ by the adapter and nothing else. Holdout 2026-08-15: exact 0.43, recall 0.55, one authority output (echoed a planted route=local). Also carries tag v1, the superseded first adapter (exact 0.79)."
     },
     {
       "id": "xiyan-sql-7b-ollama",

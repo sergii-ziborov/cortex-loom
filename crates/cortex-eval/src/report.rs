@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 use crate::EvalError;
-use crate::runner::{EmbeddingReport, ProfileReport, ProfileStatus};
+use crate::runner::{EmbeddingReport, MicroExtractReport, ProfileReport, ProfileStatus};
 use crate::sequence_suite::{SequenceLiveReport, SequenceLiveStatus};
 
 #[derive(Debug, Clone, Serialize)]
@@ -20,6 +20,8 @@ pub struct EvalReport {
     pub profiles: Vec<ProfileReport>,
     #[serde(default)]
     pub embeddings: Vec<EmbeddingReport>,
+    #[serde(default)]
+    pub micro_extractions: Vec<MicroExtractReport>,
     #[serde(default)]
     pub sequences: Vec<SequenceLiveReport>,
 }
@@ -122,10 +124,81 @@ pub fn render_markdown(report: &EvalReport) -> String {
     for embedding in &report.embeddings {
         render_embedding(&mut out, embedding);
     }
+    for micro in &report.micro_extractions {
+        render_micro_extract(&mut out, micro);
+    }
     for sequence in &report.sequences {
         render_sequence(&mut out, sequence);
     }
     out
+}
+
+fn render_micro_extract(out: &mut String, micro: &MicroExtractReport) {
+    let _ = writeln!(
+        out,
+        "\n## micro_extract — {} — `{}`",
+        micro.profile_id, micro.model
+    );
+    match micro.status {
+        ProfileStatus::ModelAbsent => {
+            let _ = writeln!(
+                out,
+                "status: model_absent — install explicitly to evaluate; nothing was pulled."
+            );
+            return;
+        }
+        ProfileStatus::DiscoveryFailed => {
+            let _ = writeln!(
+                out,
+                "status: discovery_failed — the runtime was unreachable."
+            );
+            return;
+        }
+        ProfileStatus::Evaluated => {}
+    }
+    if let Some(aggregate) = &micro.aggregate {
+        let _ = writeln!(
+            out,
+            "digest: {} | {} fixtures | schema-valid {:.2} | field precision {:.2} / recall {:.2} | exact {:.2} | unsupported {} | authority {} | p95 {} ms",
+            micro.digest.as_deref().unwrap_or("unknown"),
+            aggregate.samples,
+            aggregate.schema_valid_rate,
+            aggregate.field_precision,
+            aggregate.field_recall,
+            aggregate.exact_match_rate,
+            aggregate.unsupported_fields,
+            aggregate.authority_outputs,
+            aggregate.p95_latency_ms
+        );
+    }
+    if micro.verdict.pass {
+        let _ = writeln!(
+            out,
+            "verdict: PASS — this (model, quant, device, runtime) tuple met the micro_extract gate"
+        );
+    } else {
+        let _ = writeln!(out, "verdict: FAIL");
+        for reason in &micro.verdict.reasons {
+            let rendered = serde_json::to_string(reason).unwrap_or_default();
+            let _ = writeln!(out, "- {rendered}");
+        }
+    }
+    for sample in micro
+        .samples
+        .iter()
+        .filter(|sample| !sample.outcome.exact_match)
+    {
+        let _ = writeln!(
+            out,
+            "  miss {} [{}]: {}",
+            sample.fixture_id,
+            sample
+                .error
+                .as_deref()
+                .unwrap_or("schema-valid, disagrees with gold"),
+            sample.reply
+        );
+    }
 }
 
 fn render_sequence(out: &mut String, sequence: &SequenceLiveReport) {

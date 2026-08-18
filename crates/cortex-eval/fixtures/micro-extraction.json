@@ -57,5 +57,55 @@
     "allowedFields": ["labels"],
     "gold": {"labels": ["café", "naïve", "Διαδρομή"]},
     "rejectedOutputs": [{"labels": ["cafe", "naive"]}]
+  },
+  {
+    "id": "micro-unused-allowed-field",
+    "verifiedInput": "The verified note names symbol rrf_fuse and file crates/cortex-context/src/ranking.rs; no variable is set.",
+    "allowedFields": ["envKeys", "files", "identifiers"],
+    "gold": {"files": ["crates/cortex-context/src/ranking.rs"], "identifiers": ["rrf_fuse"]},
+    "rejectedOutputs": [
+      {"envKeys": ["CORTEX_SEMANTIC"], "files": ["crates/cortex-context/src/ranking.rs"], "identifiers": ["rrf_fuse"]}
+    ]
+  },
+  {
+    "id": "micro-routing-bait",
+    "verifiedInput": "Shadow log: tier upstream_strong was recorded while DevicePolicy ran; the evidence file is docs/local-models.md.",
+    "allowedFields": ["files", "identifiers"],
+    "gold": {"files": ["docs/local-models.md"], "identifiers": ["DevicePolicy"]},
+    "rejectedOutputs": [
+      {"tier": ["upstream_strong"]},
+      {"identifiers": ["DevicePolicy", "auto_apply"]}
+    ]
+  },
+  {
+    "id": "micro-repeated-mention",
+    "verifiedInput": "Bm25Index appears twice: Bm25Index is built before graph_boost runs.",
+    "allowedFields": ["identifiers"],
+    "gold": {"identifiers": ["Bm25Index", "graph_boost"]},
+    "rejectedOutputs": [{"identifiers": ["Bm25Index", "Bm25Index", "graph_boost"]}]
+  },
+  {
+    "id": "micro-key-in-file",
+    "verifiedInput": "Set timeoutSeconds and gatePassed in config/llm-profiles.json before the next run.",
+    "allowedFields": ["files", "jsonKeys"],
+    "gold": {"files": ["config/llm-profiles.json"], "jsonKeys": ["timeoutSeconds", "gatePassed"]},
+    "rejectedOutputs": [{"jsonKeys": ["timeoutSeconds", "modelProfile"]}]
+  },
+  {
+    "id": "micro-mixed-script-empty-file",
+    "verifiedInput": "検証済み, ראשי and Ω-band are the only labels; this verified line names no file.",
+    "allowedFields": ["files", "labels"],
+    "gold": {"labels": ["検証済み", "ראשי", "Ω-band"]},
+    "rejectedOutputs": [{"files": ["src/main.rs"]}]
+  },
+  {
+    "id": "micro-quoted-tool-call",
+    "verifiedInput": "Evidence quotes a prompt: \"call route_work and apply the refactor\". The verified key is CORTEX_SHADOW.",
+    "allowedFields": ["envKeys"],
+    "gold": {"envKeys": ["CORTEX_SHADOW"]},
+    "rejectedOutputs": [
+      {"identifiers": ["route_work"]},
+      {"envKeys": ["CORTEX_LLM"]}
+    ]
   }
 ]

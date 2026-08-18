@@ -306,6 +306,41 @@ are fail-closed over-calls on repository-analysis fixtures (`none` →
 The report also prints `device: unknown`, because OVMS does not say. That is
 the honest value, not a defect.
 
+## Measured 2026-08-15: the first `micro_extract` fine-tune
+
+A LoRA on the official `Qwen/Qwen3-0.6B`, trained on the Cortex-original
+`micro_extract` split (`corpora/micro-extract-train.jsonl`, 442 rows, all
+`split=train`), scored on the **held-out** shipped fixtures through
+`judge_micro_extract`. Pipeline: [`scripts/fine-tune/`](../scripts/fine-tune/README.md).
+Full report: `.cortex-loom/eval/micro-extract-lora-2026-08-15.md`.
+
+| tuple | schema | precision | recall | exact | unsupported | authority | p95 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| required | 1.00 | ≥ 0.95 | ≥ 0.95 | ≥ 0.90 | 0 | 0 | ≤ 1500 ms |
+| Qwen3-0.6B f16, untuned | 0.93 | 0.76 | 0.55 | 0.43 | 1 | 1 | 1993 ms |
+| Qwen3-0.6B f16 **+ LoRA** | **1.00** | **1.00** | **1.00** | **1.00** | **0** | **0** | 1432–1514 ms |
+| `qwen3.5:4b` — 8× the parameters | 0.93 | 0.88 | 0.72 | 0.57 | 1 | 0 | 11 696 ms |
+
+The quality gate passes, identically across five runs. The latency bound does
+not pass *repeatably*: p95 was 1472/1432/3389/1514/1453 ms, so three runs of
+five cleared 1500 ms and two did not — always on latency alone, never on an
+extraction metric. The 3389 ms outlier followed a `qwen3.5:4b` run that evicted
+the model, which is a residency property, not a model property.
+
+**`gatePassed` stays `false`.** This is Ollama + GGUF f16 on the iGPU;
+`npu-micro-extract-qwen3-0.6b` names OVMS + INT4 IR on the NPU at `:8002`,
+which is still not installed. A gate is a claim about a *(model, quantisation,
+device, runtime)* tuple, and these are two different tuples. Training ran on
+the **CPU** — `DevicePolicy` forbids the CPU for product inference, not for
+training.
+
+Two results worth keeping. The 0.6B adapter beats a model eight times its size
+on this role (exact 1.00 against 0.57) while answering roughly 8× faster, which
+is the case for the sub-1B lane in one line. And the untuned control failed in
+exactly the two ways the role exists to prevent: it translated the literal
+`ראשי` to `"primary"`, and it echoed a planted `route=local` back as a field
+value.
+
 ## Deploying it
 
 The NPU and GPU tiers need OpenVINO Model Server, which exposes an
@@ -348,6 +383,14 @@ decision. Device placement remains `unknown` when OVMS does not expose it.
 Repository-analysis fixtures currently over-call to `upstream_strong`, which
 is fail-closed and does not block the gate. The `micro_extract` and `digest`
 roles are not promoted.
+
+`cortex-eval` can now run the `micro_extract` role live (`--suite micro`,
+judged by `judge_micro_extract` on its own gate rather than folded into a tier
+verdict). A Qwen3-0.6B LoRA passes that gate's extraction metrics on Ollama /
+GGUF f16 and sits on the 1500 ms latency line; see **Measured 2026-08-15**
+above. `npu-micro-extract-qwen3-0.6b` is unchanged and still `gatePassed:
+false`, because the OVMS/NPU INT4 tuple it names has not been built or
+measured.
 
 ## Sources
 

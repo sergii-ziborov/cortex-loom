@@ -1,0 +1,31 @@
+{
+  "baseUrl": "http://127.0.0.1:11434",
+  "timeoutSecs": 120,
+  "profiles": [
+    {
+      "id": "micro-extract-lora",
+      "tier": "local_small",
+      "model": "cortex-micro-extract-0.6b:v1",
+      "maxInputTokens": 2048,
+      "maxOutputTokens": 256,
+      "contextTokens": 4096
+    },
+    {
+      "id": "micro-extract-lora-v2",
+      "tier": "local_small",
+      "model": "cortex-micro-extract-0.6b:v2",
+      "maxInputTokens": 2048,
+      "maxOutputTokens": 256,
+      "contextTokens": 4096
+    },
+    {
+      "id": "micro-extract-base",
+      "tier": "local_small",
+      "model": "cortex-micro-extract-0.6b:base",
+      "maxInputTokens": 2048,
+      "maxOutputTokens": 256,
+      "contextTokens": 4096
+    }
+  ],
+  "embeddingProfiles": []
+}

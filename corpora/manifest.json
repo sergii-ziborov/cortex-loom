@@ -1,7 +1,7 @@
 {
   "trainingSource": "cortex-original",
   "license": "MIT OR Apache-2.0",
-  "records": 138,
+  "records": 594,
   "byTask": [
     {
       "name": "classification",
@@ -21,11 +21,11 @@
     },
     {
       "name": "micro-extraction",
-      "count": 8
+      "count": 345
     },
     {
       "name": "micro-extraction-reject",
-      "count": 10
+      "count": 129
     },
     {
       "name": "sequence-step",
@@ -43,7 +43,18 @@
     },
     {
       "name": "micro_extract",
-      "count": 18
+      "count": 474
     }
-  ]
+  ],
+  "bySplit": [
+    {
+      "name": "holdout",
+      "count": 76
+    },
+    {
+      "name": "train",
+      "count": 518
+    }
+  ],
+  "microExtractTrainRecords": 442
 }

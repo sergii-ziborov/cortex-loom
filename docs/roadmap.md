@@ -41,5 +41,5 @@ Release evaluation must compare native, native + files, raw Weavatrix,
 Cortex, and Serena/LSP on identical models, prompts, commits, oracles,
 and retry budgets. See [evaluation.md](evaluation.md). The contract
 lives in `cortex-bench` `release.rs`. Serena is unavailable unless
-`CORTEX_SERENA_ROOT` is set. Latest probe: `cortex-source` 17 748
-tokens / 37/40 facts versus the previous 23 287 / 28/40 targeted.
+`CORTEX_SERENA_ROOT` is set. The 2026-08-13 `cortex-source` baseline is
+21 363 tokens at 40/40. Do not compare source follow-up to targeted 28/40.

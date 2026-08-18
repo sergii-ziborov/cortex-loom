@@ -26,6 +26,12 @@ struct BundledDoc {
 /// the list top to bottom.
 static DOCS: &[BundledDoc] = &[
     BundledDoc {
+        id: "install",
+        title: "Install",
+        summary: "Cargo libraries, MCP binaries, and how to wire Claude, Codex, and Copilot.",
+        markdown: include_str!("../../../docs/install.md"),
+    },
+    BundledDoc {
         id: "architecture",
         title: "Architecture",
         summary: "Runtime flow, graph layers, modules, and every safety boundary.",

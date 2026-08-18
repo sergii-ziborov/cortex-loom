@@ -193,24 +193,95 @@ comes from priority-ordered budgeting across operations, not from dedup.
 5. **Reading the files still wins on recall, always.** 24/24, every time, for
    4.5× the tokens. The trade is real and it is a trade, not a free lunch.
 
-## Measured 2026-08-15 — ten-task probe, 4 000-token budget
+## Measured 2026-08-15 — restored probe, plus core and langs
 
-Same `--set probe` as the 2026-08-13 quality stamp. Production
-`cortex_prepare` is the `cortex-source` arm (planned ops + source
-follow-up + compiler).
+Host: Windows 11, Intel Core Ultra 7 255U (14 logical), 47.5 GB RAM,
+Intel Graphics. `rustc 1.97.1`. **No NVIDIA GPU.** The context bench
+is CPU-only (Weavatrix graph + compile). GPU/NPU are unused unless
+`CORTEX_SEMANTIC=1` or a gated local profile is on. Resources sampled
+every 250 ms from `scripts/measure-bench.ps1`.
 
-| arm | tokens | facts | vs previous published targeted |
-| --- | ---: | ---: | --- |
-| naive | 396 984 | 40/40 | — |
-| weavatrix-raw | 97 217 | 28/40 | — |
-| weavatrix-planned | 13 355 | 28/40 | was 23 636 / 28/40 |
-| cortex-targeted | 12 583 | 27/40 | was 23 287 / 28/40 |
-| **cortex-source** | **17 748** | **37/40** | **+9 facts vs 28/40, −24 % tokens vs old targeted** |
+### Probe — 10 tasks, 40 facts, 4 000-token budget
 
-`cortex-source` is the number that matters for the product claim: 96 %
-fewer tokens than reading the candidate files, 37 of 40 required facts,
-and more complete than the previous 28/40 targeted packet. The three
-missed facts are still a real gap, not a 100 % recall claim.
+Stamp `restore-40-final`. Report:
+`.cortex-loom/bench/probe-restore-40-final.json`.
+
+The 2026-08-13 quality stamp is the right historical baseline for
+`cortex-source`: **21 363 tokens at 40/40**. An intermediate run after
+ranking changes dropped to 17 748 / 37/40. That was a regression, not a
+saving. This stamp restores **40/40**.
+
+| arm | selected tokens | delivered over MCP | facts |
+| --- | ---: | ---: | ---: |
+| naive known directories | 398 441 | — | 40/40 |
+| raw Weavatrix | 95 927 | — | 28/40 |
+| Weavatrix planned | 8 419 | — | 29/40 |
+| Cortex targeted | 9 282 | 12 231 | 29/40 |
+| **Cortex + verified source** | **18 698** | **22 794** | **40/40** |
+
+Same facts as the 21 363 baseline, **12.5% fewer** selected tokens
+(compact dependents render, not a cheaper counter). Against naive:
+**95.3% fewer** selected tokens at equal recall.
+
+Resources for the same 10-task run: **14.9 s wall**, **13.8 s CPU**,
+**83.5 MB** peak working set.
+
+### Probe — same tasks, 16 000-token budget
+
+Stamp `restore-40-16k`. A wider budget is slack, not quality.
+
+| arm | selected tokens | facts |
+| --- | ---: | ---: |
+| naive | 398 441 | 40/40 |
+| Cortex + source | **22 818** | **40/40** |
+
+Same 40/40. Extra tokens (~4k over the 4k-budget packet) are unused
+headroom. Resources: **22.9 s wall**, **14.4 s CPU**, **80.5 MB** peak.
+
+### Core fixtures — 7 tasks, 41 facts, 4 000-token budget
+
+Stamp `multi-2026-08-15-core`. These are the original hand-written
+fixtures (retry, priority, skills, usage, blast radius, HTTP contract,
+MCP transport). Harder than the probe: several facts live one file
+away from the first search hit.
+
+| arm | selected tokens | facts |
+| --- | ---: | ---: |
+| naive | 326 685 | 41/41 |
+| raw Weavatrix | 69 009 | 19/41 |
+| Weavatrix planned | 7 618 | 27/41 |
+| Cortex targeted | 8 231 | 27/41 |
+| Cortex + source | 12 998 | **29/41** |
+
+**29/41 is not 40/40.** Do not quote this set as the quality stamp.
+Resources: **15.9 s wall**, **6.2 s CPU**, **80.6 MB** peak.
+
+### Languages — 6 tiny fixtures (TS, JS, Python, Go, Java, C#)
+
+Stamp `multi-2026-08-15-langs`. Anchors live in
+`crates/cortex-bench/fixtures/langs/`. Naive is cheap here because the
+fixture files are a few dozen lines — that is not a win for dumping
+the repo.
+
+| arm | selected tokens | facts |
+| --- | ---: | ---: |
+| naive (the one file) | 357 | 12/12 |
+| raw Weavatrix | 38 800 | 8/12 |
+| Weavatrix planned | 2 024 | 12/12 |
+| Cortex targeted | 2 494 | 12/12 |
+| Cortex + source | 2 973 | **12/12** |
+
+Resources: **8.6 s wall**, **4.1 s CPU**, **79.5 MB** peak.
+
+```powershell
+cargo build -p cortex-bench --release
+powershell -File scripts/measure-bench.ps1 -Set probe -Budget 4000 `
+  -Stamp local-probe -Out .cortex-loom/bench/probe.json
+powershell -File scripts/measure-bench.ps1 -Set core -Budget 4000 `
+  -Stamp local-core -Out .cortex-loom/bench/core.json
+powershell -File scripts/measure-bench.ps1 -Set langs -Budget 4000 `
+  -Stamp local-langs -Out .cortex-loom/bench/langs.json
+```
 
 ## The honest conclusion
 

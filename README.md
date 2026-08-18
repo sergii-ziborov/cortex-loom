@@ -82,30 +82,83 @@ refactor.
   `crates/cortex-eval/fixtures/`. A leakage check refuses exact-hash and
   gold-family overlap.
 
+## Install
+
+Libraries (crates.io): `cargo add cortex-context cortex-domain cortex-router cortex-skills`.
+
+Product binaries are **not on crates.io yet** (`publish = false`). From
+this repo:
+
+```powershell
+npm.cmd --prefix ui ci
+npm.cmd --prefix ui run build
+cargo install --path crates/cortex-mcp --locked
+cargo install --path apps/cortex-server --locked
+```
+
+Studio: `cortex-server` → `http://127.0.0.1:43817`.  
+MCP: `cortex-mcp --profile agent`. Full steps, env flags, and
+HTTP bind: [docs/install.md](docs/install.md).
+
+## How an agent uses it
+
+**Not a plugin.** Claude Code, Codex, Copilot, Cursor, and any other
+MCP host spawn a local `cortex-mcp` process over stdio (or Streamable
+HTTP on loopback). The default `--profile agent` exposes two tools:
+`cortex_prepare` and `cortex_expand`.
+
+Adapters preview the wiring files (`.mcp.json`, Codex
+`config.toml` snippet, `.vscode/mcp.json`). They never write them.
+See [install](docs/install.md#wire-a-coding-agent).
+
+```text
+agent  →  cortex_prepare({ repository, task })
+       →  packet + coverage certificate
+       →  cortex_expand({ packetId, facet })   # only if a facet is missing
+       →  upstream edit / test / commit
+```
+
+Weavatrix Refactor stays preview-only. Local models may classify or
+order evidence; they never apply a change.
+
 ## Measured trials
 
-Full tables, stamps, and caveats: [docs/benchmark.md](docs/benchmark.md).
-Comparative bench numbers use a four-character unit. Runtime compile
-uses a conservative counter (`conservative/v1`) that over-counts
-Cyrillic, CJK, and punctuation so a packet is refused before a model
-is. Omitted items and deduplicated lines are reported separately.
-Recall means declared literals were present in evidence, not that a
-model answered correctly.
+Full tables, stamps, host, and caveats:
+[docs/benchmark.md](docs/benchmark.md). Comparative numbers use the
+four-character unit. Runtime compile uses `conservative/v1`. Recall
+means declared literals were in the packet, not that a model answered.
 
-### Retrieval — can the packet carry the facts?
+Host for the 2026-08-15 runs: Windows 11, Intel Core Ultra 7 255U
+(14 threads), 47.5 GB RAM, Intel Graphics. **No NVIDIA device.** The
+context bench does not use the GPU.
 
-Stamp `final-quality-2026-08-11`, this repository, 4 000-token budget:
+### Probe — quality stamp (`restore-40-final`, 4 000 tokens)
+
+Ten tasks, 40 facts, this repository. Historical baseline
+2026-08-13 was 21 363 / 40/40. This stamp is **18 698 / 40/40**
+(same facts, compact dependents render — not a cheaper counter).
 
 | arm | selected tokens | delivered over MCP | facts |
 | --- | ---: | ---: | ---: |
-| naive known directories | 319 564 | — | 40/40 |
-| raw Weavatrix | 100 486 | — | 29/40 |
-| Cortex targeted | 23 287 | 27 571 | 28/40 |
-| **Cortex + verified source** | **32 623** | **37 773** | **40/40** |
+| naive known directories | 398 441 | — | 40/40 |
+| raw Weavatrix | 95 927 | — | 28/40 |
+| Cortex targeted | 9 282 | 12 231 | 29/40 |
+| **Cortex + verified source** | **18 698** | **22 794** | **40/40** |
 
-Same facts as reading the trees, **89.8% fewer** selected tokens
-(88.2% by delivered MCP size). Targeted is cheaper and drops 12 facts —
-do not ship it as the quality arm.
+**95.3% fewer** selected tokens than naive at equal recall. Targeted
+is cheaper and drops 11 facts — do not ship it as the quality arm.
+
+| set | tasks / facts | cortex-source | wall | CPU | peak RSS |
+| --- | --- | ---: | ---: | ---: | ---: |
+| probe @ 4k | 10 / 40 | **18 698 / 40/40** | 14.9 s | 13.8 s | 83.5 MB |
+| probe @ 16k | 10 / 40 | **22 818 / 40/40** | 22.9 s | 14.4 s | 80.5 MB |
+| core @ 4k | 7 / 41 | 12 998 / **29/41** | 15.9 s | 6.2 s | 80.6 MB |
+| langs @ 4k | 6 / 12 | 2 973 / **12/12** | 8.6 s | 4.1 s | 79.5 MB |
+
+Core is a harder fixture set (29/41 is not the quality stamp). Langs
+are tiny checked-in samples — naive is cheap there because the files
+are tiny, not because dumping a repo is free. Sampler:
+`scripts/measure-bench.ps1`.
 
 ### Live server — one question, every approach
 
@@ -228,26 +281,25 @@ required to compile evidence.
 product path. Training scripts under `scripts/fine-tune/` are
 operator-only.
 
-## Run locally
+## Run from a checkout
 
 ```powershell
 npm.cmd --prefix ui ci
 npm.cmd --prefix ui run build
-cargo run -p cortex-server
-```
-
-Editor: `http://127.0.0.1:43817`. MCP stdio (agent profile):
-`cargo run -p cortex-mcp`. Studio/admin: `--profile full`.
-Streamable HTTP: `cargo run -p cortex-mcp -- --http 127.0.0.1:43818`
-(loopback only). Evidence-compile bench: `--profile context` or
-`CORTEX_MCP_PROFILE=context`.
-
-```powershell
-cargo run -p cortex-eval -- --discover
+cargo run -p cortex-server --release
+cargo run -p cortex-mcp --release -- --profile agent
 cargo test --workspace
+cargo run -p cortex-eval -- --discover
 ```
 
 `cortex-eval` reports absent models and skips them. It never pulls.
+Bench with CPU/RAM sampling:
+
+```powershell
+cargo build -p cortex-bench --release
+powershell -File scripts/measure-bench.ps1 -Set probe -Budget 4000 `
+  -Stamp local-probe -Out .cortex-loom/bench/probe.json
+```
 
 ## Workspace
 
@@ -276,9 +328,10 @@ capabilities, Cortex spends the agent's context. Boundaries:
 
 ## Docs
 
-[Architecture](docs/architecture.md) · [Benchmark](docs/benchmark.md) ·
-[Evaluation](docs/evaluation.md) · [Local models](docs/local-models.md) ·
-[Competitors](docs/competitors.md) · [Research](docs/research.md)
+[Install](docs/install.md) · [Architecture](docs/architecture.md) ·
+[Benchmark](docs/benchmark.md) · [Evaluation](docs/evaluation.md) ·
+[Local models](docs/local-models.md) · [Competitors](docs/competitors.md) ·
+[Research](docs/research.md)
 
 The same files are served from a running binary at `/api/docs` and in
 the editor Help panel.

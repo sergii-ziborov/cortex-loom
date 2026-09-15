@@ -123,5 +123,5 @@ fn read_bounded_regular_file(path: &Path) -> Result<String, String> {
 }
 
 fn digest(value: &str) -> String {
-    format!("{:x}", Sha256::digest(value.as_bytes()))
+    hex::encode(Sha256::digest(value.as_bytes()))
 }

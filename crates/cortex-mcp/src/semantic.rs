@@ -193,7 +193,7 @@ impl SemanticScorer {
 }
 
 fn content_hash(text: &str) -> String {
-    format!("{:x}", Sha256::digest(text.as_bytes()))
+    hex::encode(Sha256::digest(text.as_bytes()))
 }
 
 fn resolve_ref(profiles_path: &Path, reference: &str) -> PathBuf {

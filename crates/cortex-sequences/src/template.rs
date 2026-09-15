@@ -89,7 +89,7 @@ pub fn instantiate_template(
     let source = format!("cortex-sequences/templates/{}.md", template.id);
     let mut graph = cortex_skills::import_skill_markdown(&source, template.markdown)?;
     let canonical = cortex_skills::export_skill_markdown(&graph)?;
-    let fingerprint = format!("{:x}", Sha256::digest(canonical.as_bytes()));
+    let fingerprint = hex::encode(Sha256::digest(canonical.as_bytes()));
     enrich_template_graph(&mut graph);
     graph_id.trim().clone_into(&mut graph.id);
     name.trim().clone_into(&mut graph.name);

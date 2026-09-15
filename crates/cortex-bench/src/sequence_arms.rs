@@ -436,7 +436,7 @@ fn p95_micros(values: &mut [u64]) -> u64 {
 }
 
 fn digest(value: &str) -> String {
-    format!("{:x}", Sha256::digest(value.as_bytes()))
+    hex::encode(Sha256::digest(value.as_bytes()))
 }
 
 fn next(arguments: &mut impl Iterator<Item = String>, flag: &str) -> Result<String, String> {

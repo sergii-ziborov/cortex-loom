@@ -13,6 +13,7 @@ cortex-domain = { path = "../cortex-domain" }
 cortex-sequences = { path = "../cortex-sequences" }
 cortex-skills = { path = "../cortex-skills" }
 cortex-weavatrix = { path = "../cortex-weavatrix" }
+hex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

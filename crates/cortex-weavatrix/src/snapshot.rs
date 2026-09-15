@@ -15,10 +15,7 @@ pub fn repository_snapshot(root: &Path) -> String {
     } else {
         let mut hasher = Sha256::new();
         hasher.update(dirty.as_bytes());
-        format!("{:x}", hasher.finalize())
-            .chars()
-            .take(12)
-            .collect()
+        hex::encode(hasher.finalize()).chars().take(12).collect()
     };
     format!("git:{commit}+dirty:{digest}")
 }

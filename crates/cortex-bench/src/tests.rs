@@ -156,7 +156,7 @@ fn manifest_observes_versions_and_revisions_instead_of_accepting_labels() {
     );
     assert_eq!(
         manifest.engines["weavatrix-rust"].value.as_deref(),
-        Some("2.6.0")
+        Some("2.10.0")
     );
     assert_eq!(
         manifest.engines["npm-weavatrix"].value.as_deref(),
@@ -227,7 +227,7 @@ fn context_report_serializes_manifest_and_false_confidence_rows() {
     assert_eq!(value["historical"], false);
     assert_eq!(
         value["manifest"]["engines"]["weavatrix-rust"]["value"],
-        "2.6.0"
+        "2.10.0"
     );
     assert_eq!(value["scoreboard"][0]["falseConfidence"], true);
     assert_eq!(value["scoreboard"][0]["failureClass"], "CORTEX_BUG");

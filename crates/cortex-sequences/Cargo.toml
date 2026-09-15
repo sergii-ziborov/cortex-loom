@@ -12,6 +12,7 @@ cortex-domain = { path = "../cortex-domain" }
 cortex-skills = { path = "../cortex-skills" }
 serde.workspace = true
 serde_json.workspace = true
+hex.workspace = true
 sha2.workspace = true
 
 [lints]

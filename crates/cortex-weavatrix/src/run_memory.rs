@@ -235,7 +235,7 @@ fn task_fingerprint(task: &str) -> String {
 
 fn hashed_id(prefix: &str, raw: &str) -> String {
     let digest = Sha256::digest(normalize_text(raw).as_bytes());
-    format!("{prefix}:{digest:x}")
+    format!("{prefix}:{}", hex::encode(digest))
         .chars()
         .take(prefix.len() + 1 + 16)
         .collect()

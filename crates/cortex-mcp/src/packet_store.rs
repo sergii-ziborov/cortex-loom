@@ -53,7 +53,7 @@ impl PacketStore {
 #[must_use]
 pub(crate) fn task_hash(task: &str) -> String {
     let digest = Sha256::digest(task.as_bytes());
-    format!("{digest:x}").chars().take(16).collect()
+    hex::encode(digest).chars().take(16).collect()
 }
 
 #[must_use]
@@ -63,7 +63,10 @@ pub(crate) fn certificate_hash(certificate: &cortex_context::CoverageCertificate
         certificate.required, certificate.satisfied, certificate.missing
     );
     let digest = Sha256::digest(body.as_bytes());
-    format!("ch_{digest:x}").chars().take(15).collect()
+    format!("ch_{}", hex::encode(digest))
+        .chars()
+        .take(15)
+        .collect()
 }
 
 /// Structured refuse when the tree moved under a stored packet.

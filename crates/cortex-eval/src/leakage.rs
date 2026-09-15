@@ -112,7 +112,7 @@ fn body_hash(record: &CorpusRecord) -> String {
     hasher.update(normalize(&record.input).as_bytes());
     hasher.update([0xff]);
     hasher.update(normalize(&record.output).as_bytes());
-    format!("{:x}", hasher.finalize())
+    hex::encode(hasher.finalize())
 }
 
 fn normalize(value: &str) -> String {

@@ -21,6 +21,7 @@ cortex-shadow = { path = "../cortex-shadow" }
 cortex-skills = { path = "../cortex-skills" }
 cortex-store = { path = "../cortex-store" }
 cortex-weavatrix = { path = "../cortex-weavatrix" }
+hex.workspace = true
 mcport.workspace = true
 serde.workspace = true
 serde_json.workspace = true

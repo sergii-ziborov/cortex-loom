@@ -300,14 +300,14 @@ embeds `ui/dist` and needs no Node at runtime.
 
 | crate | role |
 | --- | --- |
-| [`weavatrix-rust`](https://crates.io/crates/weavatrix-rust) 2.6.0 | repository graph, search, git, memory, impact |
+| [`weavatrix-rust`](https://crates.io/crates/weavatrix-rust) 2.10.0 | repository graph, search, git, memory, impact |
 | [`weavatrix-edit`](https://crates.io/crates/weavatrix-edit) 0.1.7 | exact in-memory text edits |
 | [`weavatrix-refactor-plan`](https://crates.io/crates/weavatrix-refactor-plan) 0.1.1 | preview-only refactor contract |
-| [`mcport`](https://crates.io/crates/mcport) 0.5.0 | Tokio-free MCP stdio / Streamable HTTP |
-| [`blazingly-json`](https://crates.io/crates/blazingly-json) 0.1.5 | JSON engine (aliased as `serde_json` in private crates) |
+| [`mcport`](https://crates.io/crates/mcport) 0.6.1 | Tokio-free MCP stdio / Streamable HTTP |
+| [`blazingly-json`](https://crates.io/crates/blazingly-json) 0.1.9 | JSON engine (aliased as `serde_json` in private crates) |
 
 **External:** `axum` 0.8, `tokio` 1, `rusqlite` 0.40 (bundled), `serde`
-1, `sha2` 0.10, `ureq` 3, `tower-http` 0.7. UI: React 18 + Vite 6.
+1, `sha2` 0.11, `ureq` 3, `tower-http` 0.7. UI: React 19 + Vite 8.
 
 **Optional at runtime:** [Ollama](https://ollama.com) (`:11434`) and
 OpenVINO Model Server on loopback for gated local profiles. Neither is

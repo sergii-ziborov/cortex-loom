@@ -17,6 +17,7 @@ publish = true
 
 [dependencies]
 blazingly-json.workspace = true
+hex.workspace = true
 serde.workspace = true
 sha2.workspace = true
 

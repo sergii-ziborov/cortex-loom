@@ -152,7 +152,7 @@ fn digest_id(prefix: &str, parts: &[&str], hex_chars: usize) -> String {
         hasher.update(part.as_bytes());
         hasher.update([0xff]);
     }
-    format!("{prefix}{:x}", hasher.finalize())
+    format!("{prefix}{}", hex::encode(hasher.finalize()))
         .chars()
         .take(prefix.chars().count() + hex_chars)
         .collect()

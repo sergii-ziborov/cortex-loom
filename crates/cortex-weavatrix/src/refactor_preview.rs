@@ -233,7 +233,7 @@ fn verify_hash(path: &str, source: &str, expected: &str) -> Result<(), Weavatrix
 }
 
 fn hash_text(value: &str) -> String {
-    format!("{:x}", Sha256::digest(value.as_bytes()))
+    hex::encode(Sha256::digest(value.as_bytes()))
 }
 
 fn retain_body(path: &str, label: &str, body: &str, warnings: &mut Vec<String>) -> String {
@@ -319,7 +319,7 @@ mod tests {
     }
 
     fn sha256(contents: &str) -> String {
-        format!("{:x}", Sha256::digest(contents.as_bytes()))
+        hex::encode(Sha256::digest(contents.as_bytes()))
     }
 
     fn encode(operation: RefactorOperation) -> Vec<u8> {

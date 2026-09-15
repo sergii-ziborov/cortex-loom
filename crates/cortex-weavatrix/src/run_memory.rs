@@ -8,8 +8,9 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use unicode_normalization::UnicodeNormalization;
 use weavatrix_rust::memory::{
-    AgentId, ContextRequest, EntityId, EventId, EventMetadata, Evidence, FactId, MemoryEvent,
-    MemoryFact, MemoryNode, SessionId, StoredEvent, StreamId, Timestamp,
+    AgentId, ContextRequest, EntityId, EventId, EventStore, Evidence, ExpectedVersion, FactId,
+    InMemoryStore, MemoryEvent, MemoryFact, MemoryNode, NewEvent, SessionId, StoredEvent, StreamId,
+    Timestamp,
 };
 
 const HIGH_SIGNAL: &[&str] = &[
@@ -101,10 +102,9 @@ fn stored_events(
 ) -> Result<Vec<StoredEvent<MemoryEvent>>, String> {
     let agent = AgentId::new("agent:cortex-run").map_err(|error| error.to_string())?;
     let task_id = EntityId::new(task_fingerprint(task)).map_err(|error| error.to_string())?;
-    let mut stored = Vec::new();
-    let mut position = 0_u64;
-    stored.push(stored_event(
-        position,
+    let mut store = InMemoryStore::default();
+    let bootstrap = pending_event(
+        "bootstrap",
         "bootstrap",
         Timestamp::from_unix_micros(1),
         &agent,
@@ -114,9 +114,9 @@ fn stored_events(
         },
         None,
         None,
-    )?);
-    let current_task_event = stored[0].metadata.id.clone();
-    position += 1;
+    )?;
+    let current_task_event = bootstrap.id.clone();
+    append_batch(&mut store, "bootstrap", vec![bootstrap])?;
     for event in &memory.events {
         let at = Timestamp::from_unix_micros(event.recorded_at.saturating_mul(1_000_000).max(2));
         let attempt = EntityId::new(hashed_id(
@@ -138,8 +138,8 @@ fn stored_events(
                 },
                 ToOwned::to_owned,
             );
-        stored.push(stored_event(
-            position,
+        let attempt_event = pending_event(
+            &format!("{}:{}:attempt", event.run_id, event.sequence),
             &event.run_id,
             at,
             &agent,
@@ -149,14 +149,8 @@ fn stored_events(
             },
             Some(current_task_event.clone()),
             None,
-        )?);
-        let attempt_event = stored
-            .last()
-            .expect("attempt event just pushed")
-            .metadata
-            .id
-            .clone();
-        position += 1;
+        )?;
+        let attempt_id = attempt_event.id.clone();
         let evidence = Evidence::new("run_event", format!("run:{}", event.run_id))
             .map_err(|error| error.to_string())?
             .with_locator(format!("seq:{}", event.sequence));
@@ -177,49 +171,62 @@ fn stored_events(
             evidence,
         )
         .map_err(|error| error.to_string())?;
-        stored.push(stored_event(
-            position,
+        let fact_event = pending_event(
+            &format!("{}:{}:fact", event.run_id, event.sequence),
             &event.run_id,
             at,
             &agent,
             MemoryEvent::FactRecorded { fact },
             Some(current_task_event.clone()),
-            Some(attempt_event),
-        )?);
-        position += 1;
+            Some(attempt_id),
+        )?;
+        append_batch(&mut store, &event.run_id, vec![attempt_event, fact_event])?;
     }
-    Ok(stored)
+    Ok(store.load_all(None, usize::MAX))
 }
 
-fn stored_event(
-    position: u64,
+fn append_batch(
+    store: &mut InMemoryStore<MemoryEvent>,
     run_id: &str,
+    events: Vec<NewEvent<MemoryEvent>>,
+) -> Result<(), String> {
+    let stream = StreamId::new(hashed_id("stream", run_id)).map_err(|error| error.to_string())?;
+    let expected = store
+        .stream_version(&stream)
+        .map_or(ExpectedVersion::NoStream, |_| ExpectedVersion::Any);
+    store
+        .append_owned(&stream, expected, events)
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn pending_event(
+    id_key: &str,
+    stream_key: &str,
     at: Timestamp,
     agent: &AgentId,
     payload: MemoryEvent,
     correlation_id: Option<EventId>,
     causation_id: Option<EventId>,
-) -> Result<StoredEvent<MemoryEvent>, String> {
+) -> Result<NewEvent<MemoryEvent>, String> {
     let event_type = payload.event_type().to_owned();
-    Ok(StoredEvent {
-        metadata: EventMetadata {
-            id: EventId::new(hashed_id("event", &format!("{run_id}-{position}")))
-                .map_err(|error| error.to_string())?,
-            stream_id: StreamId::new(hashed_id("stream", run_id))
-                .map_err(|error| error.to_string())?,
-            stream_version: position.saturating_add(1),
-            global_position: position.saturating_add(1),
-            event_type,
-            occurred_at: at,
-            recorded_at: at,
-            agent_id: agent.clone(),
-            session_id: SessionId::new(hashed_id("session", run_id))
-                .map_err(|error| error.to_string())?,
-            correlation_id,
-            causation_id,
-        },
+    let mut event = NewEvent::new(
+        EventId::new(hashed_id("event", id_key)).map_err(|error| error.to_string())?,
+        event_type,
+        at,
+        at,
+        agent.clone(),
+        SessionId::new(hashed_id("session", stream_key)).map_err(|error| error.to_string())?,
         payload,
-    })
+    )
+    .map_err(|error| error.to_string())?;
+    if let Some(id) = correlation_id {
+        event = event.correlated_with(id);
+    }
+    if let Some(id) = causation_id {
+        event = event.caused_by(id);
+    }
+    Ok(event)
 }
 
 fn task_fingerprint(task: &str) -> String {
@@ -306,6 +313,120 @@ mod tests {
         assert_eq!(
             task_fingerprint("  compile_context  "),
             task_fingerprint("compile_context")
+        );
+    }
+
+    fn replay_arguments(arguments: &Value) -> weavatrix_rust::memory::MemoryProjection {
+        let events =
+            serde_json::from_value::<Vec<StoredEvent<MemoryEvent>>>(arguments["events"].clone())
+                .expect("stored events");
+        assert_eq!(events[0].metadata.global_position, 0);
+        assert_eq!(events[0].metadata.stream_version, 0);
+        weavatrix_rust::memory::replay_owned(events).expect("replay")
+    }
+
+    #[test]
+    fn memory_arguments_replay_and_keep_run_evidence() {
+        let memory = PriorRunMemory::from_parts(vec![failed()]);
+        let arguments = memory
+            .memory_arguments("still failing compile_context", 600)
+            .expect("arguments");
+        let projection = replay_arguments(&arguments);
+        let request = serde_json::from_value::<ContextRequest>(arguments["request"].clone())
+            .expect("request");
+        let bundle = weavatrix_rust::memory::ContextCompiler::new(
+            weavatrix_rust::memory::BytesTokenEstimator::default(),
+        )
+        .compile(&projection, &request)
+        .expect("compile");
+        assert_eq!(bundle.view.facts.len(), 1);
+        assert_eq!(bundle.view.facts[0].relation, "follows_attempt");
+        assert_eq!(bundle.view.facts[0].evidence[0].source, "run:run-1");
+        assert_eq!(
+            bundle.view.facts[0].evidence[0].locator.as_deref(),
+            Some("seq:4")
+        );
+        assert!(
+            bundle
+                .view
+                .nodes
+                .iter()
+                .any(|node| node.label.contains("evidence gate"))
+        );
+    }
+
+    #[test]
+    fn two_runs_start_stream_versions_at_zero() {
+        let second = PriorRunEvent {
+            run_id: "run-2".to_owned(),
+            sequence: 1,
+            detail: Some("ещё одна попытка".to_owned()),
+            recorded_at: 1_700_000_100,
+            ..failed()
+        };
+        let memory = PriorRunMemory::from_parts(vec![failed(), second]);
+        let arguments = memory
+            .memory_arguments("still failing compile_context", 800)
+            .expect("arguments");
+        let events =
+            serde_json::from_value::<Vec<StoredEvent<MemoryEvent>>>(arguments["events"].clone())
+                .expect("stored events");
+        assert_eq!(events.len(), 5);
+        assert_eq!(events[1].metadata.global_position, 1);
+        assert_eq!(events[1].metadata.stream_version, 0);
+        assert_eq!(events[3].metadata.stream_version, 0);
+        let projection = replay_arguments(&arguments);
+        let request = serde_json::from_value::<ContextRequest>(arguments["request"].clone())
+            .expect("request");
+        let bundle = weavatrix_rust::memory::ContextCompiler::new(
+            weavatrix_rust::memory::BytesTokenEstimator::default(),
+        )
+        .compile(&projection, &request)
+        .expect("compile");
+        assert_eq!(bundle.view.facts.len(), 2);
+        assert!(
+            bundle
+                .view
+                .nodes
+                .iter()
+                .any(|node| node.label.contains("ещё"))
+        );
+    }
+
+    #[test]
+    fn several_events_on_one_run_keep_monotonic_stream_versions() {
+        let later = PriorRunEvent {
+            sequence: 8,
+            recorded_at: 1_700_000_050,
+            ..failed()
+        };
+        let memory = PriorRunMemory::from_parts(vec![failed(), later]);
+        let arguments = memory
+            .memory_arguments("still failing compile_context", 800)
+            .expect("arguments");
+        let events =
+            serde_json::from_value::<Vec<StoredEvent<MemoryEvent>>>(arguments["events"].clone())
+                .expect("stored events");
+        assert_eq!(events[1].metadata.stream_version, 0);
+        assert_eq!(events[4].metadata.stream_version, 3);
+        replay_arguments(&arguments);
+    }
+
+    #[test]
+    fn tiny_budget_fails_after_successful_replay() {
+        let memory = PriorRunMemory::from_parts(vec![failed()]);
+        let arguments = memory
+            .memory_arguments("still failing compile_context", 1)
+            .expect("arguments");
+        let projection = replay_arguments(&arguments);
+        let request = serde_json::from_value::<ContextRequest>(arguments["request"].clone())
+            .expect("request");
+        assert!(
+            weavatrix_rust::memory::ContextCompiler::new(
+                weavatrix_rust::memory::BytesTokenEstimator::default(),
+            )
+            .compile(&projection, &request)
+            .is_err()
         );
     }
 

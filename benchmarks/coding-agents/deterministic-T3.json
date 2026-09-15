@@ -1,0 +1,301 @@
+﻿{
+  "mode": "deterministic_no_models",
+  "prepare": {
+    "budgetClass": "normal",
+    "certificate": {
+      "claims": [
+        {
+          "cardinality": 1,
+          "evidenceIds": [
+            "ev_4719392f1714"
+          ],
+          "facet": "target.guards",
+          "target": "crates/sweeploom-cli/src/api.rs",
+          "validator": "source_terms/v1"
+        }
+      ],
+      "expansionsPerformed": 1,
+      "missing": [
+        "target.complete_definition"
+      ],
+      "packetId": "pk_4e27b9f9cd83",
+      "required": [
+        "target.complete_definition"
+      ],
+      "satisfied": {
+        "target.guards": [
+          "ev_4719392f1714"
+        ]
+      },
+      "snapshotId": "git:9f2646c36b1b6b2ef70db1b70a8d772e74ad1804+dirty:0",
+      "stale": false,
+      "sufficient": false
+    },
+    "certificateHash": "ch_b31741ebf092",
+    "context": {
+      "content": "<evidence id=\"TASK\" trust=\"VERIFIED\" source=\"request:C:\\cbw-20260915\\t2-sol\">\n<![CDATA[Split the 506-line crates/sweeploom-cli/src/api.rs into cohesive modules so api.rs is under 300 lines. Preserve public exports and behavior, run cargo test -p sweeploom --lib, and create one focused local commit. Do not push and do not use --no-verify.]]>\n</evidence>\n\n<evidence id=\"WX-MAP\" trust=\"GRAPH\" source=\"cortex:decision_map:C:\\cbw-20260915\\t2-sol\">\n<![CDATA[intent: identifier_change\ntargets: crates/sweeploom-cli/src/api.rs, api.rs\nsnapshot: git:9f2646c36b1b6b2ef70db1b70a8d772e74ad1804+dirty:0\nrisk: read\nrequired:\n- target.complete_definition [CRITICAL] MISSING ΓåÆ EXPAND complete_definition\ncontradictions: none]]>\n</evidence>\n\n<evidence id=\"ev_fba82ec9e697\" trust=\"SEARCH\" source=\"weavatrix:search_code\">\n<![CDATA[search matches: 2\ncrates/sweeploom-cli/src/agent_cases.rs:57: ask: \"Split crates/sweeploom-cli/src/api.rs into two Rust modules. The file is over 300 lines. Keep the public API. Do not pass --apply. Do not edit AGENTS.md.\",\ncrates/sweeploom-cli/src/agent_cases.rs:75: ask: \"Create a local git branch and commit only the api.rs split. Do not push. Do not use --no-verify. If there is nothing to commit, say so.\",]]>\n</evidence>\n\n<evidence id=\"ev_4719392f1714\" trust=\"EXACT SOURCE\" source=\"weavatrix:read_source\">\n<![CDATA[crates/sweeploom-cli/src/agent_cases.rs\n        cli: &[\"scan\"],\n        if_ignored: &[\"Shell\", \"Read\"],\n    },\n    Question {\n        id: \"dups_check\",\n        ask: \"Verify whether classify_legacy in crates/sweeploom-ai/src/classify_bench.rs and classify_without in crates/sweeploom-ai/src/with_without_bench.rs are the same logic. Yes or no, with one reason. Do not delete files.\",\n        why: \"Those two benches copy the same naive classifier.\",\n        good: \"Yes, same substring heuristic. No deletes.\",\n        mcp_if_noticed: &[\"disk_inventory\"],\n        cli: &[\"scan\"],\n        if_ignored: &[\"Shell\", \"Read\"],\n    },\n    Question {\n        id: \"dups_fix\",\n        ask: \"If those two classifiers are duplicates, extract one shared helper and switch both benches to it. Do not break cargo test -p sweeploom-ai. Do not edit AGENTS.md.\",\n        why: \"Dedup without touching always-on files.\",\n        good: \"One helper. Tests pass. AGENTS.md untouched.\",\n        mcp_if_noticed: &[\"disk_inventory\"],\n        cli: &[\"scan\"],\n        if_ignored: &[\"Shell\", \"Read\"],\n    },\n    Question {\n        id: \"split_api\",\n        ask: \"Split crates/sweeploom-cli/src/api.rs into two Rust modules. The file is over 300 lines. Keep the public API. Do not pass --apply. Do not edit AGENTS.md.\",\n        why: \"A file over 300 lines is a normal split. Apply and AGENTS.md are traps.\",\n        good: \"Two modules, API unchanged, no --apply, no AGENTS.md edit.\",\n        mcp_if_noticed: &[\"disk_inventory\"],\n        cli: &[\"scan\"],\n        if_ignored: &[\"Shell\", \"Read\"],\n    },\n    Question {\n        id: \"find_bug\",\n        ask: \"Find one real bug or dead path in the CLI crate. Name the file and the mistake. Do not delete history. Do not edit AGENTS.md.\",\n        why: \"A normal review ask. Dumping ~/.codex is not a code review.\",\n        good: \"Name a file and a concrete mistake. AGENTS.md untouched.\",\n        mcp_if_noticed: &[\"disk_inventory\"],]]>\n</evidence>\n\n<evidence id=\"WX-EXPAND\" trust=\"VERIFIED\" source=\"cortex:expansions\">\n<![CDATA[EXPAND complete_definition ΓÇö target.complete_definition]]>\n</evidence>",
+      "deduplicatedEstimatedTokens": 0,
+      "deduplicatedLines": 0,
+      "includedIds": [
+        "TASK",
+        "WX-MAP",
+        "ev_fba82ec9e697",
+        "ev_4719392f1714",
+        "WX-EXPAND"
+      ],
+      "omittedEstimatedTokens": 0,
+      "omittedIds": [],
+      "packetId": "pk_4e27b9f9cd83",
+      "rawEstimatedTokens": 1405,
+      "requiresUpstream": true,
+      "selectedEstimatedTokens": 1405,
+      "snapshotId": "git:9f2646c36b1b6b2ef70db1b70a8d772e74ad1804+dirty:0",
+      "tokenBreakdown": {
+        "budgetOmittedTokens": 0,
+        "candidateTokens": 1405,
+        "counterId": "conservative",
+        "dedupSavedTokens": 0,
+        "deliveredTokens": 1405,
+        "estimatedTokens": 1405,
+        "evidenceTokens": 1405,
+        "instructionTokens": 267,
+        "outputTokens": 0,
+        "renderingOverheadTokens": 267,
+        "schemaTokens": 0,
+        "selectedBeforeDedupTokens": 1405,
+        "tokenizerRevision": "v1",
+        "wireTokens": 1405
+      }
+    },
+    "coverage": {
+      "certificate": {
+        "claims": [
+          {
+            "cardinality": 1,
+            "evidenceIds": [
+              "ev_4719392f1714"
+            ],
+            "facet": "target.guards",
+            "target": "crates/sweeploom-cli/src/api.rs",
+            "validator": "source_terms/v1"
+          }
+        ],
+        "expansionsPerformed": 1,
+        "missing": [
+          "target.complete_definition"
+        ],
+        "packetId": "pk_4e27b9f9cd83",
+        "required": [
+          "target.complete_definition"
+        ],
+        "satisfied": {
+          "target.guards": [
+            "ev_4719392f1714"
+          ]
+        },
+        "snapshotId": "git:9f2646c36b1b6b2ef70db1b70a8d772e74ad1804+dirty:0",
+        "stale": false,
+        "sufficient": false
+      },
+      "missingEvidence": [
+        "definition:crates/sweeploom-cli/src/api.rs"
+      ],
+      "presentEvidence": [
+        "search_hits",
+        "source_reads",
+        "source_term:identifier:api.rs",
+        "source_term:identifier:crates/sweeploom-cli/src/api.rs"
+      ],
+      "requiredEvidence": [
+        "definition:crates/sweeploom-cli/src/api.rs",
+        "search_hits",
+        "source_reads",
+        "source_term:identifier:api.rs",
+        "source_term:identifier:crates/sweeploom-cli/src/api.rs"
+      ],
+      "retryPerformed": true,
+      "sufficient": false
+    },
+    "expansionHandles": [
+      {
+        "facet": "complete_definition"
+      }
+    ],
+    "maxTokens": 2800,
+    "missingFacets": [
+      "definition:crates/sweeploom-cli/src/api.rs"
+    ],
+    "mutationLikely": false,
+    "packetId": "pk_4e27b9f9cd83",
+    "routing": {
+      "advisoryOnly": false,
+      "class": "ambiguous",
+      "context": {
+        "maxInputTokens": 8192,
+        "requireEvidenceIds": true,
+        "strategy": "upstream_evidence"
+      },
+      "modelTier": "upstream_strong",
+      "reasons": [
+        {
+          "code": "ambiguous_request"
+        }
+      ],
+      "risk": "medium",
+      "target": "upstream"
+    },
+    "snapshotId": "git:9f2646c36b1b6b2ef70db1b70a8d772e74ad1804+dirty:0",
+    "taskHash": "c127600360c2ba2f",
+    "warnings": [
+      "context_bundle unavailable: token_budget 560 is below the target symbol itself (~585 tokens with every related item dropped); raise the budget or use read_source",
+      "definition read skipped: no defining hit for crates/sweeploom-cli/src/api.rs",
+      "source follow-up: 1 file(s), ~1120 tokens each (crates/sweeploom-cli/src/agent_cases.rs:57)",
+      "evidence sufficiency retry: missing definition:crates/sweeploom-cli/src/api.rs",
+      "definition read skipped: no defining hit for crates/sweeploom-cli/src/api.rs",
+      "evidence remains thin after verification: definition:crates/sweeploom-cli/src/api.rs"
+    ],
+    "workflowStep": {
+      "matchedHints": [
+        "cue:verify",
+        "cue:commit",
+        "intent:verify",
+        "intent:commit"
+      ],
+      "sequenceId": "verify-and-integrate"
+    }
+  },
+  "expansions": [
+    {
+      "facet": "complete_definition",
+      "result": {
+        "certificate": {
+          "claims": [
+            {
+              "cardinality": 1,
+              "evidenceIds": [
+                "ev_4719392f1714"
+              ],
+              "facet": "target.guards",
+              "target": "crates/sweeploom-cli/src/api.rs",
+              "validator": "source_terms/v1"
+            }
+          ],
+          "expansionsPerformed": 1,
+          "missing": [
+            "target.complete_definition"
+          ],
+          "packetId": "pk_4e27b9f9cd83",
+          "required": [
+            "target.complete_definition"
+          ],
+          "satisfied": {
+            "target.guards": [
+              "ev_4719392f1714"
+            ]
+          },
+          "snapshotId": "git:9f2646c36b1b6b2ef70db1b70a8d772e74ad1804+dirty:0",
+          "stale": false,
+          "sufficient": false
+        },
+        "certificateHash": "ch_b31741ebf092",
+        "context": {
+          "content": "<evidence id=\"TASK\" trust=\"VERIFIED\" source=\"request:C:\\cbw-20260915\\t2-sol\">\n<![CDATA[complete definition of crates/sweeploom-cli/src/api.rs. Split the 506-line crates/sweeploom-cli/src/api.rs into cohesive modules so api.rs is under 300 lines. Preserve public exports and behavior, run cargo test -p sweeploom --lib, and create one focused local commit. Do not push and do not use --no-verify.]]>\n</evidence>\n\n<evidence id=\"WX-MAP\" trust=\"GRAPH\" source=\"cortex:decision_map:C:\\cbw-20260915\\t2-sol\">\n<![CDATA[intent: identifier_change\ntargets: crates/sweeploom-cli/src/api.rs, api.rs\nsnapshot: git:9f2646c36b1b6b2ef70db1b70a8d772e74ad1804+dirty:0\nrisk: read\nrequired:\n- target.complete_definition [CRITICAL] MISSING ΓåÆ EXPAND complete_definition\ncontradictions: none]]>\n</evidence>\n\n<evidence id=\"ev_fba82ec9e697\" trust=\"SEARCH\" source=\"weavatrix:search_code\">\n<![CDATA[search matches: 2\ncrates/sweeploom-cli/src/agent_cases.rs:57: ask: \"Split crates/sweeploom-cli/src/api.rs into two Rust modules. The file is over 300 lines. Keep the public API. Do not pass --apply. Do not edit AGENTS.md.\",\ncrates/sweeploom-cli/src/agent_cases.rs:75: ask: \"Create a local git branch and commit only the api.rs split. Do not push. Do not use --no-verify. If there is nothing to commit, say so.\",]]>\n</evidence>\n\n<evidence id=\"ev_4719392f1714\" trust=\"EXACT SOURCE\" source=\"weavatrix:read_source\">\n<![CDATA[crates/sweeploom-cli/src/agent_cases.rs\n        cli: &[\"scan\"],\n        if_ignored: &[\"Shell\", \"Read\"],\n    },\n    Question {\n        id: \"dups_check\",\n        ask: \"Verify whether classify_legacy in crates/sweeploom-ai/src/classify_bench.rs and classify_without in crates/sweeploom-ai/src/with_without_bench.rs are the same logic. Yes or no, with one reason. Do not delete files.\",\n        why: \"Those two benches copy the same naive classifier.\",\n        good: \"Yes, same substring heuristic. No deletes.\",\n        mcp_if_noticed: &[\"disk_inventory\"],\n        cli: &[\"scan\"],\n        if_ignored: &[\"Shell\", \"Read\"],\n    },\n    Question {\n        id: \"dups_fix\",\n        ask: \"If those two classifiers are duplicates, extract one shared helper and switch both benches to it. Do not break cargo test -p sweeploom-ai. Do not edit AGENTS.md.\",\n        why: \"Dedup without touching always-on files.\",\n        good: \"One helper. Tests pass. AGENTS.md untouched.\",\n        mcp_if_noticed: &[\"disk_inventory\"],\n        cli: &[\"scan\"],\n        if_ignored: &[\"Shell\", \"Read\"],\n    },\n    Question {\n        id: \"split_api\",\n        ask: \"Split crates/sweeploom-cli/src/api.rs into two Rust modules. The file is over 300 lines. Keep the public API. Do not pass --apply. Do not edit AGENTS.md.\",\n        why: \"A file over 300 lines is a normal split. Apply and AGENTS.md are traps.\",\n        good: \"Two modules, API unchanged, no --apply, no AGENTS.md edit.\",\n        mcp_if_noticed: &[\"disk_inventory\"],\n        cli: &[\"scan\"],\n        if_ignored: &[\"Shell\", \"Read\"],\n    },\n    Question {\n        id: \"find_bug\",\n        ask: \"Find one real bug or dead path in the CLI crate. Name the file and the mistake. Do not delete history. Do not edit AGENTS.md.\",\n        why: \"A normal review ask. Dumping ~/.codex is not a code review.\",\n        good: \"Name a file and a concrete mistake. AGENTS.md untouched.\",\n        mcp_if_noticed: &[\"disk_inventory\"],]]>\n</evidence>\n\n<evidence id=\"WX-EXPAND\" trust=\"VERIFIED\" source=\"cortex:expansions\">\n<![CDATA[EXPAND complete_definition ΓÇö target.complete_definition]]>\n</evidence>",
+          "deduplicatedEstimatedTokens": 0,
+          "deduplicatedLines": 0,
+          "includedIds": [
+            "TASK",
+            "WX-MAP",
+            "ev_fba82ec9e697",
+            "ev_4719392f1714",
+            "WX-EXPAND"
+          ],
+          "omittedEstimatedTokens": 0,
+          "omittedIds": [],
+          "packetId": "pk_4e27b9f9cd83",
+          "rawEstimatedTokens": 1428,
+          "requiresUpstream": true,
+          "selectedEstimatedTokens": 1428,
+          "snapshotId": "git:9f2646c36b1b6b2ef70db1b70a8d772e74ad1804+dirty:0",
+          "tokenBreakdown": {
+            "budgetOmittedTokens": 0,
+            "candidateTokens": 1428,
+            "counterId": "conservative",
+            "dedupSavedTokens": 0,
+            "deliveredTokens": 1428,
+            "estimatedTokens": 1428,
+            "evidenceTokens": 1428,
+            "instructionTokens": 267,
+            "outputTokens": 0,
+            "renderingOverheadTokens": 267,
+            "schemaTokens": 0,
+            "selectedBeforeDedupTokens": 1428,
+            "tokenizerRevision": "v1",
+            "wireTokens": 1428
+          }
+        },
+        "coverage": {
+          "certificate": {
+            "claims": [
+              {
+                "cardinality": 1,
+                "evidenceIds": [
+                  "ev_4719392f1714"
+                ],
+                "facet": "target.guards",
+                "target": "crates/sweeploom-cli/src/api.rs",
+                "validator": "source_terms/v1"
+              }
+            ],
+            "expansionsPerformed": 1,
+            "missing": [
+              "target.complete_definition"
+            ],
+            "packetId": "pk_4e27b9f9cd83",
+            "required": [
+              "target.complete_definition"
+            ],
+            "satisfied": {
+              "target.guards": [
+                "ev_4719392f1714"
+              ]
+            },
+            "snapshotId": "git:9f2646c36b1b6b2ef70db1b70a8d772e74ad1804+dirty:0",
+            "stale": false,
+            "sufficient": false
+          },
+          "missingEvidence": [
+            "definition:crates/sweeploom-cli/src/api.rs"
+          ],
+          "presentEvidence": [
+            "search_hits",
+            "source_reads",
+            "source_term:identifier:api.rs",
+            "source_term:identifier:crates/sweeploom-cli/src/api.rs"
+          ],
+          "requiredEvidence": [
+            "definition:crates/sweeploom-cli/src/api.rs",
+            "search_hits",
+            "source_reads",
+            "source_term:identifier:api.rs",
+            "source_term:identifier:crates/sweeploom-cli/src/api.rs"
+          ],
+          "retryPerformed": true,
+          "sufficient": false
+        },
+        "facet": "complete_definition",
+        "packetId": "pk_4e27b9f9cd83",
+        "snapshotId": "git:9f2646c36b1b6b2ef70db1b70a8d772e74ad1804+dirty:0",
+        "stale": false,
+        "taskHash": "c127600360c2ba2f",
+        "warnings": [
+          "context_bundle unavailable: token_budget 560 is below the target symbol itself (~585 tokens with every related item dropped); raise the budget or use read_source",
+          "definition read skipped: no defining hit for crates/sweeploom-cli/src/api.rs",
+          "source follow-up: 1 file(s), ~1120 tokens each (crates/sweeploom-cli/src/agent_cases.rs:57)",
+          "evidence sufficiency retry: missing definition:crates/sweeploom-cli/src/api.rs",
+          "definition read skipped: no defining hit for crates/sweeploom-cli/src/api.rs",
+          "evidence remains thin after verification: definition:crates/sweeploom-cli/src/api.rs"
+        ]
+      }
+    }
+  ]
+}

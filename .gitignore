@@ -2,6 +2,8 @@
 /ui/node_modules/
 /ui/dist/
 /.cortex-loom/
+/file_output/
+__pycache__/
 /.claude/
 *.db
 *.db-shm

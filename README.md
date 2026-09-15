@@ -128,6 +128,15 @@ Full tables, stamps, host, and caveats:
 four-character unit. Runtime compile uses `conservative/v1`. Recall
 means declared literals were in the packet, not that a model answered.
 
+The 2026-09-15 coding-agent A/B is
+[benchmarks/coding-agents](benchmarks/coding-agents): 15 isolated
+upstream agents on SweepLoom @ `9f2646c`, deterministic `--profile
+agent`, no local models. Review passed 11/15 WITH cells. Estimated
+spend rose 31.9% versus the saved WITHOUT baseline. T1/T2 packets
+often claimed sufficiency with no file paths; T3 expanded
+`agent_cases.rs` instead of `api.rs`. Spark via Codex CLI is blocked
+on this ChatGPT-linked account (`spark-preflight.json`).
+
 Host for the 2026-08-15 and 2026-08-18 runs: Windows 11, Intel Core
 Ultra 7 255U (14 threads), 47.5 GB RAM, Intel Graphics. **No NVIDIA
 device.** The context bench does not use the GPU.

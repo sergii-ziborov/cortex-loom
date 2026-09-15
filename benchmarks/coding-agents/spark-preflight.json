@@ -1,0 +1,29 @@
+{
+  "date": "2026-09-15",
+  "requestedModel": "gpt-5.3-codex-spark",
+  "cli": [
+    {
+      "source": "installed Codex app",
+      "version": "0.154.0-alpha.6.2"
+    },
+    {
+      "source": "@openai/codex",
+      "version": "0.154.0"
+    }
+  ],
+  "authentication": "ChatGPT",
+  "advertisedModels": [
+    "gpt-5.6-sol",
+    "gpt-6-astra",
+    "gpt-reserve",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
+    "gpt-daybreak-blue-latest",
+    "gpt-5.5",
+    "codex-auto-review"
+  ],
+  "status": "BLOCKED",
+  "error": "The 'gpt-5.3-codex-spark' model is not supported when using Codex with a ChatGPT account.",
+  "substitutedModel": null,
+  "runsStarted": 0
+}

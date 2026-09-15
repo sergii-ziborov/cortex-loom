@@ -1,0 +1,109 @@
+﻿{
+  "mode": "deterministic_no_models",
+  "prepare": {
+    "budgetClass": "normal",
+    "certificate": {
+      "expansionsPerformed": 0,
+      "missing": [],
+      "packetId": "pk_b79c96c4196d",
+      "required": [],
+      "satisfied": {},
+      "snapshotId": "git:9f2646c36b1b6b2ef70db1b70a8d772e74ad1804+dirty:0",
+      "stale": false,
+      "sufficient": true
+    },
+    "certificateHash": "ch_e66e77f58922",
+    "context": {
+      "content": "<evidence id=\"TASK\" trust=\"VERIFIED\" source=\"request:C:\\cbw-20260915\\t2-sol\">\n<![CDATA[Find and fix one real bug or dead production path in crates/sweeploom-cli. A warning-only cleanup does not count. Add a regression test that fails before the fix, explain the failure mode, and run cargo test -p sweeploom --lib.]]>\n</evidence>\n\n<evidence id=\"WX-MAP\" trust=\"GRAPH\" source=\"cortex:decision_map:C:\\cbw-20260915\\t2-sol\">\n<![CDATA[intent: identifier_change\ntargets: (none)\nsnapshot: git:9f2646c36b1b6b2ef70db1b70a8d772e74ad1804+dirty:0\nrisk: mutation\nrequired:\ncontradictions: none]]>\n</evidence>\n\n<evidence id=\"ev_033cac23c627\" trust=\"GRAPH\" source=\"weavatrix:module_map\">\n<![CDATA[{\"modules\":[{\"files\":102,\"path\":\"crates\",\"symbols\":981},{\"files\":39,\"path\":\"apps\",\"symbols\":310},{\"files\":4,\"path\":\"browser\",\"symbols\":24},{\"files\":4,\"path\":\"npm\",\"symbols\":11},{\"files\":2,\"path\":\"plugins\",\"symbols\":0},{\"files\":1,\"path\":\"(root)\",\"symbols\":0},{\"files\":1,\"path\":\".agents\",\"symbols\":0},{\"files\":1,\"path\":\".cursor\",\"symbols\":0}],\"repository_context\":{\"git_head\":\"9f2646c36b1b6b2ef70db1b70a8d772e74ad1804\",\"graph_age_seconds\":0,\"root\":\"\\\\\\\\?\\\\C:\\\\cbw-20260915\\\\t2-sol\",\"scan_revision\":\"sha256:854574f4515f07364847ecc7b4347b69cca08ced1f2ed6c5d1333dd458f9ff4d\"}}]]>\n</evidence>",
+      "deduplicatedEstimatedTokens": 0,
+      "deduplicatedLines": 0,
+      "includedIds": [
+        "TASK",
+        "WX-MAP",
+        "ev_033cac23c627"
+      ],
+      "omittedEstimatedTokens": 0,
+      "omittedIds": [],
+      "packetId": "pk_b79c96c4196d",
+      "rawEstimatedTokens": 657,
+      "requiresUpstream": false,
+      "selectedEstimatedTokens": 657,
+      "snapshotId": "git:9f2646c36b1b6b2ef70db1b70a8d772e74ad1804+dirty:0",
+      "tokenBreakdown": {
+        "budgetOmittedTokens": 0,
+        "candidateTokens": 657,
+        "counterId": "conservative",
+        "dedupSavedTokens": 0,
+        "deliveredTokens": 657,
+        "estimatedTokens": 657,
+        "evidenceTokens": 657,
+        "instructionTokens": 165,
+        "outputTokens": 0,
+        "renderingOverheadTokens": 165,
+        "schemaTokens": 0,
+        "selectedBeforeDedupTokens": 657,
+        "tokenizerRevision": "v1",
+        "wireTokens": 657
+      }
+    },
+    "coverage": {
+      "certificate": {
+        "expansionsPerformed": 0,
+        "missing": [],
+        "packetId": "pk_b79c96c4196d",
+        "required": [],
+        "satisfied": {},
+        "snapshotId": "git:9f2646c36b1b6b2ef70db1b70a8d772e74ad1804+dirty:0",
+        "stale": false,
+        "sufficient": true
+      },
+      "missingEvidence": [],
+      "presentEvidence": [
+        "module_map"
+      ],
+      "requiredEvidence": [
+        "module_map"
+      ],
+      "retryPerformed": false,
+      "sufficient": true
+    },
+    "expansionHandles": [],
+    "maxTokens": 2400,
+    "missingFacets": [],
+    "mutationLikely": true,
+    "packetId": "pk_b79c96c4196d",
+    "routing": {
+      "advisoryOnly": false,
+      "class": "implementation",
+      "context": {
+        "maxInputTokens": 8192,
+        "requireEvidenceIds": true,
+        "strategy": "upstream_evidence"
+      },
+      "modelTier": "upstream_strong",
+      "reasons": [
+        {
+          "code": "mutation_reserved_for_upstream"
+        }
+      ],
+      "risk": "medium",
+      "target": "upstream"
+    },
+    "snapshotId": "git:9f2646c36b1b6b2ef70db1b70a8d772e74ad1804+dirty:0",
+    "taskHash": "873858f7f3c19b7b",
+    "warnings": [
+      "source follow-up skipped: search returned no file paths"
+    ],
+    "workflowStep": {
+      "matchedHints": [
+        "cue:failure",
+        "cue:bug",
+        "intent:explain",
+        "intent:fix",
+        "mutation:allowed"
+      ],
+      "sequenceId": "root-cause-debugging"
+    }
+  },
+  "expansions": []
+}

@@ -1,0 +1,22 @@
+{
+  "date": "2026-09-15",
+  "baselineRepository": "https://github.com/Weavatrix/sweeploom",
+  "baselineCommit": "9f2646c36b1b6b2ef70db1b70a8d772e74ad1804",
+  "tasks": [
+    {
+      "id": "find_fix_bug",
+      "size": "medium",
+      "text": "Find and fix one real bug or dead production path in crates/sweeploom-cli. A warning-only cleanup does not count. Add a regression test that fails before the fix, explain the failure mode, and run cargo test -p sweeploom --lib."
+    },
+    {
+      "id": "remove_duplicate",
+      "size": "medium",
+      "text": "Find, verify, and eliminate duplicate classifier logic in crates/sweeploom-ai. Reuse one shared implementation without changing benchmark intent, then run cargo test -p sweeploom-ai --lib."
+    },
+    {
+      "id": "split_api",
+      "size": "large",
+      "text": "Split the 506-line crates/sweeploom-cli/src/api.rs into cohesive modules so api.rs is under 300 lines. Preserve public exports and behavior, run cargo test -p sweeploom --lib, and create one focused local commit. Do not push and do not use --no-verify."
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "date": "2026-09-15",
+  "variant": "Cortex model-enabled profile",
+  "policy": "Use an optional model role only when the exact profile, runtime, endpoint, and model tag are explicitly selected and live.",
+  "ollama": {
+    "cliAvailable": true,
+    "endpoint": "http://127.0.0.1:11434",
+    "installedModels": []
+  },
+  "ovms": [
+    {
+      "endpoint": "http://127.0.0.1:8000",
+      "open": false
+    },
+    {
+      "endpoint": "http://127.0.0.1:8001",
+      "open": false
+    },
+    {
+      "endpoint": "http://127.0.0.1:8002",
+      "open": false
+    }
+  ],
+  "status": "BLOCKED_NO_INSTALLED_MODELS",
+  "composerVariant": "Separate additional coding-agent run; not a local Cortex model profile and not a Spark substitute."
+}

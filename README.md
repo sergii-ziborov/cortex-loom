@@ -1,174 +1,164 @@
 # Cortex Loom
 
-**A verifiable context compiler for coding agents.**
+**Task-aware repository evidence for coding agents. Bounded context. Visible gaps.**
 
-Cortex Loom compiles a task-complete, revision-bound evidence packet
-and proves which required facts are present, missing, contradictory,
-or stale. It gives the model only the facts it needs — and does not
-hide the unknown.
-
-It sits between a repository and Codex, Claude, or Copilot. It asks
+Cortex Loom prepares a compact evidence packet for the task your coding
+agent is working on. It asks
 [Weavatrix](https://github.com/sergii-ziborov/weavatrix) for typed
-code evidence, packs what the current task can use, and leaves
-mutation, risk, and unverified work to the upstream agent.
+repository facts, keeps their provenance, and reports which declared
+requirements are covered, missing, contradictory, or stale.
 
-It is a local control plane: a typed process graph, a budgeted evidence
-compiler, fail-closed routing, and an MCP / HTTP / browser surface over
-the same contracts. It is not a second indexer, not an autonomous coder,
-and not a Superpowers fork.
+It is local-first. No account, model download, or hosted Cortex service
+is required for the deterministic path. Your coding agent still edits
+and verifies the code.
+
+CLI, MCP, and one skill are three ways to use the same compiler — not
+three products.
 
 > Cortex Loom — проверяемый компилятор контекста: модели только нужные
 > факты, плюс доказательство полноты. Неизвестное не скрывается.
 
 <p align="center">
-  <img src="docs/images/studio-canvas.png" alt="Cortex Loom studio: typed process graph with Weavatrix, local-model, and upstream-agent nodes" width="920" />
+  <img src="docs/images/cli-help.png" alt="cortex-loom --help in a terminal" width="920" />
 </p>
 
 <p align="center">
-  <img src="docs/images/studio-sequences.png" alt="Sequence Studio with seven Cortex-native templates" width="450" />
-  <img src="docs/images/studio-docs.png" alt="In-app Help and design documentation" width="450" />
+  <img src="docs/images/cli-doctor.png" alt="cortex-loom doctor --repo . JSON status" width="450" />
+  <img src="docs/images/cli-setup.png" alt="cortex-loom setup --agent claude-code --dry-run preview" width="450" />
 </p>
 
 ```text
-task  →  route (risk floor)
-      →  one active sequence step (optional)
-      →  Weavatrix ops chosen from the question
-      →  sufficiency gate (one retry, then escalate)
-      →  compact packet + citations
-      →  upstream agent
+task  →  evidence plan  →  Weavatrix  →  budgeted packet  →  coverage
+                                                      ↓
+                                            expand a missing facet
+                                                      ↓
+                                                coding agent
 ```
 
-## Why it exists
+## When it helps
 
-Agents waste tokens on two things this project measures separately:
+Use Cortex to investigate unfamiliar code, understand callers and
+contracts before a cross-file change, or prepare a bounded evidence set
+for debugging and review. Skip it for a typo or a small edit in a file
+the agent already understands.
 
-1. **Repository evidence.** Opening the right files, or dumping a whole
-   graph, is accurate and expensive. Search without source windows is
-   cheap and incomplete.
-2. **Methodology prose.** Eager skill injection (`using-superpowers` plus
-   a full `SKILL.md`) adds thousands of tokens before any code is read.
-
-Cortex compiles one packet per turn. The rest of the workflow stays
-graph state. Local models may classify, extract, or order evidence only
-inside a gated role; they never lower the risk floor and never apply a
-refactor.
-
-## What you get
-
-- **Evidence compiler** — task-aware Weavatrix plan (search, symbols,
-  callers, modules, endpoints, source windows, git history, stack-trace
-  mapping, test selection, prior-run memory), one sufficiency retry, then
-  a fail-closed compile with stable citation IDs.
-- **`--profile agent` (default)** — two MCP tools, `cortex_prepare` and
-  `cortex_expand`. Generated adapters launch this. The caller sends
-  `{ repository, task, runId?, budgetClass }`; mutation and verification
-  are derived, never self-declared.
-- **`--profile context`** — the bench evidence-compile pair
-  (`context_compile`, `weavatrix_context_compile`), 454 schema tokens.
-- **`--profile full`** — Studio/admin, 27 tools and ~4 021 schema tokens.
-- **Seven editable sequences** — Cortex rewrites of 13 useful mechanic
-  *names* (plan, TDD, debug, review, verify, parallel work, authoring).
-  Typed nodes, evidence gates, Weavatrix edges. Not a 1:1 port of
-  Superpowers `SKILL.md` bodies.
-- **Studio** at `http://127.0.0.1:43817` — graph canvas, Sequence Studio,
-  run workbench, library, Help, and the same design docs served from the
-  binary.
-- **Preview-only refactor** — an upstream-authored Weavatrix plan is
-  validated and rendered in memory. Nothing is applied.
-- **Calibration, not vibes** — `cortex-eval` never pulls a model.
-  `gatePassed` is a historical flag. Semantic ordering requires a matching
-  calibration artifact, not that boolean. Fine-tune rows live in
-  `corpora/train` and `corpora/dev`; gold stays in `eval/public` and
-  `crates/cortex-eval/fixtures/`. A leakage check refuses exact-hash and
-  gold-family overlap.
+Cortex does not replace your agent, build a second repository index, or
+filter shell output like RTK. Weavatrix supplies repository
+intelligence. Cortex owns task requirements, evidence selection, and
+delivery. Refactor support stays preview-only.
 
 ## Install
 
-Libraries (crates.io): `cargo add cortex-context cortex-domain cortex-router cortex-skills`.
-
-Product binaries are **not on crates.io yet** (`publish = false`). From
-this repo:
+Product binaries are **not on crates.io** (`publish = false`). From this
+repo:
 
 ```powershell
-npm.cmd --prefix ui ci
-npm.cmd --prefix ui run build
 cargo install --path crates/cortex-mcp --locked
-cargo install --path apps/cortex-server --locked
+cargo install --path apps/cortex-loom --locked
+cortex-loom --version
+cortex-loom doctor --repo .
 ```
 
-Studio: `cortex-server` → `http://127.0.0.1:43817`.  
-MCP: `cortex-mcp --profile agent`. Full steps, env flags, and
-HTTP bind: [docs/install.md](docs/install.md). LLM backends
-(`off` / `local` / `composer` plus `classifierModel` composer / sonnet-5 /
-opus-5 / haiku) and `internalModel` token fields:
-[docs/llm-backends.md](docs/llm-backends.md).
+The headless path does not require Node, Studio, or a local language
+model. Building from source needs Rust 1.89+ and a C toolchain.
+Platforms, checksums, and the optional Studio package:
+[docs/install.md](docs/install.md). CLI contract:
+[docs/cli.md](docs/cli.md).
 
-## How an agent uses it
+Four libraries are on crates.io (`cortex-context`, `cortex-domain`,
+`cortex-router`, `cortex-skills`). They do not start the MCP server.
 
-**Not a plugin.** Claude Code, Codex, Copilot, Cursor, and any other
-MCP host spawn a local `cortex-mcp` process over stdio (or Streamable
-HTTP on loopback). The default `--profile agent` exposes two tools:
-`cortex_prepare` and `cortex_expand`.
+## Try a task without an agent
 
-Adapters preview the wiring files (`.mcp.json`, Codex
-`config.toml` snippet, `.vscode/mcp.json`). They never write them.
-See [install](docs/install.md#wire-a-coding-agent).
+```powershell
+cortex-loom prepare --repo . --task-file task.md --budget 6000 --format json
+cortex-loom expand --packet <packet-id> --facet callers --format json
+cortex-loom report --last
+```
+
+Use exactly one of `--task`, `--task-file`, or `--task-stdin`. JSON
+goes to stdout; diagnostics to stderr. `sufficient` is coverage of
+declared evidence requirements, not proof that a change is correct.
+A process can exit 0 with an incomplete packet — read the certificate.
+
+## Connect a coding agent
+
+```powershell
+cortex-loom setup --agent claude-code --dry-run
+cortex-mcp --profile agent
+```
+
+Setup is preview-only. It prints `.mcp.json` / skill files and refuses
+`--write`. Place them yourself. Default agent profile:
 
 ```text
-agent  →  cortex_prepare({ repository, task })
-       →  packet + coverage certificate
-       →  cortex_expand({ packetId, facet })   # only if a facet is missing
-       →  upstream edit / test / commit
+cortex_prepare({ repository, task, runId?, budgetClass })
+cortex_expand({ packetId, facet })
 ```
 
-Weavatrix Refactor stays preview-only. Local models may classify or
-order evidence; they never apply a change.
+The `cortex-context` skill says when to call those tools. It does not
+ask for Cortex on every file read and it does not use `skill_read`.
 
-## Measured trials
+Adapters: [docs/install.md](docs/install.md#wire-a-coding-agent).
+Optional classifier backends (`off` / `local` / `composer`):
+[docs/llm-backends.md](docs/llm-backends.md).
 
-Full tables, stamps, host, and caveats:
-[docs/benchmark.md](docs/benchmark.md). Comparative numbers use the
-four-character unit. Runtime compile uses `conservative/v1`. Recall
-means declared literals were in the packet, not that a model answered.
+## Measured work
 
-The coding-agent matrix is
-[benchmarks/coding-agents](benchmarks/coding-agents) on SweepLoom @
-`9f2646c`. Tasks: **T1** `find_fix_bug` (one real CLI bug or dead
-production path plus a regression test), **T2** `remove_duplicate`
-(one shared classifier in `sweeploom-ai`), **T3** `split_api`
-(`api.rs` under 300 lines, public exports kept). Isolation is one
-fresh detached worktree and Cargo target per cell. Agents must run
-`cortex_mcp_client.py` before any source read. Parent-verify is git
-diff plus the required `cargo test`, not self-report.
+Full tables, stamps, and caveats:
+[docs/benchmark.md](docs/benchmark.md) and
+[benchmarks/coding-agents](benchmarks/coding-agents).
 
-Two spends, not one. Without-Cortex cells are the locked host-reference
-totals. Cortex cells are estimated context material plus visible
-response (UTF-8 transcript characters ÷ 4). Classifier spend is
-`internalModel.localTokens` or `internalModel.composerTokens` and is
-appended after the cell, not mixed into the host-reference. Cycles
-are assistant turns in the JSONL. The live canvas writes each Cortex
-cell as `spend / score / time / cycles` (Grok T1 models-off is
-`40,403 / 9.4 / 23m 31s / 20c`).
+The SweepLoom matrix at `9f2646c` uses **T1** `find_fix_bug`, **T2**
+`remove_duplicate`, **T3** `split_api`. Isolation is one detached
+worktree per cell. Parent-verify is the git diff plus the required
+`cargo test`, not self-report.
 
-Composer T1 with Cortex scored 5.0 on models-off, local qwen, and
-Composer-as-classifier: only `agent_cases.rs`, `is_silent_ask` unused
-in production. The planner treated `crates/sweeploom-cli` as prose, so
-the packet was a module map that claimed sufficiency. That is a Cortex
-bug, not a scoring typo. Bare Composer Without scored 8.2 on a real
-CLI-path bug. Spark via Codex CLI stays blocked
-(`spark-preflight.json`).
+Grok 4.6 extra high and Composer 2.5 × four Cortex classifiers × T1–T3
+are closed on **cursor-agent** (24 cells). Sonnet 5 max and Haiku 4.5
+T1–T2 four lanes are closed on **Claude Code CLI**. T3 and leftover
+Opus CLI cells hit a Claude session limit (reset 22:40 Asia/Jerusalem
+on 2026-09-16). cursor-agent Ultra remains capped until 2026-10-02.
+Those are provider blocks, not Cortex failures.
 
-Host for the 2026-08-15 and 2026-08-18 runs: Windows 11, Intel Core
-Ultra 7 255U (14 threads), 47.5 GB RAM, Intel Graphics. **No NVIDIA
-device.** The context bench does not use the GPU.
+Claude Code spend is usage `input + output + cache_create`. Cursor
+spend is estimated context material plus visible response (chars÷4).
+Do not pool them or call the drop a billed saving.
+
+Selected models-off observations (Cursor host-reference Without vs
+Cortex material estimate):
+
+| Coding agent / task | Without score | Cortex score | Cortex spend |
+| --- | ---: | ---: | ---: |
+| Grok / T1 | 9.4 | 9.4 | 40,403 |
+| Grok / T2 | 8.5 | 9.0 | 31,156 |
+| Composer / T1 rerun | 8.2 | 9.1 | 37,205 |
+| Opus extra / T1 | 9.5 | 9.6 | 51,139 |
+
+Claude Code CLI, T1–T2 (not comparable to the Cursor numbers above):
+
+| Agent / task / lane | Spend / score / wall / cycles |
+| --- | --- |
+| Sonnet T1 Without | 194,593 / 9.4 / 9m 46s / 57c |
+| Sonnet T1 models-off | 76,815 / 9.1 / 3m 10s / 13c |
+| Sonnet T2 Without | 75,426 / 8.8 / 3m 37s / 16c |
+| Haiku T1 Without | 98,548 / 9.3 / 4m 48s / 39c |
+| Haiku T1 Composer-classifier | 52,166 / 9.0 / 4m 54s / 25c |
+| Haiku T2 models-off | 36,057 / 8.6 / 1m 40s / 18c |
+
+The first Composer T1 thin-packet result stays historical at 5.0
+(`is_silent_ask` unused in production). Later crate-path reruns scored
+9.1–9.3; they do not erase that failure. Isolated parent-verify of the
+Claude T1/T2 trees: T2 all 17/17; Haiku T1 models-off 16/1
+(`silent_asks_never_name_the_product`).
+
+RTK 0.49.0 is a bash-stdout neighbor. It is not a Cortex substitute.
 
 ### Probe — quality stamp (`restore-40-final`, 4 000 tokens)
 
-Ten tasks, 40 facts, this repository. Historical baseline
-2026-08-13 was 21 363 / 40/40. The restore stamp is **18 698 / 40/40**
-(same facts, compact dependents render — not a cheaper counter).
-Recheck after first-pass semantic windows (no extra retry):
-**19 035 / 40/40**.
+Ten tasks, 40 facts, this repository. Historical baseline 2026-08-13
+was 21 363 / 40/40. The restore stamp is **18 698 / 40/40**. Recheck
+after first-pass semantic windows: **19 035 / 40/40**.
 
 | arm | selected tokens | delivered over MCP | facts |
 | --- | ---: | ---: | ---: |
@@ -177,60 +167,20 @@ Recheck after first-pass semantic windows (no extra retry):
 | Cortex targeted + source windows | 19 035 | 22 850 | **40/40** |
 | **Cortex + verified source** | **19 035** | **22 936** | **40/40** |
 
-**95.3% fewer** selected tokens than naive at equal recall. Targeted
-now opens the same preferred windows on the first pass (`gate_passed`,
-`merge_tiers`, `fn observe`, `run_store`), so it matches source recall
-without becoming the retry loop. `cortex-loom` stays the four-operation
-control.
+**95.3% fewer** selected tokens than naive at equal recall.
 
 | set | tasks / facts | cortex-source | targeted | wall | CPU | peak RSS |
-| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | probe @ 4k | 10 / 40 | **19 035 / 40/40** | **19 035 / 40/40** | 21.6 s | 30.8 s | 86.2 MB |
 | probe @ 16k | 10 / 40 | **22 818 / 40/40** | — | 22.9 s | 14.4 s | 80.5 MB |
 | core @ 4k | 7 / 41 | **14 469 / 41/41** | **14 486 / 41/41** | — | — | — |
 | langs @ 4k | 6 / 12 | **4 146 / 12/12** | **4 146 / 12/12** | 10.4 s | 5.3 s | 78.3 MB |
 | intent @ 4k | 3 / 12 | **4 978 / 12/12** | **4 978 / 12/12** | — | — | — |
 
-Every `cortex-source` task on probe, core, langs, and intent reports
-`sufficient: true`. Source windows now name their path, so a crate fact
-such as `cortex-store` survives when `module_map` is omitted.
-`cortex-full` on core is **16 990 / 41/41** when compiled at the
-untrimmed budget (16× / min 32k). Intent stamp `intent-head`: git
-4/4, stack 4/4, tests 4/4 — the suite keeps the head window plus one
-later call site (~280 tokens each) instead of four mid-file slices.
-Sampler: `scripts/measure-bench.ps1`.
-
-### Sequence methodology — 28 scenarios, no model
-
-Stamp `sequence-after-core-fix`. Cortex-native active-step packets
-**28/28**, **10 401 → 3 812** tokens vs bundled skill prose.
-`promoted` stays false on this machine: the Superpowers raw baseline
-was not supplied (`--superpowers-root`). That is a missing comparison
-arm, not a native fail. Same 28/28 as the README methodology table.
-
-### Tests run with this stamp
-
-`cargo test --workspace` passed (including doctests).
-`cargo test -p cortex-mcp --tests` passed, including the five
-adversarial transport cases. `cortex-eval --discover` saw Ollama
-0.32.13 and the three local profiles; no live model suite was run
-in this pass.
-
-### Still open (do not paper over)
-
-- **`cortex-loom` is still the four-operation control.** 18/41 core,
-  24/40 probe, 8/12 langs, 6/12 intent. Collapsing it into targeted
-  would delete the comparison.
-- **Stage 4 live comparison is fail-closed.** `cortex-bench release`
-  writes the required arms/metrics envelope with
-  `liveComparison=false` when `CORTEX_SERENA_ROOT` is unset. Serena
-  is not invoked. Live 9B numbers below are the 2026-08-10 stamp.
-
 ### Live server — one question, every approach
 
 *Who calls `compile_evidence_bundle`, and what breaks if it starts
-refusing more packets?* Four declared facts, real JSON-RPC, 2026-08-10,
-later compact text rendering:
+refusing more packets?* Four declared facts, real JSON-RPC, 2026-08-10:
 
 | approach | session tokens | calls | facts |
 | --- | ---: | ---: | ---: |
@@ -238,28 +188,6 @@ later compact text rendering:
 | `ripgrep` + file reads | 4 904 | 5 | 3/4 |
 | Serena MCP 1.28.1 | 10 540 | 3 | 4/4 |
 | **Cortex `--profile context`** | **4 167** | **1** | **4/4** |
-
-Equal recall to reading the files, one round trip. Schema for that
-profile is 454 tokens versus ~4 000 for the full MCP surface.
-
-### Live model — does a 9B still answer?
-
-Unfamiliar repo `weavatrix-search` @ `50953b3`, `qwen3.5:9b`, temperature
-0, three questions (12 required claims). After source follow-up, labels,
-and packet consumption:
-
-| approach | quality | session tokens | calls |
-| --- | ---: | ---: | ---: |
-| naive: read the module dirs | 10/12 | 17 580 | 0 |
-| weavatrix MCP, raw dump | 10/12 | 40 680 | 9 |
-| **Cortex, labeled packet** | **10/12** | **~7–11k** | **3** |
-| agent-native + Superpowers | 8/12 | 34 279 | 12 |
-| Serena MCP | 5/12 | 20 768 | 6 |
-
-Cheapest arm that matches the 10/12 quality ceiling of naive / raw
-graph. One-shot T2/T3 still jitters by a point; that is recorded in the
-benchmark, not rounded away. `qwen3.5:4b` failed the sequence live gate
-(0/12) and is not promoted.
 
 ### Methodology — what enters context this step?
 
@@ -271,101 +199,36 @@ benchmark, not rounded away. `qwen3.5:4b` failed the sequence live gate
 | raw Superpowers 6.2.0 | 72 839 | 15/28 |
 | **Cortex active-step packet** | **3 812** | **28/28** |
 
-**94.77% vs one whole `SKILL.md` is the per-step figure.** A full
-sequence sends five or six packets (~66–71% amortized). Native is scored
-from its typed graph; prose arms by keyword inference — 28/28 is closer
-to a consistency check than to a model bake-off.
-
 ```powershell
 cargo run -p cortex-bench -- --repo . --budget 4000 --set probe `
   --out .cortex-loom/bench/probe.json --stamp local-probe
-
-cargo run -p cortex-bench -- sequence `
-  --superpowers-root C:\path\to\superpowers `
-  --out .cortex-loom/bench/sequences.json
 ```
 
-The Superpowers root is optional measurement input. This repo does not
-vendor those files and does not train on them.
+## Models are optional
 
-## How a request is compiled
-
-1. A deterministic router sets a risk floor. Local models may only
-   escalate.
-2. An optional sequence contributes one `ActiveStepPacket` and
-   `PlanHints` (intent, source follow-up, whether a change plan is
-   allowed).
-3. The planner picks Weavatrix operations from the task text: blast
-   radius, API contracts, config, git history, stack traces, test
-   selection, and prior-run failures (`WX-MEMORY`) when `runId` or the
-   wording says this was already tried.
-4. Source windows outrank search metadata. Critical evidence fails
-   closed instead of truncating into a plausible packet.
-5. Sufficiency allows one targeted retry, then upstream.
-
-## Models
-
-Profiles are capabilities, not permission to pull a checkpoint. Product
-authority is only `config/llm-profiles.json` + `gatePassed`.
+Models-off is a useful default. Calibrated local or proxy profiles can
+assist inside explicit roles. They may not lower the deterministic risk
+floor or mint verified evidence. Missing Qwen is not an installation
+error.
 
 | profile | role | authority |
 | --- | --- | --- |
 | `gpu-embedding` | Qwen3-Embedding 0.6B on OVMS/GPU | reorder inside a priority band |
 | `npu-classifier` | Qwen3-8B INT4 on OVMS/NPU | escalate above the lexical floor |
 | `gpu-digest` | `qwen3.5:9b` on Ollama | off-path; gate not passed |
-| `npu-micro-extract-qwen3-0.6b` | future 0.6B literal extract | disabled until its gate passes |
 
-The Cortex 7B-class product model is that NPU 8B IR, not the Ollama
-XiYanSQL 7B GGUF. OVMS and Ollama stay two servers. CPU inference is
-forbidden unless opted in. Map: [local models](docs/local-models.md),
-[inventory](config/model-inventory.json).
+Map: [local models](docs/local-models.md).
 
-## Dependencies
+## Studio and workflows
 
-**Build:** Rust 1.89+, a C toolchain for bundled SQLite. Node is
-build-time only (`npm.cmd --prefix ui run build`); the release binary
-embeds `ui/dist` and needs no Node at runtime.
+Studio remains an optional interface for graphs, sequences, runs, and
+docs. It is leaving this repository for a private host. A workflow
+suggestion is not a claim that a step ran.
 
-**First-party (crates.io / sibling repos):**
-
-| crate | role |
-| --- | --- |
-| [`weavatrix-rust`](https://crates.io/crates/weavatrix-rust) 2.10.0 | repository graph, search, git, memory, impact |
-| [`weavatrix-edit`](https://crates.io/crates/weavatrix-edit) 0.1.7 | exact in-memory text edits |
-| [`weavatrix-refactor-plan`](https://crates.io/crates/weavatrix-refactor-plan) 0.1.1 | preview-only refactor contract |
-| [`mcport`](https://crates.io/crates/mcport) 0.6.1 | Tokio-free MCP stdio / Streamable HTTP |
-| [`blazingly-json`](https://crates.io/crates/blazingly-json) 0.1.9 | JSON engine (aliased as `serde_json` in private crates) |
-
-**External:** `axum` 0.8, `tokio` 1, `rusqlite` 0.40 (bundled), `serde`
-1, `sha2` 0.11, `ureq` 3, `tower-http` 0.7. UI: React 19 + Vite 8.
-
-**Optional at runtime:** [Ollama](https://ollama.com) (`:11434`) and
-OpenVINO Model Server on loopback for gated local profiles. Neither is
-required to compile evidence.
-
-**Not a dependency:** Superpowers, Serena, LangSmith, Python on the
-product path. Training scripts under `scripts/fine-tune/` are
-operator-only.
-
-## Run from a checkout
-
-```powershell
-npm.cmd --prefix ui ci
-npm.cmd --prefix ui run build
-cargo run -p cortex-server --release
-cargo run -p cortex-mcp --release -- --profile agent
-cargo test --workspace
-cargo run -p cortex-eval -- --discover
-```
-
-`cortex-eval` reports absent models and skips them. It never pulls.
-Bench with CPU/RAM sampling:
-
-```powershell
-cargo build -p cortex-bench --release
-powershell -File scripts/measure-bench.ps1 -Set probe -Budget 4000 `
-  -Stamp local-probe -Out .cortex-loom/bench/probe.json
-```
+<p align="center">
+  <img src="docs/images/studio-canvas.png" alt="Optional Studio graph canvas" width="450" />
+  <img src="docs/images/studio-sequences.png" alt="Optional Sequence Studio" width="450" />
+</p>
 
 ## Workspace
 
@@ -375,29 +238,31 @@ powershell -File scripts/measure-bench.ps1 -Set probe -Budget 4000 `
 | `cortex-context` | budgeted packet compile |
 | `cortex-router` | fail-closed routing |
 | `cortex-skills` | `SKILL.md` round trip |
-| `cortex-sequences` | templates + one-step packets |
-| `cortex-run` / `cortex-store` | immutable runs, SQLite |
 | `cortex-weavatrix` | plan, gather, verify, preview |
-| `cortex-mcp` / `cortex-server` | transports + embedded UI |
+| `cortex-mcp` / `cortex-loom` | MCP transport + thin CLI |
 | `cortex-eval` / `cortex-bench` | calibration and benches |
-| `cortex-llm` / `cortex-ollama` / `cortex-shadow` | gated local inference |
+
+**Build:** Rust 1.89+, a C toolchain for bundled SQLite. Node is
+build-time only for Studio (`npm.cmd --prefix ui run build`).
+
+```powershell
+cargo run -p cortex-mcp --release -- --profile agent
+cargo run -p cortex-loom --release -- doctor --repo .
+cargo test --workspace
+```
 
 Four crates are dual-licensed **MIT OR Apache-2.0** (`cortex-domain`,
 `cortex-context`, `cortex-router`, `cortex-skills`). Root `LICENSE-*`
 files apply **only** to those crates. Everything else is unlicensed —
-see [docs/licensing.md](docs/licensing.md).
-
-Ecosystem: Weavatrix understands the repo, [Weavatrix
-Loom](https://github.com/sergii-ziborov/weavatrix-loom) composes
-capabilities, Cortex spends the agent's context. Boundaries:
-[ADR-0012](https://github.com/sergii-ziborov/weavatrix-loom/blob/main/docs/adr/0012-ecosystem-boundaries.md).
+see [docs/licensing.md](docs/licensing.md). That is the current grant,
+not a claim that the whole product is MIT.
 
 ## Docs
 
-[Install](docs/install.md) · [Architecture](docs/architecture.md) ·
-[Benchmark](docs/benchmark.md) · [Evaluation](docs/evaluation.md) ·
-[Local models](docs/local-models.md) · [Competitors](docs/competitors.md) ·
-[Research](docs/research.md)
+[Install](docs/install.md) · [CLI](docs/cli.md) ·
+[Architecture](docs/architecture.md) · [Benchmark](docs/benchmark.md) ·
+[LLM backends](docs/llm-backends.md) ·
+[Local models](docs/local-models.md) ·
+[Competitors](docs/competitors.md)
 
-The same files are served from a running binary at `/api/docs` and in
-the editor Help panel.
+The same files are served from a running Studio binary at `/api/docs`.

@@ -91,8 +91,21 @@ fn copilot_bundle_targets_vscode_and_instruction_files() {
 }
 
 #[test]
+fn product_setup_is_one_skill_and_mcp() {
+    let bundle = export_product_adapter(AgentKind::ClaudeCode, &McpLaunch::default());
+    assert_eq!(bundle.graph_id, "cortex-context");
+    assert_eq!(bundle.files.len(), 2);
+    assert_eq!(
+        bundle.files[0].path,
+        ".claude/skills/cortex-context/SKILL.md"
+    );
+    assert!(bundle.files[0].content.contains("cortex_prepare"));
+}
+
+#[test]
 fn agent_kind_parsing_is_exact() {
     assert_eq!(AgentKind::parse("claude_code"), Some(AgentKind::ClaudeCode));
+    assert_eq!(AgentKind::parse("claude-code"), Some(AgentKind::ClaudeCode));
     assert_eq!(AgentKind::parse("codex"), Some(AgentKind::Codex));
     assert_eq!(AgentKind::parse("copilot"), Some(AgentKind::Copilot));
     assert_eq!(AgentKind::parse("cursor"), None);

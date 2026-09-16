@@ -223,6 +223,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cortex-loom"
+version = "0.1.0"
+dependencies = [
+ "blazingly-json",
+ "cortex-adapters",
+ "cortex-mcp",
+]
+
+[[package]]
 name = "cortex-mcp"
 version = "0.1.0"
 dependencies = [

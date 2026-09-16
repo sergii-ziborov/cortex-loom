@@ -9,3 +9,5 @@ __pycache__/
 *.db-shm
 *.db-wal
 .env
+/private/
+*open-local-paid-online-plan*.md

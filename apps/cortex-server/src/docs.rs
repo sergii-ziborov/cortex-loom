@@ -32,6 +32,18 @@ static DOCS: &[BundledDoc] = &[
         markdown: include_str!("../../../docs/install.md"),
     },
     BundledDoc {
+        id: "cli",
+        title: "CLI",
+        summary: "Thin cortex-loom commands over the same prepare/expand compiler.",
+        markdown: include_str!("../../../docs/cli.md"),
+    },
+    BundledDoc {
+        id: "llm-backends",
+        title: "LLM backends",
+        summary: "Optional classifier backends: off, local, and the Composer loopback proxy.",
+        markdown: include_str!("../../../docs/llm-backends.md"),
+    },
+    BundledDoc {
         id: "architecture",
         title: "Architecture",
         summary: "Runtime flow, graph layers, modules, and every safety boundary.",

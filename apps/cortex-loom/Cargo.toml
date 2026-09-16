@@ -1,0 +1,20 @@
+[package]
+name = "cortex-loom"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "cortex-loom"
+path = "src/main.rs"
+
+[dependencies]
+cortex-adapters = { path = "../../crates/cortex-adapters" }
+cortex-mcp = { path = "../../crates/cortex-mcp" }
+serde_json.workspace = true
+
+[lints]
+workspace = true

@@ -1,5 +1,6 @@
 [workspace]
 members = [
+  "apps/cortex-loom",
   "apps/cortex-server",
   "crates/cortex-adapters",
   "crates/cortex-bench",

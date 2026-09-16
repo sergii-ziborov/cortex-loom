@@ -22,6 +22,14 @@ fn run() -> Result<(), String> {
     let mut arguments = env::args().skip(1);
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
+            "-h" | "--help" => {
+                print_help();
+                return Ok(());
+            }
+            "-V" | "--version" => {
+                println!("cortex-mcp {}", env!("CARGO_PKG_VERSION"));
+                return Ok(());
+            }
             "--http" => {
                 http = Some(
                     arguments
@@ -43,7 +51,11 @@ fn run() -> Result<(), String> {
                     .ok_or_else(|| "--profile requires a value (agent|full|context)".to_owned())?;
                 profile = ServerProfile::parse(&value)?;
             }
-            other => return Err(format!("unknown argument: {other}")),
+            other => {
+                return Err(format!(
+                    "unknown argument: {other}. Try cortex-mcp --help (profiles: agent|full|context)."
+                ));
+            }
         }
     }
     let policy = cortex_mcp::workspace::WorkspacePolicy::new(allow_remote, workspaces)?;
@@ -62,4 +74,15 @@ fn run() -> Result<(), String> {
 
 fn default_database() -> PathBuf {
     PathBuf::from(".cortex-loom").join("cortex-loom.db")
+}
+
+fn print_help() {
+    println!(
+        "cortex-mcp {} — local evidence compiler for coding agents\n\n\
+         Usage:\n  \
+         cortex-mcp [--profile agent|full|context] [--http ADDR] [--workspace PATH]... [--allow-remote]\n\n\
+         Default profile is agent: cortex_prepare and cortex_expand only.\n\
+         Unknown flags fail closed. See cortex-loom doctor for a local check.",
+        env!("CARGO_PKG_VERSION")
+    );
 }

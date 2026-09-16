@@ -11,7 +11,7 @@ use cortex_weavatrix::{
 };
 use mcport::{ConcurrentMcpServer, ToolReply};
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::CortexMcpState;
 use crate::compile_session::{CompileArgs, compile_weavatrix};
@@ -20,14 +20,30 @@ use cortex_weavatrix::repository_snapshot;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct PrepareArgs {
-    repository: PathBuf,
-    task: String,
-    run_id: Option<String>,
-    budget_class: Option<String>,
+pub struct AgentPrepare {
+    pub repository: PathBuf,
+    pub task: String,
+    pub run_id: Option<String>,
+    pub budget_class: Option<String>,
     /// Loopback classifier alias for this call only: composer, sonnet-5, opus-5, haiku.
-    classifier_model: Option<String>,
+    pub classifier_model: Option<String>,
 }
+
+/// Disk-restored packet so CLI expand can run in a new process.
+#[derive(Debug, Clone)]
+pub struct AgentPacket {
+    pub id: String,
+    pub repository: PathBuf,
+    pub task: String,
+    pub run_id: Option<String>,
+    pub task_hash: String,
+    pub symbols: Vec<String>,
+    pub snapshot_id: Option<String>,
+    pub certificate_hash: Option<String>,
+    pub max_tokens: u32,
+}
+
+type PrepareArgs = AgentPrepare;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -66,7 +82,10 @@ pub(crate) fn register(
                 if context.is_cancelled() {
                     return ToolReply::error("cancelled");
                 }
-                prepare(&prepare_state, arguments)
+                match prepare_packet(&prepare_state, arguments) {
+                    Ok(value) => ToolReply::text(value),
+                    Err(error) => ToolReply::error(error),
+                }
             },
         )
         .typed_tool(
@@ -88,12 +107,15 @@ pub(crate) fn register(
                 if context.is_cancelled() {
                     return ToolReply::error("cancelled");
                 }
-                expand(&expand_state, &arguments)
+                match expand_packet(&expand_state, &arguments.packet_id, &arguments.facet) {
+                    Ok(value) => ToolReply::text(value),
+                    Err(error) => ToolReply::error(error),
+                }
             },
         )
 }
 
-fn prepare(state: &CortexMcpState, arguments: PrepareArgs) -> ToolReply {
+pub fn prepare_packet(state: &CortexMcpState, arguments: AgentPrepare) -> Result<Value, String> {
     let pin = BudgetPin::parse(arguments.budget_class.as_deref());
     let max_tokens = adaptive_budget(&arguments.task, pin);
     let symbols = extract_identifiers(&arguments.task);
@@ -125,7 +147,7 @@ fn prepare(state: &CortexMcpState, arguments: PrepareArgs) -> ToolReply {
                 "matchedHints": candidate.matched_hints,
             })
         });
-    let compiled = match compile_weavatrix(
+    let compiled = compile_weavatrix(
         state,
         &CompileArgs {
             repository: arguments.repository.clone(),
@@ -137,26 +159,23 @@ fn prepare(state: &CortexMcpState, arguments: PrepareArgs) -> ToolReply {
             targeted: true,
             hints: None,
         },
-    ) {
-        Ok(packet) => packet,
-        Err(error) => return ToolReply::error(error),
-    };
+    )?;
     let missing = compiled
         .sufficiency
         .as_ref()
         .map(|report| report.missing_evidence.clone())
         .unwrap_or_default();
     let Some(id) = compiled.context.packet_id.clone() else {
-        return ToolReply::error("compiled packet has no packetId");
+        return Err("compiled packet has no packetId".to_owned());
     };
     let snapshot = compiled.context.snapshot_id.clone();
     state.packets.insert(StoredPacket {
         id: id.clone(),
-        repository: arguments.repository,
+        repository: arguments.repository.clone(),
         task: arguments.task.clone(),
         task_hash: task_hash(&arguments.task),
         run_id: arguments.run_id,
-        symbols,
+        symbols: symbols.clone(),
         snapshot_id: snapshot.clone(),
         certificate_hash: compiled
             .sufficiency
@@ -168,8 +187,10 @@ fn prepare(state: &CortexMcpState, arguments: PrepareArgs) -> ToolReply {
         .iter()
         .map(|facet| json!({ "facet": facet_name(facet) }))
         .collect();
-    ToolReply::text(json!({
+    Ok(json!({
         "packetId": id,
+        "repository": arguments.repository,
+        "symbols": symbols,
         "snapshotId": snapshot,
         "taskHash": task_hash(&arguments.task),
         "certificateHash": compiled
@@ -191,15 +212,41 @@ fn prepare(state: &CortexMcpState, arguments: PrepareArgs) -> ToolReply {
     }))
 }
 
-fn expand(state: &CortexMcpState, arguments: &ExpandArgs) -> ToolReply {
-    let Some(stored) = state.packets.get(&arguments.packet_id) else {
-        return ToolReply::error(format!("unknown packetId: {}", arguments.packet_id));
+pub fn expand_saved(
+    state: &CortexMcpState,
+    packet: AgentPacket,
+    facet: &str,
+) -> Result<Value, String> {
+    let id = packet.id.clone();
+    state.packets.insert(StoredPacket {
+        id: id.clone(),
+        repository: packet.repository,
+        task: packet.task,
+        task_hash: packet.task_hash,
+        run_id: packet.run_id,
+        symbols: packet.symbols,
+        snapshot_id: packet.snapshot_id,
+        certificate_hash: packet.certificate_hash,
+        max_tokens: packet.max_tokens,
+    });
+    expand_packet(state, &id, facet)
+}
+
+pub fn expand_packet(
+    state: &CortexMcpState,
+    packet_id: &str,
+    facet: &str,
+) -> Result<Value, String> {
+    let Some(stored) = state.packets.get(packet_id) else {
+        return Err(format!(
+            "unknown packetId: {packet_id}. Run cortex-loom prepare first, or cortex-loom report --last."
+        ));
     };
     let current_snapshot = repository_snapshot(&stored.repository);
     if let Some(blocked) = packet_stale(&stored, &current_snapshot) {
-        return ToolReply::error(blocked.to_string());
+        return Err(blocked.to_string());
     }
-    let (task, hints) = facet_request(&stored.task, &stored.symbols, &arguments.facet);
+    let (task, hints) = facet_request(&stored.task, &stored.symbols, facet);
     match compile_weavatrix(
         state,
         &CompileArgs {
@@ -213,19 +260,19 @@ fn expand(state: &CortexMcpState, arguments: &ExpandArgs) -> ToolReply {
             hints: Some(hints),
         },
     ) {
-        Ok(packet) => ToolReply::text(json!({
+        Ok(packet) => Ok(json!({
             "packetId": stored.id,
             "stale": false,
             "snapshotId": packet.context.snapshot_id,
             "taskHash": stored.task_hash,
             "certificateHash": stored.certificate_hash,
-            "facet": arguments.facet,
+            "facet": facet,
             "context": packet.context,
             "coverage": packet.sufficiency,
             "certificate": packet.sufficiency.as_ref().map(|report| &report.certificate),
             "warnings": packet.warnings,
         })),
-        Err(error) => ToolReply::error(error),
+        Err(error) => Err(error),
     }
 }
 

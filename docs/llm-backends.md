@@ -34,9 +34,10 @@ CLI: `--llm-backend composer --classifier-model sonnet-5`.
 MCP: `cortex_prepare({ repository, task, classifierModel: "opus-5" })`.
 
 Aliases map to cursor-agent ids (`composer-2.5`,
-`claude-sonnet-5-thinking-high`, `claude-opus-5-thinking-high`,
-`claude-haiku-4-5`). This account catalog may not advertise Haiku; a miss
-fails closed to the lexical route and sets `internalModel.warning`.
+`claude-sonnet-5-thinking-max`, `claude-opus-5-thinking-high`,
+`claude-haiku-4-5`). Sonnet is max, not high. Opus stays high, not
+ultra. Haiku 4.5 answers on this account even though `--list-models`
+omits it; `[effort=high]` is rejected by cursor-agent.
 
 Default URL is `http://127.0.0.1:8787` (`/v1/chat/completions`). A remote
 host is refused. If the proxy is down, prepare stays lexical and
@@ -50,7 +51,7 @@ host is refused. If the proxy is down, prepare stays lexical and
   "called": true,
   "profile": "cursor-sonnet-5-classifier",
   "classifierModel": "sonnet-5",
-  "agentModel": "claude-sonnet-5-thinking-high",
+  "agentModel": "claude-sonnet-5-thinking-max",
   "promptTokens": 80,
   "completionTokens": 2,
   "totalTokens": 82,

@@ -84,6 +84,11 @@ fn the_context_profile_is_a_strict_subset_of_the_full_surface() {
 }
 
 #[test]
+fn mcp_help_text_names_the_agent_profile() {
+    assert!(crate::ServerProfile::parse("agent").is_ok());
+}
+
+#[test]
 fn an_unknown_profile_name_fails_instead_of_serving_everything() {
     assert!(ServerProfile::parse("ctx").is_err());
     assert_eq!(

@@ -17,7 +17,12 @@ comparison.
     without changing bench intent (`cargo test -p sweeploom-ai --lib`)
   - **T3** `split_api` — `api.rs` under 300 lines, public exports kept, one
     local commit (`cargo test -p sweeploom --lib`)
-- Visible matrix: T1–T3 × Grok 4.6 and Composer 2.5
+- Visible matrix: T1–T3 × Grok 4.6 and Composer 2.5 on cursor-agent.
+  Sonnet 5 max / Opus extra / Haiku 4.5 coding-agent cells use Claude
+  Code CLI (`claude -p --model … --effort …`) after cursor-agent Ultra
+  blocked those models. Spend there is Claude usage
+  input+output+cache-create, collected by `collect_claude.py`. Do not
+  mix it with Cursor JSONL characters÷4.
 - Isolation: one fresh detached worktree, agent context, and Cargo target per
   matrix cell
 - Cell format: `spend / score / wall / cycles`. Cycles are assistant turns.
@@ -134,6 +139,23 @@ The current `cortex_prepare` agent path uses deterministic routing and does not
 call the optional classifier. Enabling a Codex-backed classifier elsewhere
 would therefore not affect this 15-cell agent-profile benchmark unless the
 product routing contract is deliberately changed and re-tested.
+
+## Claude Code CLI cells (2026-09-16)
+
+Host: `claude -p --permission-mode bypassPermissions --output-format json`.
+Spend: `input + output + cache_create` (`collect_claude.py`). Cache-read is
+excluded. Do not mix with Cursor `chars÷4`.
+
+Closed on this host:
+
+| agent | task | Without | models-off | local qwen | Composer-classifier |
+| --- | --- | --- | --- | --- | --- |
+| Sonnet 5 max | T1 | 194,593 / 9.4 / 9m 46s / 57c | 76,815 / 9.1 / 3m 10s / 13c | 148,130 / 5.0 / 8m 29s / 29c | 179,552 / 5.0 / 14m 43s / 44c |
+| Sonnet 5 max | T2 | 75,426 / 8.8 / 3m 37s / 16c | 64,102 / 8.6 / 2m 57s / 21c | 86,088 / 8.7 / 4m 27s / 20c | 88,487 / 8.6 / 4m 44s / 18c |
+| Haiku 4.5 | T1 | 98,548 / 9.3 / 4m 48s / 39c | 64,185 / 5.0 / 4m 13s / 37c | 94,343 / 5.0 / 6m 42s / 40c | 52,166 / 9.0 / 4m 54s / 25c |
+| Haiku 4.5 | T2 | 24,946 / 7.8 / 47s / 10c | 36,057 / 8.6 / 1m 40s / 18c | 49,737 / 7.8 / 2m 26s / 23c | 32,595 / 8.2 / 2m 02s / 11c |
+
+T3 Sonnet/Haiku and leftover Opus CLI cells (`t1-opus-on/cmp`, `t2-opus-off/on/cmp`, `t3-opus-*`) hit `session limit · resets 10:40pm Asia/Jerusalem`. Those logs are `is_error`; they are not scores. Cursor Opus extra-high Without T1–T3 and models-off T1 stay as previously locked.
 
 ## Composer variant
 

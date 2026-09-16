@@ -225,9 +225,9 @@ export const HELP_TOPICS: HelpTopic[] = [
           ['MCP', 'cortex_prepare({ repository, task, classifierModel: "opus-5" })'],
           ['Env', 'CORTEX_LLM_BACKEND=composer and CORTEX_CLASSIFIER_MODEL=haiku'],
           ['composer', 'composer-2.5 on the loopback proxy'],
-          ['sonnet-5', 'claude-sonnet-5-thinking-high'],
-          ['opus-5', 'claude-opus-5-thinking-high'],
-          ['haiku', 'claude-haiku-4-5. This Cursor catalog may not list it; prepare then stays lexical.'],
+          ['sonnet-5', 'claude-sonnet-5-thinking-max'],
+          ['opus-5', 'claude-opus-5-thinking-high — high, not ultra'],
+          ['haiku', 'claude-haiku-4-5. CLI has no effort override; [effort=high] is rejected.'],
         ],
       },
       {

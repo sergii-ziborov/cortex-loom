@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Loopback OpenAI-compatible proxy: cursor-agent classifiers.
 
-Binds 127.0.0.1:8787 only. Used by CORTEX_LLM_BACKEND=composer.
+Binds 127.0.0.1:8787 by default (`CORTEX_COMPOSER_PORT`). Used by
+CORTEX_LLM_BACKEND=composer.
 The request `model` field selects composer, sonnet-5, opus-5, or haiku.
 """
 
@@ -15,7 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 HOST = "127.0.0.1"
-PORT = 8787
+PORT = int(os.environ.get("CORTEX_COMPOSER_PORT", "8787"))
 AGENT = os.environ.get(
     "CORTEX_COMPOSER_AGENT",
     r"C:\Users\SergiiZiborov\AppData\Local\cursor-agent\agent.cmd",
@@ -23,11 +24,16 @@ AGENT = os.environ.get(
 ALIASES = {
     "composer": "composer-2.5",
     "composer-2.5": "composer-2.5",
-    "sonnet-5": "claude-sonnet-5-thinking-high",
-    "sonnet": "claude-sonnet-5-thinking-high",
+    "sonnet-5": "claude-sonnet-5-thinking-max",
+    "sonnet": "claude-sonnet-5-thinking-max",
     "opus-5": "claude-opus-5-thinking-high",
     "opus": "claude-opus-5-thinking-high",
     "haiku": "claude-haiku-4-5",
+}
+REMAP = {
+    "claude-sonnet-5-thinking-high": "claude-sonnet-5-thinking-max",
+    "claude-sonnet-5-thinking-xhigh": "claude-sonnet-5-thinking-max",
+    "claude-haiku-4-5[effort=high]": "claude-haiku-4-5",
 }
 
 
@@ -38,30 +44,35 @@ def resolve_model(requested: str | None) -> tuple[str, str]:
     key = raw.lower()
     if key in ALIASES:
         return key, ALIASES[key]
+    agent = REMAP.get(raw, raw)
     if raw.startswith("claude-") or raw.startswith("composer-"):
-        return raw, raw
+        return raw, agent
     raise ValueError(f"unknown classifier model: {raw}")
 
 
 def classify(prompt: str, agent_model: str) -> tuple[str, int, int]:
     workspace = Path(tempfile.mkdtemp(prefix="cortex-classifier-proxy-"))
+    boxed = (
+        "Reply with only one label and nothing else: "
+        "none, local_small, local_medium, or upstream_strong.\n\n"
+        + prompt
+    )
+    argv = [
+        AGENT,
+        "--print",
+        "--trust",
+        "--model",
+        agent_model,
+        "--output-format",
+        "text",
+        "--workspace",
+        str(workspace),
+        boxed,
+    ]
+    if "haiku" not in agent_model:
+        argv[2:2] = ["--mode", "ask"]
     completed = subprocess.run(
-        [
-            AGENT,
-            "--print",
-            "--mode",
-            "ask",
-            "--trust",
-            "--sandbox",
-            "disabled",
-            "--model",
-            agent_model,
-            "--output-format",
-            "text",
-            "--workspace",
-            str(workspace),
-            prompt,
-        ],
+        argv,
         check=False,
         capture_output=True,
         text=True,
@@ -75,6 +86,9 @@ def classify(prompt: str, agent_model: str) -> tuple[str, int, int]:
         text = "upstream_strong"
     prompt_tokens = max(1, len(prompt) // 4)
     completion_tokens = max(1, len(text) // 4)
+    labels = ("none", "local_small", "local_medium", "upstream_strong")
+    if not any(token in text.replace("`", " ").split() for token in labels):
+        text = "upstream_strong"
     return text, prompt_tokens, completion_tokens
 
 

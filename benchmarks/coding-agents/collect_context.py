@@ -16,10 +16,10 @@ from pathlib import Path
 from typing import Any
 
 RUN_ID_RE = re.compile(
-    r"BENCH_RUN_ID:\s*(CORTEX_(?:WITH|OFF|ON|CMP|CLSSON|CLSOP|CLSHK)_T[123]_(?:SOL_XHIGH|FABLE|GROK|OPUS|COMPOSER|SONNET)_2026091[56])"
+    r"BENCH_RUN_ID:\s*(CORTEX_(?:WITH|OFF|ON|CMP|CLSSON|CLSOP|CLSHK)_T[123]_(?:SOL_XHIGH|FABLE|GROK|OPUS|COMPOSER|SONNET|HAIKU)_2026091[56])"
 )
 FINAL_ID_RE = re.compile(
-    r"CORTEX_(?:WITH|OFF|ON|CMP|CLSSON|CLSOP|CLSHK)_T[123]_(?:SOL_XHIGH|FABLE|GROK|OPUS|COMPOSER|SONNET)_2026091[56]"
+    r"CORTEX_(?:WITH|OFF|ON|CMP|CLSSON|CLSOP|CLSHK)_T[123]_(?:SOL_XHIGH|FABLE|GROK|OPUS|COMPOSER|SONNET|HAIKU)_2026091[56]"
 )
 MODEL_BY_KEY = {
     "SOL_XHIGH": "Sol 5.6 xhigh",
@@ -27,7 +27,8 @@ MODEL_BY_KEY = {
     "GROK": "Grok 4.6 extra high",
     "OPUS": "Opus 5 extra high",
     "COMPOSER": "Composer 2.5",
-    "SONNET": "Sonnet 5",
+    "SONNET": "Sonnet 5 max",
+    "HAIKU": "Haiku 4.5",
 }
 def tokens(characters: int) -> int:
     return characters // 4

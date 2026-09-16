@@ -1,7 +1,9 @@
 # Install
 
 Two surfaces. The **libraries** are on crates.io. The **product** (MCP
-server + Studio) is not published yet — install it from this repository.
+server + thin CLI + one skill) is not published yet — install it from
+this repository. Studio UI is leaving this tree; do not treat
+`cortex-server` as the release.
 
 ## Prerequisites
 
@@ -37,26 +39,26 @@ not start an MCP server.
 
 ## Product binaries (from git)
 
-`cortex-mcp` and `cortex-server` have `publish = false`. Until they
+`cortex-mcp` and `cortex-loom` have `publish = false`. Until they
 are published:
 
 ```powershell
 git clone https://github.com/sergii-ziborov/cortex-loom
 cd cortex-loom
-npm.cmd --prefix ui ci
-npm.cmd --prefix ui run build
 cargo install --path crates/cortex-mcp --locked
-cargo install --path apps/cortex-server --locked
+cargo install --path apps/cortex-loom --locked
 ```
 
 Or run in-tree without installing:
 
 ```powershell
 cargo run -p cortex-mcp --release -- --profile agent
-cargo run -p cortex-server --release
+cargo run -p cortex-loom --release -- doctor
+cargo run -p cortex-loom --release -- setup --agent claude-code --dry-run
 ```
 
-Studio listens on `http://127.0.0.1:43817`.
+`cortex-mcp --help` and `cortex-loom --help` name the same
+prepare/expand contract. Setup prints files and does not write them.
 
 ## MCP server
 
@@ -121,8 +123,10 @@ command = "cortex-mcp"
 args = ["--profile", "agent"]
 ```
 
-Do not paste workflow bodies into `AGENTS.md`. Fetch them with
-`skill_read` when a step needs one.
+Do not paste workflow bodies into `AGENTS.md`. Point Codex at the
+`cortex-context` skill. The agent profile has `cortex_prepare` and
+`cortex_expand` only; `skill_read` is a full-profile tool, not part of
+the product entry.
 
 ### GitHub Copilot / VS Code MCP
 

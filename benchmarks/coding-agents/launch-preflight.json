@@ -1,0 +1,260 @@
+{
+  "binary": "C:\\Users\\SergiiZiborov\\AppData\\Local\\CortexLoom\\bin\\cortex-mcp.exe",
+  "profiles": "C:\\Users\\SergiiZiborov\\Documents\\GitHub\\MyProjects\\cortex-loom\\config\\llm-profiles.json",
+  "agentDeterministic": {
+    "profile": "agent",
+    "cortexLlm": false,
+    "prepare": {
+      "budgetClass": "normal",
+      "certificate": {
+        "expansionsPerformed": 0,
+        "missing": [],
+        "packetId": "pk_b675314fd9a3",
+        "required": [],
+        "satisfied": {},
+        "snapshotId": "git:9f2646c36b1b6b2ef70db1b70a8d772e74ad1804+dirty:0",
+        "stale": false,
+        "sufficient": true
+      },
+      "certificateHash": "ch_e66e77f58922",
+      "context": {
+        "content": "<evidence id=\"TASK\" trust=\"VERIFIED\" source=\"request:C:\\cbw-20260915\\t2-composer\">\n<![CDATA[Explain how sweeploom-ai classifies cache versus secret files. Do not edit files.]]>\n</evidence>\n\n<evidence id=\"WX-MAP\" trust=\"GRAPH\" source=\"cortex:decision_map:C:\\cbw-20260915\\t2-composer\">\n<![CDATA[intent: identifier_change\ntargets: (none)\nsnapshot: git:9f2646c36b1b6b2ef70db1b70a8d772e74ad1804+dirty:0\nrisk: read\nrequired:\ncontradictions: none]]>\n</evidence>\n\n<evidence id=\"ev_4cc060023230\" trust=\"GRAPH\" source=\"weavatrix:module_map\">\n<![CDATA[{\"modules\":[{\"files\":102,\"path\":\"crates\",\"symbols\":981},{\"files\":39,\"path\":\"apps\",\"symbols\":310},{\"files\":4,\"path\":\"browser\",\"symbols\":24},{\"files\":4,\"path\":\"npm\",\"symbols\":11},{\"files\":2,\"path\":\"plugins\",\"symbols\":0},{\"files\":1,\"path\":\"(root)\",\"symbols\":0},{\"files\":1,\"path\":\".agents\",\"symbols\":0},{\"files\":1,\"path\":\".cursor\",\"symbols\":0}],\"repository_context\":{\"git_head\":\"9f2646c36b1b6b2ef70db1b70a8d772e74ad1804\",\"graph_age_seconds\":0,\"root\":\"\\\\\\\\?\\\\C:\\\\cbw-20260915\\\\t2-composer\",\"scan_revision\":\"sha256:854574f4515f07364847ecc7b4347b69cca08ced1f2ed6c5d1333dd458f9ff4d\"}}]]>\n</evidence>",
+        "deduplicatedEstimatedTokens": 0,
+        "deduplicatedLines": 0,
+        "includedIds": [
+          "TASK",
+          "WX-MAP",
+          "ev_4cc060023230"
+        ],
+        "omittedEstimatedTokens": 0,
+        "omittedIds": [],
+        "packetId": "pk_b675314fd9a3",
+        "rawEstimatedTokens": 606,
+        "requiresUpstream": false,
+        "selectedEstimatedTokens": 606,
+        "snapshotId": "git:9f2646c36b1b6b2ef70db1b70a8d772e74ad1804+dirty:0",
+        "tokenBreakdown": {
+          "budgetOmittedTokens": 0,
+          "candidateTokens": 606,
+          "counterId": "conservative",
+          "dedupSavedTokens": 0,
+          "deliveredTokens": 606,
+          "estimatedTokens": 606,
+          "evidenceTokens": 606,
+          "instructionTokens": 169,
+          "outputTokens": 0,
+          "renderingOverheadTokens": 169,
+          "schemaTokens": 0,
+          "selectedBeforeDedupTokens": 606,
+          "tokenizerRevision": "v1",
+          "wireTokens": 606
+        }
+      },
+      "coverage": {
+        "certificate": {
+          "expansionsPerformed": 0,
+          "missing": [],
+          "packetId": "pk_b675314fd9a3",
+          "required": [],
+          "satisfied": {},
+          "snapshotId": "git:9f2646c36b1b6b2ef70db1b70a8d772e74ad1804+dirty:0",
+          "stale": false,
+          "sufficient": true
+        },
+        "missingEvidence": [],
+        "presentEvidence": [
+          "module_map"
+        ],
+        "requiredEvidence": [
+          "module_map"
+        ],
+        "retryPerformed": false,
+        "sufficient": true
+      },
+      "expansionHandles": [],
+      "maxTokens": 2400,
+      "missingFacets": [],
+      "mutationLikely": false,
+      "packetId": "pk_b675314fd9a3",
+      "routing": {
+        "advisoryOnly": true,
+        "class": "advisory_draft",
+        "context": {
+          "maxInputTokens": 8192,
+          "requireEvidenceIds": true,
+          "strategy": "citation_compression"
+        },
+        "modelTier": "local_medium",
+        "reasons": [
+          {
+            "code": "advisory_draft_rule"
+          }
+        ],
+        "risk": "low",
+        "target": "ollama"
+      },
+      "snapshotId": "git:9f2646c36b1b6b2ef70db1b70a8d772e74ad1804+dirty:0",
+      "taskHash": "69072dd89fb5a676",
+      "warnings": [
+        "source follow-up skipped: search returned no file paths"
+      ],
+      "workflowStep": {
+        "matchedHints": [
+          "intent:explain",
+          "mutation:allowed"
+        ],
+        "sequenceId": "root-cause-debugging"
+      }
+    },
+    "stderr": ""
+  },
+  "agentWithLlmFlag": {
+    "profile": "agent",
+    "cortexLlm": true,
+    "prepare": {
+      "budgetClass": "normal",
+      "certificate": {
+        "expansionsPerformed": 0,
+        "missing": [],
+        "packetId": "pk_b675314fd9a3",
+        "required": [],
+        "satisfied": {},
+        "snapshotId": "git:9f2646c36b1b6b2ef70db1b70a8d772e74ad1804+dirty:0",
+        "stale": false,
+        "sufficient": true
+      },
+      "certificateHash": "ch_e66e77f58922",
+      "context": {
+        "content": "<evidence id=\"TASK\" trust=\"VERIFIED\" source=\"request:C:\\cbw-20260915\\t2-composer\">\n<![CDATA[Explain how sweeploom-ai classifies cache versus secret files. Do not edit files.]]>\n</evidence>\n\n<evidence id=\"WX-MAP\" trust=\"GRAPH\" source=\"cortex:decision_map:C:\\cbw-20260915\\t2-composer\">\n<![CDATA[intent: identifier_change\ntargets: (none)\nsnapshot: git:9f2646c36b1b6b2ef70db1b70a8d772e74ad1804+dirty:0\nrisk: read\nrequired:\ncontradictions: none]]>\n</evidence>\n\n<evidence id=\"ev_4cc060023230\" trust=\"GRAPH\" source=\"weavatrix:module_map\">\n<![CDATA[{\"modules\":[{\"files\":102,\"path\":\"crates\",\"symbols\":981},{\"files\":39,\"path\":\"apps\",\"symbols\":310},{\"files\":4,\"path\":\"browser\",\"symbols\":24},{\"files\":4,\"path\":\"npm\",\"symbols\":11},{\"files\":2,\"path\":\"plugins\",\"symbols\":0},{\"files\":1,\"path\":\"(root)\",\"symbols\":0},{\"files\":1,\"path\":\".agents\",\"symbols\":0},{\"files\":1,\"path\":\".cursor\",\"symbols\":0}],\"repository_context\":{\"git_head\":\"9f2646c36b1b6b2ef70db1b70a8d772e74ad1804\",\"graph_age_seconds\":0,\"root\":\"\\\\\\\\?\\\\C:\\\\cbw-20260915\\\\t2-composer\",\"scan_revision\":\"sha256:854574f4515f07364847ecc7b4347b69cca08ced1f2ed6c5d1333dd458f9ff4d\"}}]]>\n</evidence>",
+        "deduplicatedEstimatedTokens": 0,
+        "deduplicatedLines": 0,
+        "includedIds": [
+          "TASK",
+          "WX-MAP",
+          "ev_4cc060023230"
+        ],
+        "omittedEstimatedTokens": 0,
+        "omittedIds": [],
+        "packetId": "pk_b675314fd9a3",
+        "rawEstimatedTokens": 606,
+        "requiresUpstream": false,
+        "selectedEstimatedTokens": 606,
+        "snapshotId": "git:9f2646c36b1b6b2ef70db1b70a8d772e74ad1804+dirty:0",
+        "tokenBreakdown": {
+          "budgetOmittedTokens": 0,
+          "candidateTokens": 606,
+          "counterId": "conservative",
+          "dedupSavedTokens": 0,
+          "deliveredTokens": 606,
+          "estimatedTokens": 606,
+          "evidenceTokens": 606,
+          "instructionTokens": 169,
+          "outputTokens": 0,
+          "renderingOverheadTokens": 169,
+          "schemaTokens": 0,
+          "selectedBeforeDedupTokens": 606,
+          "tokenizerRevision": "v1",
+          "wireTokens": 606
+        }
+      },
+      "coverage": {
+        "certificate": {
+          "expansionsPerformed": 0,
+          "missing": [],
+          "packetId": "pk_b675314fd9a3",
+          "required": [],
+          "satisfied": {},
+          "snapshotId": "git:9f2646c36b1b6b2ef70db1b70a8d772e74ad1804+dirty:0",
+          "stale": false,
+          "sufficient": true
+        },
+        "missingEvidence": [],
+        "presentEvidence": [
+          "module_map"
+        ],
+        "requiredEvidence": [
+          "module_map"
+        ],
+        "retryPerformed": false,
+        "sufficient": true
+      },
+      "expansionHandles": [],
+      "maxTokens": 2400,
+      "missingFacets": [],
+      "mutationLikely": false,
+      "packetId": "pk_b675314fd9a3",
+      "routing": {
+        "advisoryOnly": true,
+        "class": "advisory_draft",
+        "context": {
+          "maxInputTokens": 8192,
+          "requireEvidenceIds": true,
+          "strategy": "citation_compression"
+        },
+        "modelTier": "local_medium",
+        "reasons": [
+          {
+            "code": "advisory_draft_rule"
+          }
+        ],
+        "risk": "low",
+        "target": "ollama"
+      },
+      "snapshotId": "git:9f2646c36b1b6b2ef70db1b70a8d772e74ad1804+dirty:0",
+      "taskHash": "69072dd89fb5a676",
+      "warnings": [
+        "source follow-up skipped: search returned no file paths"
+      ],
+      "workflowStep": {
+        "matchedHints": [
+          "intent:explain",
+          "mutation:allowed"
+        ],
+        "sequenceId": "root-cause-debugging"
+      }
+    },
+    "stderr": ""
+  },
+  "fullWithLlmFlag": {
+    "profile": "full",
+    "cortexLlm": true,
+    "routeReadOnly": {
+      "target": "upstream",
+      "class": "ambiguous",
+      "risk": "medium",
+      "reasons": [
+        {
+          "code": "ambiguous_request"
+        }
+      ],
+      "advisoryOnly": false,
+      "modelTier": "upstream_strong",
+      "context": {
+        "strategy": "upstream_evidence",
+        "maxInputTokens": 8192,
+        "requireEvidenceIds": true
+      }
+    },
+    "routeMutation": {
+      "target": "upstream",
+      "class": "ambiguous",
+      "risk": "medium",
+      "reasons": [
+        {
+          "code": "mutation_approval_required"
+        },
+        {
+          "code": "mutation_reserved_for_upstream"
+        }
+      ],
+      "advisoryOnly": false,
+      "modelTier": "upstream_strong",
+      "context": {
+        "strategy": "upstream_evidence",
+        "maxInputTokens": 8192,
+        "requireEvidenceIds": true
+      }
+    },
+    "stderr": ""
+  }
+}

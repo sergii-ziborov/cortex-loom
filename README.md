@@ -98,7 +98,10 @@ cargo install --path apps/cortex-server --locked
 
 Studio: `cortex-server` → `http://127.0.0.1:43817`.  
 MCP: `cortex-mcp --profile agent`. Full steps, env flags, and
-HTTP bind: [docs/install.md](docs/install.md).
+HTTP bind: [docs/install.md](docs/install.md). LLM backends
+(`off` / `local` / `composer` plus `classifierModel` composer / sonnet-5 /
+opus-5 / haiku) and `internalModel` token fields:
+[docs/llm-backends.md](docs/llm-backends.md).
 
 ## How an agent uses it
 
@@ -128,14 +131,32 @@ Full tables, stamps, host, and caveats:
 four-character unit. Runtime compile uses `conservative/v1`. Recall
 means declared literals were in the packet, not that a model answered.
 
-The 2026-09-15 coding-agent A/B is
-[benchmarks/coding-agents](benchmarks/coding-agents): 15 isolated
-upstream agents on SweepLoom @ `9f2646c`, deterministic `--profile
-agent`, no local models. Review passed 11/15 WITH cells. Estimated
-spend rose 31.9% versus the saved WITHOUT baseline. T1/T2 packets
-often claimed sufficiency with no file paths; T3 expanded
-`agent_cases.rs` instead of `api.rs`. Spark via Codex CLI is blocked
-on this ChatGPT-linked account (`spark-preflight.json`).
+The coding-agent matrix is
+[benchmarks/coding-agents](benchmarks/coding-agents) on SweepLoom @
+`9f2646c`. Tasks: **T1** `find_fix_bug` (one real CLI bug or dead
+production path plus a regression test), **T2** `remove_duplicate`
+(one shared classifier in `sweeploom-ai`), **T3** `split_api`
+(`api.rs` under 300 lines, public exports kept). Isolation is one
+fresh detached worktree and Cargo target per cell. Agents must run
+`cortex_mcp_client.py` before any source read. Parent-verify is git
+diff plus the required `cargo test`, not self-report.
+
+Two spends, not one. Without-Cortex cells are the locked host-reference
+totals. Cortex cells are estimated context material plus visible
+response (UTF-8 transcript characters ÷ 4). Classifier spend is
+`internalModel.localTokens` or `internalModel.composerTokens` and is
+appended after the cell, not mixed into the host-reference. Cycles
+are assistant turns in the JSONL. The live canvas writes each Cortex
+cell as `spend / score / time / cycles` (Grok T1 models-off is
+`40,403 / 9.4 / 23m 31s / 20c`).
+
+Composer T1 with Cortex scored 5.0 on models-off, local qwen, and
+Composer-as-classifier: only `agent_cases.rs`, `is_silent_ask` unused
+in production. The planner treated `crates/sweeploom-cli` as prose, so
+the packet was a module map that claimed sufficiency. That is a Cortex
+bug, not a scoring typo. Bare Composer Without scored 8.2 on a real
+CLI-path bug. Spark via Codex CLI stays blocked
+(`spark-preflight.json`).
 
 Host for the 2026-08-15 and 2026-08-18 runs: Windows 11, Intel Core
 Ultra 7 255U (14 threads), 47.5 GB RAM, Intel Graphics. **No NVIDIA

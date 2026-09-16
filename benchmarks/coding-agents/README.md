@@ -1,20 +1,32 @@
 # Coding-agent benchmark
 
-This benchmark compares the saved SweepLoom coding-agent baseline with a live
-Cortex Loom evidence lane.
+This benchmark compares four lanes, not a single without/with pair:
+without Cortex; Cortex with models off; Cortex with Composer as its
+internal LLM; and Cortex with its own enabled LLMs. SweepLoom is the
+target repository, not a product under test, and is not part of the
+comparison.
 
 ## Fixed inputs
 
 - Target repository: `Weavatrix/sweeploom`
 - Baseline revision: `9f2646c36b1b6b2ef70db1b70a8d772e74ad1804`
 - Tasks: `tasks.json`
-- Matrix: three tasks by five upstream coding models
+  - **T1** `find_fix_bug` — one real bug or dead production path in
+    `crates/sweeploom-cli`, plus a regression test (`cargo test -p sweeploom --lib`)
+  - **T2** `remove_duplicate` — one shared classifier in `crates/sweeploom-ai`
+    without changing bench intent (`cargo test -p sweeploom-ai --lib`)
+  - **T3** `split_api` — `api.rs` under 300 lines, public exports kept, one
+    local commit (`cargo test -p sweeploom --lib`)
+- Visible matrix: T1–T3 × Grok 4.6 and Composer 2.5
 - Isolation: one fresh detached worktree, agent context, and Cargo target per
   matrix cell
+- Cell format: `spend / score / wall / cycles`. Cycles are assistant turns.
+  Grok T1 models-off is `40,403 / 9.4 / 23m 31s / 20c`.
 
-The saved `WITHOUT` rows come from the earlier baseline at the same revision.
-They are not rerun. The `WITH` rows must start from new worktrees and must not
-read earlier worktrees, transcripts, or result artifacts.
+The saved without-Cortex rows come from the earlier no-product baseline at
+the same revision. They are not rerun. The with-Cortex rows must start from
+new worktrees and must not read earlier worktrees, transcripts, or result
+artifacts.
 
 ## Deterministic Cortex lane
 
@@ -64,10 +76,12 @@ silently downgraded to deterministic behavior.
 
 - Cortex packet tokens are the compiler's conservative token estimate.
 - Visible request and response tokens are estimated from transcript characters
-  divided by four. Reconstructed tool-result material is reported separately.
-  No cumulative provider-spend number is claimed: Cursor JSONL omits billing
-  telemetry, and repeated context rereads are not summed with a fabricated
-  fixed host cost.
+  divided by four (`collect_context.py`). Reconstructed tool-result material is
+  reported separately. Cortex **Total agent spend tok** is estimated context
+  material plus visible response. That is not the locked without-Cortex
+  host-reference total, and it is not a billed provider number.
+- Cycles are `assistant_turns` in the same JSONL. They are the agent loop,
+  not tool-call count.
 - The current `cortex_prepare` lane uses lexical routing. Internal model tokens
   are zero unless an attested semantic embedding profile is explicitly enabled;
   no such profile was live for these runs.
@@ -75,30 +89,30 @@ silently downgraded to deterministic behavior.
   test command, not accepted from self-report alone.
 - No 70,000-token stop was enforced, so no row may claim that failure cause.
 
-## Deterministic 15-cell result (2026-09-15)
+## Deterministic 15-cell status (2026-09-15)
 
-All 15 WITH cells ran. Review used the worktree diff and the required
-`cargo test` command. Self-report was not accepted. Canvas comparison
-reuses the saved WITHOUT host-reference method so the A/B stays on one
-scale.
+The earlier paragraph that said all 15 WITH Cortex cells ran, and that
+spend rose 31.9% to 11,140,221, is withdrawn. Those totals reused the
+invalid host-reference estimator and also counted cells that were never
+executed on the assigned worktrees.
 
-| lane | passed | failed | estimated spend | peak sum |
-| --- | ---: | ---: | ---: | ---: |
-| saved WITHOUT | 15 | 0 | 8,443,701 | 606,381 |
-| deterministic Cortex | 11 | 4 | 11,140,221 | 663,105 |
+Assigned-tree evidence as of 2026-09-15 17:25:
 
-Spend rose 31.9%. Peak rose 9.4%. Failures were T1 Composer (test-only
-helper) and T2 Fable / Grok / Composer (WITHOUT classifier merged into
-the fuller legacy snapshot). Green tests did not save those rows.
+| cell | worktree | actual state |
+| --- | --- | --- |
+| T1 Sol / Fable / Grok / Opus / Composer | `C:\cbw-20260915\t1-*` | ran; parent-reviewed |
+| T2 Sol | `t2-sol` | uncommitted classifier share; parent `cargo test -p sweeploom-ai --lib` 18 passed |
+| T2 Fable | `t2-fable` | commit `c12940f`; parent lib tests 19 passed after restoring the dangling commit |
+| T2 Grok / Opus / Composer | `t2-*` | still clean `9f2646c`; not run |
+| T3 Grok / Composer | `t3-grok`, `t3-composer` | parent-verified; Composer attempt 2 commit `2970035` |
 
-Compiler findings from the live packets:
+Compiler-only captures (`deterministic-T1.json` … `T3.json`) are not model
+runs. `pk_4e27b9f9cd83` is the T3 compiler packet, not proof that five T3
+agents ran.
 
-- T1/T2 often certified `sufficient: true` while source search returned
-  no file paths, so `--expand-missing` expanded nothing.
-- T3 correctly reported insufficient, then treated
-  `crates/sweeploom-cli/src/api.rs` as a symbol. Expansion cited
-  `agent_cases.rs` and never delivered `api.rs`.
-- All five T3 models received the same packet id `pk_4e27b9f9cd83`.
+The locked no-product and SweepLoom-WITH rows still exist in
+`sweeploom/file_output/agent_bench/fresh_context_spend.json` and the
+SweepLoom canvas. They were not deleted. They are not Cortex runs.
 
 Spark remains blocked. See `spark-preflight.json`.
 
@@ -123,8 +137,11 @@ product routing contract is deliberately changed and re-tested.
 
 ## Composer variant
 
-Composer 2.5 is an additional requested coding-agent variant that consumes a
-live Cortex packet. It is not a replacement for the blocked Spark variant and
-is not represented as an internal Cortex model role: Cursor exposes Composer as
-an upstream coding agent, not as the embedding or schema-chat API expected by a
-model profile.
+Composer 2.5 is still an upstream coding-agent variant that consumes a live
+Cortex packet. Cortex can also use a **loopback classifier** (Composer,
+Sonnet 5, Opus 5, or Haiku) when `CORTEX_LLM_BACKEND=composer` and the
+proxy is up. Pick the model with `--classifier-model` or
+`cortex_prepare.classifierModel`. Run IDs `CORTEX_CLSSON_*`,
+`CORTEX_CLSOP_*`, and `CORTEX_CLSHK_*` are those classifier variants.
+That spend is `internalModel.composerTokens`, not the coding-agent
+transcript. See `docs/llm-backends.md`.

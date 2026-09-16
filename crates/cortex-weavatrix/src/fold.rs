@@ -55,6 +55,23 @@ pub const SOURCE_SUFFIXES: &[&str] = &[
     ".toml", ".json", ".yaml", ".yml",
 ];
 
+/// A repository-relative crate, app, or `src/` path named in a task.
+///
+/// `crates/sweeploom-cli` is an identifier. Hyphenated prose such as
+/// `warning-only` is not.
+#[must_use]
+pub fn is_repo_source_path(value: &str) -> bool {
+    let lower = fold_text(value);
+    let rooted =
+        lower.starts_with("crates/") || lower.starts_with("apps/") || lower.starts_with("src/");
+    rooted
+        && (3..=160).contains(&value.len())
+        && !value.ends_with('/')
+        && value.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '/' | '_' | '-' | '.')
+        })
+}
+
 /// Default search glob when the task names no file suffix.
 ///
 /// Not `**/*.rs`: identifier detection already accepts TypeScript, SQL,
@@ -85,7 +102,7 @@ pub fn search_glob_in(identifiers: &[String], inventory_glob: Option<&str>) -> S
             suffixes.push(suffix);
         }
     }
-    match suffixes.as_slice() {
+    let file_glob = match suffixes.as_slice() {
         [] => inventory_glob.unwrap_or(DEFAULT_SOURCE_GLOB).to_owned(),
         [only] => format!("**/*{only}"),
         many => {
@@ -96,7 +113,34 @@ pub fn search_glob_in(identifiers: &[String], inventory_glob: Option<&str>) -> S
                 .join(",");
             format!("**/*.{{{inner}}}")
         }
+    };
+    if let Some(scope) = repo_path_scope(identifiers) {
+        return format!("{scope}/{file_glob}");
     }
+    file_glob
+}
+
+fn repo_path_scope(identifiers: &[String]) -> Option<String> {
+    for identifier in identifiers {
+        if !is_repo_source_path(identifier) {
+            continue;
+        }
+        let lower = fold_text(identifier);
+        if SOURCE_SUFFIXES.iter().any(|suffix| lower.ends_with(suffix)) {
+            return identifier
+                .rsplit_once('/')
+                .map(|(parent, _)| parent.to_owned());
+        }
+    }
+    identifiers
+        .iter()
+        .find(|identifier| {
+            is_repo_source_path(identifier)
+                && !SOURCE_SUFFIXES
+                    .iter()
+                    .any(|suffix| fold_text(identifier).ends_with(suffix))
+        })
+        .cloned()
 }
 
 /// Whether a `read_source` window already covers a Weavatrix node span.
@@ -129,10 +173,16 @@ mod tests {
 
     #[test]
     fn named_suffix_narrows_the_glob() {
-        assert_eq!(search_glob(&["src/format.ts".to_owned()]), "**/*.ts");
+        assert_eq!(search_glob(&["src/format.ts".to_owned()]), "src/**/*.ts");
         assert_eq!(
             search_glob(&["ArchiveOptions".to_owned()]),
             DEFAULT_SOURCE_GLOB
         );
+        assert_eq!(
+            search_glob(&["crates/sweeploom-cli".to_owned()]),
+            format!("crates/sweeploom-cli/{DEFAULT_SOURCE_GLOB}")
+        );
+        assert!(!is_repo_source_path("warning-only"));
+        assert!(is_repo_source_path("crates/sweeploom-cli"));
     }
 }

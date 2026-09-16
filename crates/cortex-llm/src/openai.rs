@@ -30,7 +30,7 @@ use crate::endpoint::LoopbackUrl;
 use crate::profile::LlmProfile;
 use crate::{
     ClassifyRequest, EmbedRequest, LlmProvider, MicroExtractOutput, MicroExtractRequest,
-    ProviderError, ProviderResponse, resolve_label,
+    ProviderError, ProviderResponse, TokenUsage, resolve_label,
 };
 
 /// Largest reply a classification is allowed to produce.
@@ -49,6 +49,7 @@ pub struct OpenAiProvider {
     prefix: String,
     agent: ureq::Agent,
     observed: Option<Device>,
+    api_key: Option<String>,
 }
 
 impl OpenAiProvider {
@@ -77,7 +78,15 @@ impl OpenAiProvider {
             prefix: prefix.trim_end_matches('/').to_owned(),
             agent,
             observed: None,
+            api_key: None,
         })
+    }
+
+    /// Optional bearer token. Local OVMS does not need one; a Composer proxy may.
+    #[must_use]
+    pub fn with_api_key(mut self, api_key: Option<String>) -> Self {
+        self.api_key = api_key.filter(|value| !value.trim().is_empty());
+        self
     }
 
     /// Record a device a runtime actually reported.
@@ -104,10 +113,14 @@ impl OpenAiProvider {
     ) -> Result<(T, u64), ProviderError> {
         let url = self.base.join(&format!("{}{path}", self.prefix));
         let started = Instant::now();
-        let mut response = self
+        let mut request = self
             .agent
             .post(&url)
-            .header("content-type", "application/json")
+            .header("content-type", "application/json");
+        if let Some(api_key) = &self.api_key {
+            request = request.header("authorization", format!("Bearer {api_key}"));
+        }
+        let mut response = request
             .send(body.to_string())
             .map_err(|error| classify_transport(&error, started.elapsed()))?;
         let text = response
@@ -159,6 +172,23 @@ struct EmbeddingRow {
 #[derive(Debug, Deserialize)]
 struct ChatResponse {
     choices: Vec<ChatChoice>,
+    #[serde(default)]
+    usage: Option<OpenAiUsage>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct OpenAiUsage {
+    #[serde(default)]
+    prompt_tokens: u32,
+    #[serde(default)]
+    completion_tokens: u32,
+}
+
+fn token_usage(usage: Option<OpenAiUsage>) -> TokenUsage {
+    usage.map_or_else(TokenUsage::default, |usage| TokenUsage {
+        prompt_tokens: usage.prompt_tokens,
+        completion_tokens: usage.completion_tokens,
+    })
 }
 
 #[derive(Debug, Deserialize)]
@@ -208,6 +238,7 @@ impl LlmProvider for OpenAiProvider {
             value: rows.into_iter().map(|row| row.embedding).collect(),
             placement: self.placement(),
             latency_ms,
+            usage: TokenUsage::default(),
         })
     }
 
@@ -247,6 +278,7 @@ impl LlmProvider for OpenAiProvider {
             value: resolve_label(&answer, &request.labels)?,
             placement: self.placement(),
             latency_ms,
+            usage: token_usage(response.usage),
         })
     }
 
@@ -296,6 +328,7 @@ impl LlmProvider for OpenAiProvider {
             value,
             placement: self.placement(),
             latency_ms,
+            usage: token_usage(response.usage),
         })
     }
 }
@@ -373,6 +406,18 @@ mod tests {
             provider.micro_extract(&request),
             Err(ProviderError::Schema(_))
         ));
+    }
+
+    #[test]
+    fn chat_usage_is_read_when_the_runtime_sends_it() {
+        let parsed: super::ChatResponse = serde_json::from_str(
+            r#"{"choices":[{"message":{"content":"none"}}],"usage":{"prompt_tokens":19,"completion_tokens":2}}"#,
+        )
+        .unwrap();
+        let usage = super::token_usage(parsed.usage);
+        assert_eq!(usage.prompt_tokens, 19);
+        assert_eq!(usage.completion_tokens, 2);
+        assert_eq!(usage.total(), 21);
     }
 
     #[test]

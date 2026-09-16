@@ -76,7 +76,8 @@ export function TelemetryPanel({ onClose }: TelemetryPanelProps) {
               <h3>Routing</h3>
               <p className="telemetry-hint">
                 Work the deterministic policy kept away from the upstream agent. This is the
-                measured lever; packet compression is secondary.
+                measured lever; packet compression is secondary. A loopback classifier
+                (composer, sonnet-5, opus-5, haiku) may only escalate that floor.
               </p>
               <div className="telemetry-metrics">
                 <Metric label="Routing calls" value={thousands(usage.routeCalls)} />

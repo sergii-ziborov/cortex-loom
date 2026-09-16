@@ -16,10 +16,10 @@ from pathlib import Path
 from typing import Any
 
 RUN_ID_RE = re.compile(
-    r"BENCH_RUN_ID:\s*(CORTEX_WITH_T[123]_(?:SOL_XHIGH|FABLE|GROK|OPUS|COMPOSER)_20260915)"
+    r"BENCH_RUN_ID:\s*(CORTEX_(?:WITH|OFF|ON|CMP|CLSSON|CLSOP|CLSHK)_T[123]_(?:SOL_XHIGH|FABLE|GROK|OPUS|COMPOSER|SONNET)_2026091[56])"
 )
 FINAL_ID_RE = re.compile(
-    r"CORTEX_WITH_T[123]_(?:SOL_XHIGH|FABLE|GROK|OPUS|COMPOSER)_20260915"
+    r"CORTEX_(?:WITH|OFF|ON|CMP|CLSSON|CLSOP|CLSHK)_T[123]_(?:SOL_XHIGH|FABLE|GROK|OPUS|COMPOSER|SONNET)_2026091[56]"
 )
 MODEL_BY_KEY = {
     "SOL_XHIGH": "Sol 5.6 xhigh",
@@ -27,6 +27,7 @@ MODEL_BY_KEY = {
     "GROK": "Grok 4.6 extra high",
     "OPUS": "Opus 5 extra high",
     "COMPOSER": "Composer 2.5",
+    "SONNET": "Sonnet 5",
 }
 def tokens(characters: int) -> int:
     return characters // 4
@@ -162,12 +163,14 @@ def analyze(path: Path) -> dict[str, Any]:
                 break
 
     response_tokens = tokens(generated)
+    material_tokens = tokens(peak)
     return {
         "initial_request_tok": tokens(initial_request),
         "visible_request_tok": tokens(user_characters),
         "visible_response_tok": response_tokens,
         "visible_transcript_tok": tokens(user_characters + generated),
-        "estimated_context_material_tok": tokens(peak),
+        "estimated_context_material_tok": material_tokens,
+        "total_agent_spend_tok": material_tokens + response_tokens,
         "assistant_turns": assistant_turns,
         "tool_calls": tool_calls,
         "reconstructed_result_tok": tokens(result_characters),
@@ -187,8 +190,14 @@ def main() -> None:
         identifier = run_id(path)
         if identifier is None:
             continue
-        task = identifier.split("_")[2]
-        model_key = identifier.removesuffix("_20260915").split("_", 3)[3]
+        parts = identifier.split("_")
+        # CORTEX_{WITH|OFF|ON|CMP|CLSSON|CLSOP|CLSHK}_T{n}_{MODEL}_2026091x
+        task = parts[2]
+        model_key = "_".join(parts[3:])
+        for suffix in ("_20260915", "_20260916"):
+            if model_key.endswith(suffix):
+                model_key = model_key[: -len(suffix)]
+                break
         row = {
             "run_id": identifier,
             "task": task,

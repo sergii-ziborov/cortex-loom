@@ -9,7 +9,12 @@
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use cortex_llm::{ClassifyRequest, LlmProvider, OpenAiProvider, ProfileRegistry, Role, Runtime};
+use cortex_llm::{
+    ClassifyRequest, LlmProvider, OpenAiProvider, ProfileRegistry, Role, Runtime, TokenUsage,
+};
+use serde_json::{Value, json};
+
+use crate::composer_llm;
 use cortex_router::{
     Classification, ModelTier, RoutingDecision, RoutingRequest, TaskClass, classify,
     detector_disagreement, mixed_script, parse_model_tier, policy_tier, route_with_classification,
@@ -22,9 +27,28 @@ const CLASSIFICATION_INSTRUCTION: &str = "You classify one engineering task for 
 
 const TIER_LABELS: &[&str] = &["none", "local_small", "local_medium", "upstream_strong"];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LlmBackend {
+    Off,
+    Local,
+    Composer,
+}
+
+impl LlmBackend {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Local => "local",
+            Self::Composer => "composer",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LlmRouteConfig {
     pub enabled: bool,
+    pub backend: Option<String>,
     pub profiles_path: PathBuf,
 }
 
@@ -43,14 +67,30 @@ impl LlmRouteConfig {
         };
         Self {
             enabled: non_empty("CORTEX_LLM").is_some_and(|value| value == "1"),
+            backend: non_empty("CORTEX_LLM_BACKEND"),
             profiles_path: non_empty("CORTEX_LLM_PROFILES")
                 .map_or_else(|| PathBuf::from("config/llm-profiles.json"), PathBuf::from),
         }
     }
 
+    /// `CORTEX_LLM_BACKEND` wins. Unset + `CORTEX_LLM=1` is local. Else off.
+    pub fn resolve_backend(&self) -> Result<LlmBackend, String> {
+        match self.backend.as_deref().map(str::trim) {
+            Some("off") => Ok(LlmBackend::Off),
+            Some("local") => Ok(LlmBackend::Local),
+            Some("composer") => Ok(LlmBackend::Composer),
+            Some(other) => Err(format!(
+                "CORTEX_LLM_BACKEND must be off, local, or composer; got {other}"
+            )),
+            None if self.enabled => Ok(LlmBackend::Local),
+            None => Ok(LlmBackend::Off),
+        }
+    }
+
     #[must_use]
+    #[allow(dead_code)]
     pub fn is_active(&self) -> bool {
-        self.enabled
+        !matches!(self.resolve_backend(), Ok(LlmBackend::Off) | Err(_))
     }
 }
 
@@ -60,12 +100,56 @@ pub struct RoutedWork {
     pub decision: RoutingDecision,
     pub latency_ms: Option<u64>,
     pub classifier_profile: Option<String>,
+    pub usage: TokenUsage,
+    pub backend: LlmBackend,
+    pub attempted: bool,
+    pub warning: Option<String>,
+    pub classifier_model: Option<String>,
+    pub agent_model: Option<String>,
+}
+
+impl RoutedWork {
+    #[must_use]
+    pub fn lexical(decision: RoutingDecision) -> Self {
+        Self {
+            decision,
+            latency_ms: None,
+            classifier_profile: None,
+            usage: TokenUsage::default(),
+            backend: LlmBackend::Off,
+            attempted: false,
+            warning: None,
+            classifier_model: None,
+            agent_model: None,
+        }
+    }
+
+    #[must_use]
+    pub fn internal_model_json(&self) -> Value {
+        let total = self.usage.total();
+        json!({
+            "mode": self.backend.as_str(),
+            "called": self.attempted,
+            "profile": self.classifier_profile,
+            "classifierModel": self.classifier_model,
+            "agentModel": self.agent_model,
+            "promptTokens": self.usage.prompt_tokens,
+            "completionTokens": self.usage.completion_tokens,
+            "totalTokens": total,
+            "composerTokens": if matches!(self.backend, LlmBackend::Composer) { total } else { 0 },
+            "localTokens": if matches!(self.backend, LlmBackend::Local) { total } else { 0 },
+            "warning": self.warning,
+        })
+    }
 }
 
 /// Gated OpenAI-compatible classifier used by the MCP host.
 pub struct LlmRouter {
     provider: OpenAiProvider,
     profile_id: String,
+    backend: LlmBackend,
+    classifier_model: Option<String>,
+    agent_model: Option<String>,
     /// Serializes hot-path calls so one OVMS worker is not flooded by the host.
     lock: Mutex<()>,
 }
@@ -78,9 +162,32 @@ impl LlmRouter {
     /// Returns a human-readable reason when profiles cannot be loaded or no
     /// calibrated classification profile exists.
     pub fn from_config(config: &LlmRouteConfig) -> Result<Option<Self>, String> {
-        if !config.is_active() {
-            return Ok(None);
+        match config.resolve_backend()? {
+            LlmBackend::Off => Ok(None),
+            LlmBackend::Local => Self::from_local(config).map(Some),
+            LlmBackend::Composer => Ok(Some(composer_llm::router(|key| std::env::var(key).ok())?)),
         }
+    }
+
+    #[must_use]
+    pub(crate) fn new(
+        provider: OpenAiProvider,
+        profile_id: String,
+        backend: LlmBackend,
+        classifier_model: Option<String>,
+        agent_model: Option<String>,
+    ) -> Self {
+        Self {
+            provider,
+            profile_id,
+            backend,
+            classifier_model,
+            agent_model,
+            lock: Mutex::new(()),
+        }
+    }
+
+    fn from_local(config: &LlmRouteConfig) -> Result<Self, String> {
         let registry = load_registry(&config.profiles_path)?;
         let profile = registry
             .select(Role::Classification)
@@ -93,11 +200,13 @@ impl LlmRouter {
             ));
         }
         let provider = OpenAiProvider::new(profile.clone()).map_err(|error| error.to_string())?;
-        Ok(Some(Self {
-            profile_id: profile.id,
+        Ok(Self::new(
             provider,
-            lock: Mutex::new(()),
-        }))
+            profile.id,
+            LlmBackend::Local,
+            None,
+            Some(profile.model.clone()),
+        ))
     }
 
     /// Lexical floor first; model may only escalate. Failures keep lexical.
@@ -107,14 +216,40 @@ impl LlmRouter {
     pub fn decide(&self, request: &RoutingRequest) -> RoutedWork {
         let lexical = classify(&request.task);
         if !classifier_worth_calling(&request.task, lexical) {
-            return RoutedWork {
-                decision: route_with_classification(request, lexical),
-                latency_ms: None,
-                classifier_profile: None,
-            };
+            return self.skipped(request, lexical);
         }
-        match self.ask_tier(&request.task) {
-            Ok((llm_tier, latency_ms)) => {
+        self.finish(request, lexical, self.ask_tier(&request.task))
+    }
+
+    /// Always call the classifier so prepare can report Composer/local tokens.
+    #[must_use]
+    pub fn decide_prepare(&self, request: &RoutingRequest) -> RoutedWork {
+        let lexical = classify(&request.task);
+        self.finish(request, lexical, self.ask_tier(&request.task))
+    }
+
+    fn skipped(&self, request: &RoutingRequest, lexical: Classification) -> RoutedWork {
+        RoutedWork {
+            decision: route_with_classification(request, lexical),
+            latency_ms: None,
+            classifier_profile: None,
+            usage: TokenUsage::default(),
+            backend: self.backend,
+            attempted: false,
+            warning: None,
+            classifier_model: self.classifier_model.clone(),
+            agent_model: self.agent_model.clone(),
+        }
+    }
+
+    fn finish(
+        &self,
+        request: &RoutingRequest,
+        lexical: Classification,
+        asked: Result<(ModelTier, u64, TokenUsage), String>,
+    ) -> RoutedWork {
+        match asked {
+            Ok((llm_tier, latency_ms, usage)) => {
                 let lexical_tier = policy_tier(lexical.class);
                 let accepted = tier_rank(llm_tier) >= tier_rank(lexical_tier);
                 let classification = merge_tiers(lexical, Some(llm_tier));
@@ -122,17 +257,29 @@ impl LlmRouter {
                     decision: route_with_classification(request, classification),
                     latency_ms: accepted.then_some(latency_ms),
                     classifier_profile: accepted.then(|| self.profile_id.clone()),
+                    usage,
+                    backend: self.backend,
+                    attempted: true,
+                    warning: None,
+                    classifier_model: self.classifier_model.clone(),
+                    agent_model: self.agent_model.clone(),
                 }
             }
-            Err(_) => RoutedWork {
+            Err(error) => RoutedWork {
                 decision: route_with_classification(request, lexical),
                 latency_ms: None,
                 classifier_profile: None,
+                usage: TokenUsage::default(),
+                backend: self.backend,
+                attempted: true,
+                warning: Some(error),
+                classifier_model: self.classifier_model.clone(),
+                agent_model: self.agent_model.clone(),
             },
         }
     }
 
-    fn ask_tier(&self, task: &str) -> Result<(ModelTier, u64), String> {
+    fn ask_tier(&self, task: &str) -> Result<(ModelTier, u64, TokenUsage), String> {
         let _guard = self
             .lock
             .lock()
@@ -151,7 +298,7 @@ impl LlmRouter {
             .map_err(|error| error.to_string())?;
         let tier = parse_model_tier(&response.value)
             .ok_or_else(|| format!("unrecognised tier label {}", response.value))?;
-        Ok((tier, response.latency_ms))
+        Ok((tier, response.latency_ms, response.usage))
     }
 }
 
@@ -191,7 +338,7 @@ pub fn merge_tiers(lexical: Classification, llm: Option<ModelTier>) -> Classific
 
 #[cfg(test)]
 mod tests {
-    use super::{LlmRouteConfig, merge_tiers};
+    use super::{LlmBackend, LlmRouteConfig, merge_tiers};
     use cortex_domain::RiskLevel;
     use cortex_router::{Classification, ModelTier, TaskClass, classify, policy_tier};
 
@@ -199,6 +346,28 @@ mod tests {
     fn inactive_without_the_env_flag() {
         let config = LlmRouteConfig::from_lookup(|_| None);
         assert!(!config.is_active());
+        assert_eq!(config.resolve_backend().unwrap(), LlmBackend::Off);
+    }
+
+    #[test]
+    fn backend_flag_overrides_the_legacy_llm_switch() {
+        let off = LlmRouteConfig::from_lookup(|key| match key {
+            "CORTEX_LLM" => Some("1".to_owned()),
+            "CORTEX_LLM_BACKEND" => Some("off".to_owned()),
+            _ => None,
+        });
+        assert_eq!(off.resolve_backend().unwrap(), LlmBackend::Off);
+        let composer = LlmRouteConfig::from_lookup(|key| match key {
+            "CORTEX_LLM_BACKEND" => Some("composer".to_owned()),
+            _ => None,
+        });
+        assert_eq!(composer.resolve_backend().unwrap(), LlmBackend::Composer);
+        assert!(composer.is_active());
+        let bad = LlmRouteConfig::from_lookup(|key| match key {
+            "CORTEX_LLM_BACKEND" => Some("spark".to_owned()),
+            _ => None,
+        });
+        assert!(bad.resolve_backend().is_err());
     }
 
     #[test]

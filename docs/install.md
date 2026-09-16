@@ -16,6 +16,9 @@ Optional, never required to compile evidence:
 
 - [Ollama](https://ollama.com) on loopback (`:11434`)
 - OpenVINO Model Server on loopback for gated NPU/GPU profiles
+- A loopback OpenAI-compatible classifier proxy when
+  `CORTEX_LLM_BACKEND=composer` (Composer, Sonnet 5, Opus 5, or Haiku) —
+  see [LLM backends](llm-backends.md)
 
 CPU inference stays off unless a profile opts in. See
 [local models](local-models.md).

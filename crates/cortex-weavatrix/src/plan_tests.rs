@@ -79,6 +79,33 @@ fn url_paths_and_backticks_are_identifiers() {
 }
 
 #[test]
+fn crate_directory_paths_are_searchable_identifiers() {
+    let task = "Find and fix one real bug or dead production path in crates/sweeploom-cli. \
+                A warning-only cleanup does not count.";
+    let found = extract_identifiers(task);
+    assert!(
+        found.contains(&"crates/sweeploom-cli".to_owned()),
+        "crate path must be searchable, got {found:?}"
+    );
+    assert!(
+        !found.contains(&"warning-only".to_owned()),
+        "hyphenated prose is not a crate path, got {found:?}"
+    );
+    let operations = plan(task, None, 2_400);
+    let search = operations
+        .iter()
+        .find(|operation| operation.tool == "search_code")
+        .expect("a named crate directory must plan search, not only module_map");
+    let glob = search.arguments["glob"]
+        .as_str()
+        .expect("search glob is text");
+    assert!(
+        glob.starts_with("crates/sweeploom-cli/"),
+        "search must stay inside the named crate, got {glob}"
+    );
+}
+
+#[test]
 fn a_task_naming_code_asks_for_the_facts_a_summary_cannot_carry() {
     let operations = plan("rename `RetryLimitTooLarge`", Some("apply_command"), 16_000);
     let tools: Vec<&str> = operations.iter().map(|operation| operation.tool).collect();

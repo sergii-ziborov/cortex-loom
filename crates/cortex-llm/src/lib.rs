@@ -63,6 +63,21 @@ pub struct ClassifyRequest {
     pub labels: Vec<String>,
 }
 
+/// Prompt and completion tokens a runtime reported. Zero means it did not say.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenUsage {
+    pub prompt_tokens: u32,
+    pub completion_tokens: u32,
+}
+
+impl TokenUsage {
+    #[must_use]
+    pub fn total(self) -> u32 {
+        self.prompt_tokens.saturating_add(self.completion_tokens)
+    }
+}
+
 /// What a provider returned, with the placement it could confirm.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProviderResponse<T> {
@@ -71,6 +86,8 @@ pub struct ProviderResponse<T> {
     /// Wall-clock milliseconds, so a latency-tolerant role can be shown to be
     /// costing what it was budgeted.
     pub latency_ms: u64,
+    /// Tokens the runtime billed or estimated. Absent usage stays zero.
+    pub usage: TokenUsage,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

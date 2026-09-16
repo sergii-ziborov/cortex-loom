@@ -212,4 +212,32 @@ export const HELP_TOPICS: HelpTopic[] = [
       },
     ],
   },
+  {
+    id: 'classifier',
+    title: 'Loopback classifier',
+    lede: 'cortex_prepare can call a cursor-agent model through a loopback proxy. '
+      + 'That model only picks a route label. It does not read the repository or fix code.',
+    sections: [
+      {
+        heading: 'How to pick the model',
+        entries: [
+          ['CLI', 'cortex_mcp_client.py --llm-backend composer --classifier-model sonnet-5'],
+          ['MCP', 'cortex_prepare({ repository, task, classifierModel: "opus-5" })'],
+          ['Env', 'CORTEX_LLM_BACKEND=composer and CORTEX_CLASSIFIER_MODEL=haiku'],
+          ['composer', 'composer-2.5 on the loopback proxy'],
+          ['sonnet-5', 'claude-sonnet-5-thinking-high'],
+          ['opus-5', 'claude-opus-5-thinking-high'],
+          ['haiku', 'claude-haiku-4-5. This Cursor catalog may not list it; prepare then stays lexical.'],
+        ],
+      },
+      {
+        heading: 'What it may do',
+        entries: [
+          ['Escalate', 'The label may only rise above the lexical floor. It cannot add files or a bug.'],
+          ['Tokens', 'internalModel.composerTokens is the classifier call, not the coding agent.'],
+          ['Fail closed', 'A down proxy or unknown model keeps the lexical route and sets warning.'],
+        ],
+      },
+    ],
+  },
 ]

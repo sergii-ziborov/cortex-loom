@@ -1,26 +1,70 @@
 {
-  "date": "2026-09-15",
-  "variant": "Cortex model-enabled profile",
+  "date": "2026-09-15T17:29",
+  "variant": "Cortex launch variants",
   "policy": "Use an optional model role only when the exact profile, runtime, endpoint, and model tag are explicitly selected and live.",
-  "ollama": {
-    "cliAvailable": true,
-    "endpoint": "http://127.0.0.1:11434",
-    "installedModels": []
-  },
-  "ovms": [
-    {
-      "endpoint": "http://127.0.0.1:8000",
-      "open": false
-    },
-    {
-      "endpoint": "http://127.0.0.1:8001",
-      "open": false
-    },
-    {
-      "endpoint": "http://127.0.0.1:8002",
-      "open": false
+  "withoutComposer": {
+    "status": "LIVE",
+    "server": "Cursor MCP user-cortex-loom / cortex-mcp --profile agent",
+    "binary": "C:\\Users\\SergiiZiborov\\AppData\\Local\\CortexLoom\\bin\\cortex-mcp.exe",
+    "cortexLlm": false,
+    "prepare": {
+      "runId": "CORTEX_LAUNCH_NO_COMPOSER_20260915",
+      "packetId": "pk_52cb0f55d2d9",
+      "selectedEstimatedTokens": 660,
+      "deduplicatedEstimatedTokens": 0,
+      "modelTier": "upstream_strong"
     }
-  ],
-  "status": "BLOCKED_NO_INSTALLED_MODELS",
-  "composerVariant": "Separate additional coding-agent run; not a local Cortex model profile and not a Spark substitute."
+  },
+  "withComposer": {
+    "status": "LIVE",
+    "codingAgent": "Composer 2.5 fast",
+    "agentId": "d195054d-a35f-476e-87c4-fb0b3e8b7991",
+    "runId": "CORTEX_LAUNCH_COMPOSER_20260915",
+    "packetId": "pk_b675314fd9a3",
+    "selectedEstimatedTokens": 647,
+    "deduplicatedEstimatedTokens": 0,
+    "modelTier": "upstream_strong",
+    "note": "Composer consumed the same agent-profile cortex_prepare tools. Cortex has no in-tree Composer provider."
+  },
+  "withLocalLlms": {
+    "status": "CLASSIFIER_LIVE_EMBEDDER_MISSING",
+    "ollama": {
+      "cliAvailable": true,
+      "endpoint": "http://127.0.0.1:11434",
+      "installedModels": []
+    },
+    "ovms": [
+      {
+        "endpoint": "http://127.0.0.1:8000",
+        "open": true,
+        "model": "qwen3-8b",
+        "state": "AVAILABLE",
+        "weights": "C:\\Users\\SergiiZiborov\\AppData\\Local\\cortex-loom\\models\\qwen3-8b-int4-cw-ov\\openvino_model.bin",
+        "bytes": 4722490133,
+        "smokeCompletion": "none",
+        "smokeUsage": { "prompt_tokens": 19, "completion_tokens": 2 }
+      },
+      {
+        "endpoint": "http://127.0.0.1:8001",
+        "open": false,
+        "reason": "qwen3-embedding-0.6b-int8-ov is not installed"
+      },
+      {
+        "endpoint": "http://127.0.0.1:8002",
+        "open": false
+      }
+    ],
+    "agentPrepareWithCortexLlm": {
+      "samePacketAsDeterministic": true,
+      "packetId": "pk_b675314fd9a3",
+      "selectedEstimatedTokens": 606,
+      "note": "cortex_prepare still uses lexical route() when CORTEX_LLM=1"
+    },
+    "fullRouteWorkWithCortexLlm": {
+      "ovmsHitsAfterProbe": 2,
+      "routeReadOnly": { "class": "ambiguous", "modelTier": "upstream_strong" },
+      "routeMutation": { "class": "ambiguous", "modelTier": "upstream_strong" }
+    }
+  },
+  "composerVariant": "Composer is an upstream coding agent that can call Cortex. It is not a local Cortex model profile and not a Spark substitute."
 }

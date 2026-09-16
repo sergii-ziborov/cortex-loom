@@ -89,6 +89,18 @@ def main() -> int:
         action="store_true",
         help="Call cortex_expand for every handle returned by cortex_prepare.",
     )
+    parser.add_argument(
+        "--llm-backend",
+        choices=("off", "local", "composer"),
+        default="off",
+        help="Cortex internal classifier: off, OVMS local, or loopback proxy.",
+    )
+    parser.add_argument(
+        "--classifier-model",
+        choices=("composer", "sonnet-5", "opus-5", "haiku"),
+        default="composer",
+        help="Loopback proxy model when --llm-backend=composer.",
+    )
     arguments = parser.parse_args()
 
     binary = arguments.binary.resolve(strict=True)
@@ -111,8 +123,21 @@ def main() -> int:
         raise ValueError("task file is empty")
 
     environment = os.environ.copy()
-    environment.pop("CORTEX_LLM", None)
     environment.pop("CORTEX_SEMANTIC", None)
+    profiles = Path(__file__).resolve().parents[2] / "config" / "llm-profiles.json"
+    if arguments.llm_backend == "off":
+        environment.pop("CORTEX_LLM", None)
+        environment["CORTEX_LLM_BACKEND"] = "off"
+    elif arguments.llm_backend == "local":
+        environment["CORTEX_LLM"] = "1"
+        environment["CORTEX_LLM_BACKEND"] = "local"
+        environment["CORTEX_LLM_PROFILES"] = str(profiles)
+    else:
+        environment.pop("CORTEX_LLM", None)
+        environment["CORTEX_LLM_BACKEND"] = "composer"
+        environment.setdefault("CORTEX_COMPOSER_BASE_URL", "http://127.0.0.1:8787")
+        environment["CORTEX_CLASSIFIER_MODEL"] = arguments.classifier_model
+        environment["CORTEX_COMPOSER_MODEL"] = arguments.classifier_model
     with tempfile.TemporaryDirectory(prefix="cortex-agent-mcp-") as temporary:
         environment["CORTEX_LOOM_DB"] = str(Path(temporary) / "cortex-loom.db")
         process = subprocess.Popen(
@@ -161,17 +186,20 @@ def main() -> int:
                     "params": {},
                 },
             )
+            prepare_arguments = {
+                "repository": str(repository),
+                "task": task,
+                "runId": arguments.run_id,
+                "budgetClass": arguments.budget_class,
+            }
+            if arguments.llm_backend == "composer":
+                prepare_arguments["classifierModel"] = arguments.classifier_model
             prepared = call(
                 process.stdin,
                 process.stdout,
                 2,
                 "cortex_prepare",
-                {
-                    "repository": str(repository),
-                    "task": task,
-                    "runId": arguments.run_id,
-                    "budgetClass": arguments.budget_class,
-                },
+                prepare_arguments,
             )
             expansions = []
             if arguments.expand_missing:
@@ -197,7 +225,7 @@ def main() -> int:
                     )
             json.dump(
                 {
-                    "mode": "deterministic_no_models",
+                    "mode": f"cortex_{arguments.llm_backend}",
                     "prepare": prepared,
                     "expansions": expansions,
                 },

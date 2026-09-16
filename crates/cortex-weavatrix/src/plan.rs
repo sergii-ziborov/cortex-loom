@@ -160,15 +160,26 @@ pub fn extract_identifiers(task: &str) -> Vec<String> {
 }
 
 fn push_identifier(found: &mut Vec<String>, candidate: &str, explicit: bool) {
-    let candidate = candidate.trim_matches(|c: char| {
-        !c.is_alphanumeric() && !matches!(c, '_' | '/' | '{' | '}' | ':' | '.' | '-')
-    });
+    let candidate = trim_identifier_token(candidate);
     if !(is_identifier(candidate) || (explicit && is_explicit_identifier(candidate))) {
         return;
     }
     if !found.iter().any(|seen| seen == candidate) {
         found.push(candidate.to_owned());
     }
+}
+
+fn trim_identifier_token(value: &str) -> &str {
+    let trimmed = value.trim_matches(|c: char| {
+        !c.is_alphanumeric() && !matches!(c, '_' | '/' | '{' | '}' | ':' | '.' | '-')
+    });
+    if crate::fold::SOURCE_SUFFIXES.iter().any(|suffix| {
+        trimmed.len() >= suffix.len()
+            && trimmed[trimmed.len() - suffix.len()..].eq_ignore_ascii_case(suffix)
+    }) {
+        return trimmed;
+    }
+    trimmed.trim_end_matches('.')
 }
 
 fn is_explicit_identifier(value: &str) -> bool {
@@ -189,6 +200,9 @@ fn is_explicit_identifier(value: &str) -> bool {
 }
 
 fn is_identifier(value: &str) -> bool {
+    if crate::fold::is_repo_source_path(value) {
+        return true;
+    }
     if value.len() < 3 || value.len() > 96 {
         return false;
     }

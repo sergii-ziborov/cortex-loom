@@ -176,10 +176,20 @@ export function NodeInspector({ graph, node, onDelete, onUpdate }: NodeInspector
             </div>
             <label className="field"><span>Model profile</span>
               <input
+                list="cortex-model-profiles"
                 value={draft.execution.modelProfile ?? ''}
                 onChange={event => field('execution', { ...draft.execution!, modelProfile: event.target.value || null })}
-                placeholder="local-small, local-medium, upstream-strong"
+                placeholder="local-medium, composer, sonnet-5, opus-5, haiku"
               />
+              <datalist id="cortex-model-profiles">
+                <option value="local-small" />
+                <option value="local-medium" />
+                <option value="upstream-strong" />
+                <option value="composer" />
+                <option value="sonnet-5" />
+                <option value="opus-5" />
+                <option value="haiku" />
+              </datalist>
             </label>
             {([
               ['requireEvidence', 'Require evidence IDs'],

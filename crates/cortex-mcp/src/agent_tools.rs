@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::llm_route::RoutedWork;
 use cortex_router::{RoutingRequest, classify, route};
 use cortex_sequences::candidate_templates;
 use cortex_weavatrix::{
@@ -24,6 +25,8 @@ struct PrepareArgs {
     task: String,
     run_id: Option<String>,
     budget_class: Option<String>,
+    /// Loopback classifier alias for this call only: composer, sonnet-5, opus-5, haiku.
+    classifier_model: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -42,14 +45,19 @@ pub(crate) fn register(
     server
         .typed_tool(
             "cortex_prepare",
-            "Route the task and compile a bounded evidence packet. The caller names repository, task, optional runId, and budgetClass only — mutation, verification, and availability are derived, never self-declared.",
+            "Route the task and compile a bounded evidence packet. The caller names repository, task, optional runId, budgetClass, and classifierModel only — mutation, verification, and availability are derived, never self-declared.",
             json!({
                 "type": "object",
                 "properties": {
                     "repository": {"type": "string", "maxLength": 4096},
                     "task": {"type": "string", "maxLength": 16384},
                     "runId": {"type": "string", "maxLength": 256},
-                    "budgetClass": {"type": "string", "enum": ["auto", "tight", "normal", "wide"], "default": "auto"}
+                    "budgetClass": {"type": "string", "enum": ["auto", "tight", "normal", "wide"], "default": "auto"},
+                    "classifierModel": {
+                        "type": "string",
+                        "enum": ["composer", "sonnet-5", "opus-5", "haiku"],
+                        "description": "Loopback classifier via the cursor-agent proxy. Overrides CORTEX_CLASSIFIER_MODEL for this prepare only."
+                    }
                 },
                 "required": ["repository", "task"],
                 "additionalProperties": false
@@ -89,7 +97,24 @@ fn prepare(state: &CortexMcpState, arguments: PrepareArgs) -> ToolReply {
     let pin = BudgetPin::parse(arguments.budget_class.as_deref());
     let max_tokens = adaptive_budget(&arguments.task, pin);
     let symbols = extract_identifiers(&arguments.task);
-    let routing = route(&RoutingRequest::new(arguments.task.clone()));
+    let request = RoutingRequest::new(arguments.task.clone());
+    let routed = match arguments.classifier_model.as_deref() {
+        Some(alias) => match crate::composer_llm::router_for_alias(alias) {
+            Ok(router) => router.decide_prepare(&request),
+            Err(error) => {
+                let mut work = RoutedWork::lexical(route(&request));
+                work.attempted = true;
+                work.warning = Some(error);
+                work.classifier_model = Some(alias.to_owned());
+                work
+            }
+        },
+        None => state.llm_router.as_ref().map_or_else(
+            || RoutedWork::lexical(route(&request)),
+            |router| router.decide_prepare(&request),
+        ),
+    };
+    let routing = routed.decision.clone();
     let classification = classify(&arguments.task);
     let workflow = candidate_templates(&arguments.task)
         .into_iter()
@@ -162,6 +187,7 @@ fn prepare(state: &CortexMcpState, arguments: PrepareArgs) -> ToolReply {
         "missingFacets": missing,
         "expansionHandles": handles,
         "warnings": compiled.warnings,
+        "internalModel": routed.internal_model_json(),
     }))
 }
 

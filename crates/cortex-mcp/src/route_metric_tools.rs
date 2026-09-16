@@ -67,11 +67,7 @@ pub(crate) fn register(
                 }
                 arguments.request.distrust_self_reported_verified();
                 let routed = route_state.llm_router.as_ref().map_or_else(
-                    || llm_route::RoutedWork {
-                        decision: lexical_route(&arguments.request),
-                        latency_ms: None,
-                        classifier_profile: None,
-                    },
+                    || llm_route::RoutedWork::lexical(lexical_route(&arguments.request)),
                     |router| router.decide(&arguments.request),
                 );
                 let decision = &routed.decision;

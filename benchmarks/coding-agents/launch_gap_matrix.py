@@ -120,8 +120,13 @@ def prompt_for(cell: dict[str, str]) -> str:
         f"{tree} at 9f2646c. Never read another worktree, transcript, canvas, "
         f"or result file. Do not call user-cortex-loom MCP. {packet} {task_text} "
         f"Set CARGO_TARGET_DIR to {cargo_dir}. CARGO_INCREMENTAL=0. "
-        f"Run {CARGO[cell['task']]}. Do not commit. Do not push. "
-        f"Print BENCH_RUN_ID {cell['run_id']} first and last."
+        f"Run {CARGO[cell['task']]}. "
+        + (
+            "Create one focused local commit. Do not push. Do not use --no-verify. "
+            if cell["task"] == "T3"
+            else "Do not commit. Do not push. "
+        )
+        + f"Print BENCH_RUN_ID {cell['run_id']} first and last."
     )
 
 

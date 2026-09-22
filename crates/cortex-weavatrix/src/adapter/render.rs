@@ -31,6 +31,9 @@ pub(super) fn extract_text(value: &Value) -> String {
         .or_else(|| symbol_inspection(value))
         .or_else(|| graph_neighbors(value))
         .or_else(|| git_history(value))
+        .or_else(|| git_blob(value))
+        .or_else(|| super::coverage_render::coverage_map(value))
+        .or_else(|| health_report(value))
         .or_else(|| {
             value
                 .get("structuredContent")
@@ -258,6 +261,73 @@ fn git_history(value: &Value) -> Option<String> {
     Some(out)
 }
 
+/// `git_read_blob` as `path@revision` plus the file body.
+fn git_blob(value: &Value) -> Option<String> {
+    let gitty = value.get("kind").and_then(Value::as_str) == Some("utf8-text")
+        || value.get("revision").is_some()
+        || value.get("oid").is_some();
+    if !gitty {
+        return None;
+    }
+    let body = value
+        .get("content")
+        .or_else(|| value.get("text"))
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            let lines = value.get("lines")?.as_array()?;
+            let texts: Option<Vec<&str>> = lines.iter().map(Value::as_str).collect();
+            Some(texts?.join("\n"))
+        })?;
+    let path = value.get("path").and_then(Value::as_str).unwrap_or("blob");
+    let revision = value
+        .get("revision")
+        .or_else(|| value.get("oid"))
+        .and_then(Value::as_str);
+    let mut out = match revision {
+        Some(revision) => format!("{path}@{revision}\n"),
+        None => format!("{path}\n"),
+    };
+    out.push_str(&body);
+    if value.get("truncated").and_then(Value::as_bool) == Some(true) {
+        out.push_str("\n[git blob truncated by its token budget]");
+    }
+    Some(out)
+}
+
+fn health_report(value: &Value) -> Option<String> {
+    if let Some(candidates) = value.get("candidates").and_then(Value::as_array)
+        && value.get("verdict").is_some()
+    {
+        let mut out = format!("dead_code: {}\n", candidates.len());
+        for item in candidates.iter().take(24) {
+            out.push_str(&node_line("-", item.get("node").unwrap_or(item)));
+        }
+        return Some(out);
+    }
+    let pairs = value.get("pairs").and_then(Value::as_array)?;
+    if pairs.is_empty() && value.get("families").is_none() {
+        return None;
+    }
+    let mut out = format!("duplicates: {}\n", pairs.len());
+    for pair in pairs.iter().take(24) {
+        let kind = pair.get("kind").and_then(Value::as_str).unwrap_or("clone");
+        let left = clone_site(pair.get("left"));
+        let right = clone_site(pair.get("right"));
+        let _ = writeln!(out, "- {kind} {left} | {right}");
+    }
+    Some(out)
+}
+
+fn clone_site(site: Option<&Value>) -> String {
+    let Some(site) = site else {
+        return String::new();
+    };
+    let path = site.get("path").and_then(Value::as_str).unwrap_or("");
+    let line = site.get("start_line").and_then(Value::as_u64).unwrap_or(1);
+    format!("{path}:{line}")
+}
+
 fn truncate_chars(value: String, max_chars: usize) -> String {
     if value.chars().count() <= max_chars {
         return value;
@@ -371,5 +441,20 @@ mod tests {
         assert!(text.starts_with("commits: 1\n"));
         assert!(text.contains("e32b6c87f180 Stop minting Verified"));
         assert!(!text.contains("cochange_pairs"));
+    }
+
+    #[test]
+    fn git_blob_renders_path_revision_and_body() {
+        let value = json!({
+            "path": "crates/sweeploom-cli/src/api.rs",
+            "revision": "HEAD~1",
+            "kind": "utf8-text",
+            "lines": ["pub fn route() {}"],
+            "truncated": false
+        });
+        assert_eq!(
+            extract_text(&value),
+            "crates/sweeploom-cli/src/api.rs@HEAD~1\npub fn route() {}"
+        );
     }
 }

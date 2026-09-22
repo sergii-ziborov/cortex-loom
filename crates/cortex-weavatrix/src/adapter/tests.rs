@@ -1,9 +1,11 @@
 use serde_json::json;
 
 use super::evidence::{
-    EvidenceKind, MAX_FRAGMENT_CHARS, fragments, normalize_graph_stats, split_content,
+    EvidenceKind, MAX_FRAGMENT_CHARS, bind_expected_repository, expected_repository_arg, fragments,
+    normalize_graph_stats, split_content,
 };
 use super::render::extract_text;
+use super::source_reads::hit_from_inspect;
 
 #[test]
 fn graph_stats_drop_volatile_build_latency_before_context_compilation() {
@@ -99,4 +101,39 @@ fn a_single_oversized_paragraph_is_hard_split_without_loss() {
     let parts = split_content(&text, MAX_FRAGMENT_CHARS);
     assert_eq!(parts.len(), 3);
     assert_eq!(parts.concat(), text);
+}
+
+#[test]
+fn expected_repository_is_bound_once_and_keeps_a_caller_value() {
+    use std::path::Path;
+
+    let root = Path::new(r"C:\repo");
+    let mut empty = json!({});
+    bind_expected_repository(&mut empty, root);
+    assert_eq!(
+        empty["expected_repository"].as_str(),
+        Some(expected_repository_arg(root).as_str())
+    );
+
+    let mut pinned = json!({ "expected_repository": "other" });
+    bind_expected_repository(&mut pinned, root);
+    assert_eq!(pinned["expected_repository"], "other");
+}
+
+#[test]
+fn inspect_symbol_payload_becomes_a_definition_hit() {
+    let value = json!({
+        "inspection": {
+            "node": {
+                "label": "compile_context",
+                "span": {
+                    "file": "crates/cortex-context/src/lib.rs",
+                    "start": { "line": 44 }
+                }
+            }
+        }
+    });
+    let hit = hit_from_inspect(&value, "compile_context").expect("span");
+    assert_eq!(hit.path, "crates/cortex-context/src/lib.rs");
+    assert_eq!(hit.line, 44);
 }

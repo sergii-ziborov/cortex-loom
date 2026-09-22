@@ -1,5 +1,7 @@
+use std::path::Path;
+
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 use weavatrix_rust::{Weavatrix, operations};
 
 use cortex_context::{EvidenceFacet, EvidenceLocator, evidence_id};
@@ -117,6 +119,12 @@ pub enum EvidenceKind {
     TestSelection,
     /// Temporal facts from prior Cortex run events via `memory_context`.
     Memory,
+    /// Unreferenced production symbols from `find_dead_code`.
+    DeadCode,
+    /// Type-1/2/3 clone families from `find_duplicates`.
+    Duplicates,
+    /// Measured coverage ingested by `coverage_map`, never a test run.
+    CoverageMap,
 }
 
 pub(super) fn fragments(
@@ -197,7 +205,7 @@ pub(super) fn stamp_bundle(bundle: &mut EvidenceBundle, snapshot: &str) {
 }
 
 fn facet_for(id: &str, kind: EvidenceKind) -> EvidenceFacet {
-    if id.starts_with("WX-DEF") {
+    if id.starts_with("WX-DEF") || id.starts_with("WX-FILE") {
         return EvidenceFacet::Definition;
     }
     match kind {
@@ -212,7 +220,10 @@ fn facet_for(id: &str, kind: EvidenceKind) -> EvidenceFacet {
         | EvidenceKind::Endpoints
         | EvidenceKind::GitHistory
         | EvidenceKind::StackTrace
-        | EvidenceKind::TestSelection => EvidenceFacet::Structure,
+        | EvidenceKind::TestSelection
+        | EvidenceKind::DeadCode
+        | EvidenceKind::Duplicates
+        | EvidenceKind::CoverageMap => EvidenceFacet::Structure,
     }
 }
 
@@ -318,10 +329,32 @@ pub(super) fn budget_overrun(tool: &str, value: &Value) -> Option<String> {
     ))
 }
 
+/// Pin every native call to the session root Weavatrix 2.8+ will reject a
+/// drifted slot (`expected_repository`).
+pub(super) fn bind_expected_repository(arguments: &mut Value, root: &Path) {
+    let expected = expected_repository_arg(root);
+    match arguments {
+        Value::Object(fields) => {
+            fields
+                .entry("expected_repository".to_owned())
+                .or_insert(Value::String(expected));
+        }
+        Value::Null => *arguments = json!({ "expected_repository": expected }),
+        _ => {}
+    }
+}
+
+pub(super) fn expected_repository_arg(root: &Path) -> String {
+    let raw = root.to_string_lossy();
+    raw.strip_prefix(r"\\?\").unwrap_or(raw.as_ref()).to_owned()
+}
+
 pub(super) fn native_call(
     engine: &mut Weavatrix,
+    root: &Path,
     name: &str,
-    arguments: Value,
+    mut arguments: Value,
 ) -> Result<Value, WeavatrixError> {
+    bind_expected_repository(&mut arguments, root);
     operations::call(engine, name, arguments).map_err(WeavatrixError::Engine)
 }

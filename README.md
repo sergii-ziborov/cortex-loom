@@ -4,9 +4,9 @@
 
 Cortex Loom prepares a compact evidence packet for the task your coding
 agent is working on. It asks
-[Weavatrix](https://github.com/sergii-ziborov/weavatrix) for typed
-repository facts, keeps their provenance, and reports which declared
-requirements are covered, missing, contradictory, or stale.
+[Weavatrix](https://github.com/sergii-ziborov/weavatrix) (`weavatrix-rust`
+2.16.3) for typed repository facts, keeps their provenance, and reports
+which declared requirements are covered, missing, contradictory, or stale.
 
 It is local-first. No account, model download, or hosted Cortex service
 is required for the deterministic path. Your coding agent still edits
@@ -45,7 +45,9 @@ the agent already understands.
 Cortex does not replace your agent, build a second repository index, or
 filter shell output like RTK. Weavatrix supplies repository
 intelligence. Cortex owns task requirements, evidence selection, and
-delivery. Refactor support stays preview-only.
+delivery. Refactor support stays preview-only. Weavatrix Quality is a
+sibling product: if it wrote `.weavatrix/coverage/lcov.info`, Cortex can
+ingest it through `coverage_map`. Cortex does not run Quality or tests.
 
 ## Install
 
@@ -100,57 +102,73 @@ The `cortex-context` skill says when to call those tools. It does not
 ask for Cortex on every file read and it does not use `skill_read`.
 
 Adapters: [docs/install.md](docs/install.md#wire-a-coding-agent).
-Optional classifier backends (`off` / `local` / `composer`):
+Optional classifier backends (`off` / `local` / `composer`) are an
+environment switch, `CORTEX_LLM_BACKEND`. The CLI has no
+`--llm-backend` flag. Details:
 [docs/llm-backends.md](docs/llm-backends.md).
 
 ## Measured work
 
-Full tables, stamps, and caveats:
-[docs/benchmark.md](docs/benchmark.md) and
+Scores below are **task-close /10**: how completely that cell closed
+*this* task, relative to the best close of the same task in this tree.
+They are not leak-ceiling scores and not “every model found a different
+bug.” Full tables, method, and how to repeat:
+[docs/benchmark.md](docs/benchmark.md),
+[docs/guide.md](docs/guide.md), and
 [benchmarks/coding-agents](benchmarks/coding-agents).
 
-The SweepLoom matrix at `9f2646c` uses **T1** `find_fix_bug`, **T2**
-`remove_duplicate`, **T3** `split_api`. Isolation is one detached
-worktree per cell. Parent-verify is the git diff plus the required
-`cargo test`, not self-report.
+SweepLoom matrix at baseline `9f2646c`. **T1** `find_fix_bug`, **T2**
+`remove_duplicate`, **T3** `split_api`. One detached worktree per cell.
+Parent-verify is the git diff plus the required `cargo test` in an
+isolated `CARGO_TARGET_DIR`. A cell is done only when the agent JSON
+is `type=result` and `is_error` is false. Session-limit / 429 logs are
+gaps, not scores.
 
-Grok 4.6 extra high and Composer 2.5 × four Cortex classifiers × T1–T3
-are closed on **cursor-agent** (24 cells). Sonnet 5 max and Haiku 4.5
-T1–T2 four lanes are closed on **Claude Code CLI**. T3 and leftover
-Opus CLI cells hit a Claude session limit (reset 22:40 Asia/Jerusalem
-on 2026-09-16). cursor-agent Ultra remains capped until 2026-10-02.
-Those are provider blocks, not Cortex failures.
+What was verified on filled cells:
+
+| Close class | Best cell | What the tree actually did |
+| --- | --- | --- |
+| T1 / 10.0 | Sonnet 5 max Without | Dead `apply_cleanup`: Cache/Log ids never reached `review_rows` |
+| T1 / 8.4–8.2 | Opus Without, Grok Without / models-off | Same `take_value` swallow. Not apply-class |
+| T1 / 3.2 | Composer Without | Live tree is `is_silent_ask` (catalog, not production) |
+| T2 / 10.0 | Grok models-off | One shared naive classifier: leaf/secret/sqlite/log/history |
+| T3 / 10.0 | Opus Without; Grok × Opus-classifier | 18-line facade, six modules |
+| T3 / 9.4 | Haiku models-off | Cheap close: `api.rs` 16 lines, five modules, commit `d84731c` |
+
+Opus is not weak on empty Cortex lanes. Those Opus CLI cells did not
+run (session limit). On filled cells Opus matches Grok on T1 and is
+the best T3 close.
 
 Claude Code spend is usage `input + output + cache_create`. Cursor
 spend is estimated context material plus visible response (chars÷4).
-Do not pool them or call the drop a billed saving.
+Do not pool them. Cortex often cuts spend (Grok T1 809,468 → 40,403)
+without raising close class, because those packets were module maps.
+Classifier tokens (209–247) did not buy apply-class.
 
-Selected models-off observations (Cursor host-reference Without vs
-Cortex material estimate):
+How to use the result: pick **Sonnet Without** when T1 quality is the
+goal; **Grok models-off** for T2; **Opus Without** or **Grok × Opus
+classifier** for T3; **Haiku models-off** when T3 must stay cheap.
+Models-off is the default Cortex lane. Do not expect a classifier
+switch to change the close by itself.
 
-| Coding agent / task | Without score | Cortex score | Cortex spend |
-| --- | ---: | ---: | ---: |
-| Grok / T1 | 9.4 | 9.4 | 40,403 |
-| Grok / T2 | 8.5 | 9.0 | 31,156 |
-| Composer / T1 rerun | 8.2 | 9.1 | 37,205 |
-| Opus extra / T1 | 9.5 | 9.6 | 51,139 |
+Leftover Claude CLI cells (Opus models-off T2/T3, Opus local/Composer
+lanes) remain unfilled after 429. They are not scored. Haiku T3
+Composer-classifier closed: 79,909 / 8.8 / 45c, `mod.rs` 51, five
+modules, commit `99dc62d`, isolated 16/16.
 
-Claude Code CLI, T1–T2 (not comparable to the Cursor numbers above):
+The context-compiler benches (`cortex-bench`) are a separate study:
+declared facts in, token count out. They do not score coding-agent
+quality. Repeat:
 
-| Agent / task / lane | Spend / score / wall / cycles |
-| --- | --- |
-| Sonnet T1 Without | 194,593 / 9.4 / 9m 46s / 57c |
-| Sonnet T1 models-off | 76,815 / 9.1 / 3m 10s / 13c |
-| Sonnet T2 Without | 75,426 / 8.8 / 3m 37s / 16c |
-| Haiku T1 Without | 98,548 / 9.3 / 4m 48s / 39c |
-| Haiku T1 Composer-classifier | 52,166 / 9.0 / 4m 54s / 25c |
-| Haiku T2 models-off | 36,057 / 8.6 / 1m 40s / 18c |
+```powershell
+cargo test -p cortex-bench --lib
+cargo run -p cortex-bench -- --repo . --budget 4000 --set probe `
+  --out .cortex-loom/bench/probe.json --stamp local-probe
+```
 
-The first Composer T1 thin-packet result stays historical at 5.0
-(`is_silent_ask` unused in production). Later crate-path reruns scored
-9.1–9.3; they do not erase that failure. Isolated parent-verify of the
-Claude T1/T2 trees: T2 all 17/17; Haiku T1 models-off 16/1
-(`silent_asks_never_name_the_product`).
+`fixture_anchors_exist_in_the_repository` fails the build if a fixture
+cannot be satisfied by reading the named files. That is fixture
+authoring, not agent quality.
 
 RTK 0.49.0 is a bash-stdout neighbor. It is not a Cortex substitute.
 
@@ -169,13 +187,13 @@ after first-pass semantic windows: **19 035 / 40/40**.
 
 **95.3% fewer** selected tokens than naive at equal recall.
 
-| set | tasks / facts | cortex-source | targeted | wall | CPU | peak RSS |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| probe @ 4k | 10 / 40 | **19 035 / 40/40** | **19 035 / 40/40** | 21.6 s | 30.8 s | 86.2 MB |
-| probe @ 16k | 10 / 40 | **22 818 / 40/40** | — | 22.9 s | 14.4 s | 80.5 MB |
-| core @ 4k | 7 / 41 | **14 469 / 41/41** | **14 486 / 41/41** | — | — | — |
-| langs @ 4k | 6 / 12 | **4 146 / 12/12** | **4 146 / 12/12** | 10.4 s | 5.3 s | 78.3 MB |
-| intent @ 4k | 3 / 12 | **4 978 / 12/12** | **4 978 / 12/12** | — | — | — |
+| set | tasks / facts | cortex-source | targeted |
+| --- | ---: | ---: | ---: |
+| probe @ 4k | 10 / 40 | **19 035 / 40/40** | **19 035 / 40/40** |
+| probe @ 16k | 10 / 40 | **22 818 / 40/40** | — |
+| core @ 4k | 7 / 41 | **14 469 / 41/41** | **14 486 / 41/41** |
+| langs @ 4k | 6 / 12 | **4 146 / 12/12** | **4 146 / 12/12** |
+| intent @ 4k | 3 / 12 | **4 978 / 12/12** | **4 978 / 12/12** |
 
 ### Live server — one question, every approach
 
@@ -260,6 +278,7 @@ not a claim that the whole product is MIT.
 ## Docs
 
 [Install](docs/install.md) · [CLI](docs/cli.md) ·
+[Guide](docs/guide.md) ·
 [Architecture](docs/architecture.md) · [Benchmark](docs/benchmark.md) ·
 [LLM backends](docs/llm-backends.md) ·
 [Local models](docs/local-models.md) ·

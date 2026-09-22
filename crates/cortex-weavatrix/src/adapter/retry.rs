@@ -15,12 +15,15 @@ impl WeavatrixAdapter {
     /// sufficiency report flagged it as incomplete.
     fn retry_definition(
         engine: &mut Weavatrix,
+        root: &Path,
         symbol: Option<&str>,
         budget: u32,
         initial: &crate::EvidenceSufficiency,
         gathered: &mut TargetedEvidence,
     ) {
-        let Some(symbol) = symbol else { return };
+        let Some(symbol) = symbol.filter(|name| crate::fold::is_graph_symbol(name)) else {
+            return;
+        };
         if !initial
             .missing_evidence
             .iter()
@@ -30,6 +33,7 @@ impl WeavatrixAdapter {
         }
         append_definition_read(
             engine,
+            root,
             &mut gathered.bundle.evidence,
             &mut gathered.bundle.warnings,
             &gathered.search_hits,
@@ -61,15 +65,15 @@ impl WeavatrixAdapter {
         let slot = self.lock_engine(&root)?;
         let mut engine = slot.lock().map_err(|_| WeavatrixError::LockPoisoned)?;
         let engine = &mut *engine;
-        Self::retry_definition(engine, symbol, budget, initial, gathered);
-        let needs_search_retry = initial
-            .missing_evidence
-            .iter()
-            .any(|kind| kind == "search_hits" || kind.starts_with("source_term:"));
+        Self::retry_definition(engine, &root, symbol, budget, initial, gathered);
+        let needs_search_retry = initial.missing_evidence.iter().any(|kind| {
+            kind == "search_hits" || kind == "classifier_pair" || kind.starts_with("source_term:")
+        });
         if needs_search_retry {
             let first_retry_hit = gathered.search_hits.len();
             retry_wide_search(
                 engine,
+                &root,
                 &mut gathered.bundle.evidence,
                 &mut gathered.bundle.warnings,
                 &mut gathered.search_hits,
@@ -81,7 +85,7 @@ impl WeavatrixAdapter {
                 policy,
             );
             if source_followup && gathered.search_hits.len() > first_retry_hit {
-                rebuild_retry_sources(engine, gathered, task, symbol, hints, budget, policy);
+                rebuild_retry_sources(engine, &root, gathered, task, symbol, hints, budget, policy);
             }
         }
         let inventory_glob = crate::inventory(&root).glob();
@@ -104,7 +108,7 @@ impl WeavatrixAdapter {
             {
                 continue;
             }
-            match native_call(engine, operation.tool, operation.arguments) {
+            match native_call(engine, &root, operation.tool, operation.arguments) {
                 Ok(value) => gathered.bundle.evidence.extend(fragments(
                     &format!("WX-RETRY-{}", operation.id.trim_start_matches("WX-")),
                     operation.kind,
@@ -125,6 +129,7 @@ impl WeavatrixAdapter {
         if source_followup && !has_source {
             append_source_reads(
                 engine,
+                &root,
                 &mut gathered.bundle.evidence,
                 &mut gathered.bundle.warnings,
                 &gathered.search_hits,
@@ -138,7 +143,7 @@ impl WeavatrixAdapter {
                 },
             );
         }
-        if let Some(symbol) = symbol {
+        if let Some(symbol) = symbol.filter(|name| crate::fold::is_graph_symbol(name)) {
             prune_incomplete_definition_duplicates(&mut gathered.bundle.evidence, symbol);
         }
         if let Some(snapshot) = gathered.bundle.snapshot_id.clone() {
@@ -151,6 +156,7 @@ impl WeavatrixAdapter {
 #[allow(clippy::too_many_arguments)]
 fn retry_wide_search(
     engine: &mut Weavatrix,
+    root: &Path,
     evidence: &mut Vec<super::evidence::EvidenceFragment>,
     warnings: &mut Vec<String>,
     search_hits: &mut Vec<crate::source_followup::SearchHit>,
@@ -174,14 +180,16 @@ fn retry_wide_search(
     let per_query_budget = (token_budget / query_count).max(200);
     for (index, query) in queries.into_iter().enumerate() {
         let arguments = retry_search_arguments(&query, per_query_budget);
-        match native_call(engine, "search_code", arguments) {
+        match native_call(engine, root, "search_code", arguments) {
             Ok(value) => {
-                search_hits.extend(crate::source_followup::hits_from_search(&value));
+                let mut filtered = value;
+                crate::source_followup::retain_product_search_matches(&mut filtered, task);
+                search_hits.extend(crate::source_followup::hits_from_search(&filtered));
                 evidence.extend(fragments(
                     &format!("WX-RETRY-SEARCH-{}", index + 1),
                     EvidenceKind::SearchHits,
                     "weavatrix:search_code",
-                    &value,
+                    &filtered,
                 ));
             }
             Err(error) => warnings.push(format!("wide search retry unavailable: {error}")),
@@ -201,8 +209,10 @@ fn retry_search_arguments(query: &str, token_budget: u32) -> serde_json::Value {
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn rebuild_retry_sources(
     engine: &mut Weavatrix,
+    root: &Path,
     gathered: &mut TargetedEvidence,
     task: &str,
     symbol: Option<&str>,
@@ -219,6 +229,7 @@ fn rebuild_retry_sources(
     });
     append_source_reads(
         engine,
+        root,
         &mut gathered.bundle.evidence,
         &mut gathered.bundle.warnings,
         &gathered.search_hits,
@@ -234,6 +245,7 @@ fn rebuild_retry_sources(
     if crate::plan_intent::is_broad(task) {
         append_type_expansion_reads(
             engine,
+            root,
             &mut gathered.bundle.evidence,
             &mut gathered.bundle.warnings,
             task,

@@ -30,8 +30,10 @@ CORTEX_COMPOSER_MODEL=sonnet-5     # same aliases; kept for older scripts
 CORTEX_COMPOSER_API_KEY=           # or CURSOR_API_KEY
 ```
 
-CLI: `--llm-backend composer --classifier-model sonnet-5`.
-MCP: `cortex_prepare({ repository, task, classifierModel: "opus-5" })`.
+The CLI has no `--llm-backend` flag. `cortex-loom prepare` follows
+`CORTEX_LLM_BACKEND` (`off`, `local`, or `composer`) and accepts
+`--classifier-model sonnet-5` for the loopback aliases. MCP:
+`cortex_prepare({ repository, task, classifierModel: "opus-5" })`.
 
 Aliases map to cursor-agent ids (`composer-2.5`,
 `claude-sonnet-5-thinking-max`, `claude-opus-5-thinking-high`,

@@ -2,13 +2,12 @@ mod command;
 mod engine;
 mod error;
 mod evidence;
-mod flow;
 mod human;
 mod lease;
 mod model;
 mod replay;
-mod retry;
-mod transition;
+
+pub(crate) use engine::{flow, retry, transition};
 
 pub use command::RunCommand;
 pub use engine::{apply_command, create_run};

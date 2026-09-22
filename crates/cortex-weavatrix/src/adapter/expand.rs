@@ -1,5 +1,7 @@
 //! Second-hop type expansion and callee-file follow-up for broad questions.
 
+use std::path::Path;
+
 use weavatrix_rust::Weavatrix;
 
 use super::evidence::{EvidenceFragment, EvidenceKind};
@@ -14,6 +16,7 @@ use super::source_reads::append_definition_read_as;
 /// the type that only appears after an intermediate definition is read.
 pub(super) fn append_type_expansion_reads(
     engine: &mut Weavatrix,
+    root: &Path,
     evidence: &mut Vec<EvidenceFragment>,
     warnings: &mut Vec<String>,
     task: &str,
@@ -40,6 +43,7 @@ pub(super) fn append_type_expansion_reads(
             tried.push(name.clone());
             if append_definition_read_as(
                 engine,
+                root,
                 evidence,
                 warnings,
                 &[],

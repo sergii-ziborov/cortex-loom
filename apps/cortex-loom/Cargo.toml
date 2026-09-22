@@ -7,6 +7,10 @@ authors.workspace = true
 repository.workspace = true
 publish = false
 
+[lib]
+name = "cortex_loom"
+path = "src/lib.rs"
+
 [[bin]]
 name = "cortex-loom"
 path = "src/main.rs"

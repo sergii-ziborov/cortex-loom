@@ -215,7 +215,7 @@ async function run(options = {}) {
   if (!serenaCommit) throw new Error(`cannot resolve current Serena: ${manifest.serena.reason}`);
   const cortexBinary = path.join(ROOT, 'target', 'release', 'cortex-mcp.exe');
   const servers = {
-    weavatrix: new McpClient({ command: 'npx.cmd', args: ['-y', 'weavatrix@1.8.0', 'mcp', '.', '--profile=code'], cwd: repository, name: 'weavatrix', profile: 'code' }),
+    weavatrix: new McpClient({ command: 'npx.cmd', args: ['-y', 'weavatrix@1.15.0', 'mcp', '.', '--profile=code'], cwd: repository, name: 'weavatrix', profile: 'code' }),
     cortex: new McpClient({ command: cortexBinary, args: ['--profile', 'context'], cwd: repository, name: 'cortex', profile: 'context' }),
     serena: new McpClient({
       command: 'uvx',

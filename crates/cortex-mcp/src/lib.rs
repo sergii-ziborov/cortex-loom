@@ -1,39 +1,40 @@
 use std::io;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
 
-use cortex_adapters::{AgentKind, McpLaunch, export_adapter, export_library_adapter};
-use cortex_context::{ContextRequest, compile_context, distrust_caller_verified};
+pub(crate) use std::sync::Arc;
+
+use cortex_adapters::{AgentKind, McpLaunch};
+pub(crate) use cortex_adapters::{export_adapter, export_library_adapter};
+pub(crate) use cortex_context::{ContextRequest, compile_context, distrust_caller_verified};
 use cortex_domain::{GraphDocument, default_control_plane};
-use cortex_router::{RoutingDecision, RoutingRequest, route};
-use cortex_shadow::{RoutingSnapshot, ShadowConfig, ShadowHandle, ShadowTask};
-use cortex_skills::{export_skill_markdown, import_skill_markdown, index_entry, render_index};
-use cortex_store::{GraphStore, ShadowOperation, UsageOperation, UsageReport, UsageSample};
+pub(crate) use cortex_router::{RoutingDecision, RoutingRequest, route};
+pub(crate) use cortex_shadow::{RoutingSnapshot, ShadowConfig, ShadowHandle, ShadowTask};
+pub(crate) use cortex_skills::{
+    export_skill_markdown, import_skill_markdown, index_entry, render_index,
+};
+use cortex_store::GraphStore;
+pub(crate) use cortex_store::{ShadowOperation, UsageOperation, UsageReport, UsageSample};
 use cortex_weavatrix::{WeavatrixAdapter, WeavatrixConfig};
-use mcport::{ConcurrentMcpServer, FlushPolicy, RuntimeConfig, ToolReply, TransportLimits, json};
+use mcport::{ConcurrentMcpServer, FlushPolicy, RuntimeConfig, TransportLimits};
+pub(crate) use mcport::{ToolReply, json};
 use serde::Deserialize;
 use serde_json::Value;
 
-mod agent_tools;
+mod llm;
+mod runtime;
+mod tools;
 
-pub use agent_tools::{AgentPacket, AgentPrepare, expand_packet, expand_saved, prepare_packet};
-pub mod bind;
-mod compile_session;
-mod composer_llm;
-mod context_memory;
-mod context_tools;
-mod graph_skill_tools;
-pub mod http;
-mod llm_route;
-mod packet_store;
-mod plan_hints;
-mod route_metric_tools;
-mod run_tools;
-mod semantic;
-mod sequence_tools;
-mod weavatrix_tools;
-pub mod workspace;
+pub(crate) use llm::{composer_llm, llm_route, plan_hints, semantic};
+pub use runtime::{bind, http, workspace};
+pub(crate) use runtime::{compile_session, context_memory, packet_store};
+pub use tools::agent_tools::{
+    AgentPacket, AgentPrepare, expand_packet, expand_saved, prepare_packet,
+};
+pub(crate) use tools::{
+    agent_tools, context_tools, graph_skill_tools, route_metric_tools, run_tools, sequence_tools,
+    weavatrix_tools,
+};
 
 use llm_route::{LlmRouteConfig, LlmRouter};
 use semantic::{SemanticConfig, SemanticScorer};

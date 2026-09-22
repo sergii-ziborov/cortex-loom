@@ -1,0 +1,478 @@
+use super::{
+    BUDGET_HONOURING, EvidenceKind, PlanPolicy, extract_identifiers, plan, plan_with_hints,
+    search_pattern,
+};
+
+#[test]
+fn identifiers_are_recognised_by_shape_not_by_vocabulary() {
+    let found = extract_identifiers(
+        "Change bounded retry so MAX_RETRY_ATTEMPTS and maxAttempts agree, \
+         see crates/cortex-run/src/retry.rs and RunError::RetryLimitTooLarge.",
+    );
+    assert!(found.contains(&"MAX_RETRY_ATTEMPTS".to_owned()));
+    assert!(found.contains(&"maxAttempts".to_owned()));
+    assert!(found.iter().any(|value| value.ends_with("retry.rs")));
+    assert!(
+        found
+            .iter()
+            .any(|value| value.contains("RetryLimitTooLarge"))
+    );
+    for word in ["Change", "bounded", "retry", "and", "agree"] {
+        assert!(
+            !found.contains(&word.to_owned()),
+            "{word} was taken as code"
+        );
+    }
+}
+
+#[test]
+fn an_explicit_lowercase_backtick_is_a_searchable_identifier() {
+    assert_eq!(
+        extract_identifiers("Who depends on `route` if its signature changes?"),
+        vec!["route"]
+    );
+}
+
+#[test]
+fn rust_search_covers_a_standard_single_crate_source_tree() {
+    let operations = plan(
+        "Implement `ArchiveOptions::disabled()`",
+        Some("ArchiveOptions"),
+        4_000,
+    );
+    let search = operations
+        .iter()
+        .find(|operation| operation.tool == "search_code")
+        .expect("identifier task searches source");
+
+    assert_eq!(search.arguments["glob"], crate::fold::DEFAULT_SOURCE_GLOB);
+    let query = search.arguments["query"]
+        .as_str()
+        .expect("search query is text");
+    assert!(
+        query.split('|').any(|part| part == "ArchiveOptions"),
+        "owner symbol missing from query: {query}"
+    );
+}
+
+#[test]
+fn url_paths_and_backticks_are_identifiers() {
+    let found =
+        extract_identifiers("What breaks if `POST` `/api/skills/compile` changes, see `/mcp`?");
+    assert!(found.contains(&"/api/skills/compile".to_owned()));
+    assert!(found.contains(&"/mcp".to_owned()));
+    assert!(
+        !found
+            .iter()
+            .any(|value| value == "HTTP" || value == "POST" || value == "API"),
+        "prose acronyms must not enter the search alternation, got {found:?}"
+    );
+    let templated = extract_identifiers("Inspect `GET /api/adapters/{agent}`");
+    assert!(templated.contains(&"/api/adapters/{agent}".to_owned()));
+    assert!(!templated.contains(&"GET".to_owned()));
+    let task = "`alpha_one` `beta_two` `gamma_three` `delta_four` \
+                `epsilon_five` `zeta_six` `eta_seven` `theta_eight` `iota_nine`";
+    let found = extract_identifiers(task);
+    assert_eq!(found.len(), super::MAX_IDENTIFIERS);
+    assert_eq!(found[0], "alpha_one");
+    assert!(!found.contains(&"iota_nine".to_owned()));
+}
+
+#[test]
+fn crate_directory_paths_are_searchable_identifiers() {
+    let task = "Find and fix one real bug or dead production path in crates/sweeploom-cli. \
+                A warning-only cleanup does not count.";
+    let found = extract_identifiers(task);
+    assert!(
+        found.contains(&"crates/sweeploom-cli".to_owned()),
+        "crate path must be searchable, got {found:?}"
+    );
+    assert!(
+        !found.contains(&"warning-only".to_owned()),
+        "hyphenated prose is not a crate path, got {found:?}"
+    );
+    let operations = plan(task, None, 2_400);
+    let search = operations
+        .iter()
+        .find(|operation| operation.tool == "search_code")
+        .expect("a named crate directory must plan search, not only module_map");
+    let glob = search.arguments["glob"]
+        .as_str()
+        .expect("search glob is text");
+    assert!(
+        glob.starts_with("crates/sweeploom-cli/"),
+        "search must stay inside the named crate, got {glob}"
+    );
+    let query = search.arguments["query"]
+        .as_str()
+        .expect("search query is text");
+    assert!(
+        !query.contains("crates/sweeploom-cli"),
+        "searching for the crate path only hits catalogs that quote the ask, got {query}"
+    );
+    let dead = operations
+        .iter()
+        .find(|operation| operation.tool == "find_dead_code")
+        .expect("a dead-production ask must plan find_dead_code");
+    assert_eq!(dead.arguments["path"], "crates/sweeploom-cli");
+    assert_eq!(dead.arguments["include_tests"], false);
+}
+
+#[test]
+fn a_named_source_file_is_not_searched_as_a_quoted_path() {
+    let operations = plan(
+        "Split the 506-line crates/sweeploom-cli/src/api.rs into cohesive modules so api.rs is under 300 lines.",
+        None,
+        2_400,
+    );
+    let search = operations
+        .iter()
+        .find(|operation| operation.tool == "search_code")
+        .expect("a named source file must plan search");
+    let query = search.arguments["query"]
+        .as_str()
+        .expect("search query is text");
+    assert!(
+        !query.contains("api.rs") && !query.contains("sweeploom-cli"),
+        "path mentions must not be the search query, got {query}"
+    );
+    let file = operations
+        .iter()
+        .find(|operation| operation.tool == "read_source")
+        .expect("a named source file must be opened whole, not searched as a string");
+    assert_eq!(
+        file.arguments["path"], "crates/sweeploom-cli/src/api.rs",
+        "read_source must target the file the task named"
+    );
+    assert_eq!(file.arguments["start_line"], 1);
+    assert!(
+        operations
+            .iter()
+            .all(|operation| operation.tool != "context_bundle"),
+        "a file path is not a graph symbol"
+    );
+}
+
+#[test]
+fn a_task_naming_code_asks_for_the_facts_a_summary_cannot_carry() {
+    let operations = plan("rename `RetryLimitTooLarge`", Some("apply_command"), 16_000);
+    let tools: Vec<&str> = operations.iter().map(|operation| operation.tool).collect();
+    assert_eq!(
+        tools,
+        [
+            "search_code",
+            "context_bundle",
+            "module_map",
+            "get_dependents"
+        ]
+    );
+    let recommended = plan("rename `RetryLimitTooLarge`", Some("apply_command"), 4_000);
+    let tools: Vec<&str> = recommended.iter().map(|operation| operation.tool).collect();
+    assert_eq!(
+        tools,
+        ["search_code", "context_bundle", "module_map"],
+        "symbol evidence really costs about 4 800 even when a budget is \
+         requested, so at 4 000 there is no room for dependents or a plan"
+    );
+    for operation in &operations {
+        assert_eq!(
+            operation.arguments.get("token_budget").is_some(),
+            operation.bounded,
+            "{} sends a budget it does not honour, or honours one it was not sent",
+            operation.tool
+        );
+        assert_eq!(
+            operation.bounded,
+            BUDGET_HONOURING.contains(&operation.tool),
+            "{} disagrees with the runtime's own list",
+            operation.tool
+        );
+    }
+    assert_eq!(operations[0].kind, EvidenceKind::SearchHits);
+}
+
+#[test]
+fn blast_radius_intent_asks_for_dependents_first() {
+    let operations = plan(
+        "Who depends on `compile_context` and what breaks if its signature changes?",
+        Some("compile_context"),
+        4_000,
+    );
+    let tools: Vec<&str> = operations.iter().map(|operation| operation.tool).collect();
+    assert_eq!(
+        tools.first().copied(),
+        Some("get_dependents"),
+        "blast-radius questions must keep dependents under a 4k budget, got {tools:?}"
+    );
+    assert!(tools.contains(&"get_dependents"));
+    let search = operations
+        .iter()
+        .find(|operation| operation.tool == "search_code")
+        .expect("blast-radius plan searches for definitions and callers");
+    let query = search.arguments["query"].as_str().unwrap();
+    assert!(query.contains("(fn|struct|enum|trait|type|class|interface|function|def|func|record)"));
+    assert!(query.contains(",\\s*compile_context"));
+    assert!(
+        !tools.contains(&"context_bundle"),
+        "symbol source is secondary on a dependents question"
+    );
+    assert!(
+        !tools.contains(&"list_endpoints"),
+        "endpoints are for contract questions, not blast radius"
+    );
+}
+
+#[test]
+fn a_versus_callers_question_searches_every_named_function() {
+    let operations = plan(
+        "Who calls `compile_evidence_bundle` versus `compile_probe_bundle`, and what breaks if the generic path starts refusing more packets?",
+        Some("compile_evidence_bundle"),
+        4_000,
+    );
+    let query = operations
+        .iter()
+        .find(|operation| operation.tool == "search_code")
+        .and_then(|operation| operation.arguments["query"].as_str())
+        .expect("blast-radius plan searches callers");
+    assert!(
+        query.contains("match)\\s+compile_evidence_bundle"),
+        "seed caller missing: {query}"
+    );
+    assert!(
+        query.contains("match)\\s+compile_probe_bundle"),
+        "the named counterpart must be searched too: {query}"
+    );
+}
+
+#[test]
+fn api_contract_intent_asks_for_endpoints() {
+    let operations = plan(
+        "What breaks if the `/api/skills/compile` HTTP contract changes?",
+        None,
+        4_000,
+    );
+    let tools: Vec<&str> = operations.iter().map(|operation| operation.tool).collect();
+    assert_eq!(tools.first().copied(), Some("list_endpoints"));
+    assert!(tools.contains(&"search_code"));
+}
+
+#[test]
+fn module_topology_intent_asks_for_module_map_first() {
+    let operations = plan(
+        "Which module owns `compile_context`, and where does the crate layout put it?",
+        Some("compile_context"),
+        4_000,
+    );
+    let tools: Vec<&str> = operations.iter().map(|operation| operation.tool).collect();
+    assert_eq!(
+        tools.first().copied(),
+        Some("module_map"),
+        "topology questions must keep module_map under a 4k budget, got {tools:?}"
+    );
+    assert!(tools.contains(&"search_code"));
+    assert_eq!(
+        tools.iter().filter(|tool| **tool == "module_map").count(),
+        1,
+        "module_map must not be planned twice"
+    );
+}
+
+#[test]
+fn a_task_naming_no_code_falls_back_to_structure() {
+    let operations = plan("make the thing faster please", None, 4_000);
+    let tools: Vec<&str> = operations.iter().map(|operation| operation.tool).collect();
+    assert_eq!(tools, ["module_map"]);
+}
+
+#[test]
+fn runtime_config_intent_searches_code_and_config_without_a_change_plan() {
+    let operations = plan(
+        "How does `CORTEX_LLM` read config/llm-profiles.json and enforce its profile gate?",
+        None,
+        4_000,
+    );
+    let searches: Vec<_> = operations
+        .iter()
+        .filter(|operation| operation.tool == "search_code")
+        .collect();
+    assert_eq!(searches.len(), 2);
+    assert_eq!(searches[0].id, "WX-SEARCH");
+    assert_eq!(searches[1].id, "WX-CONFIG");
+    assert_eq!(searches[1].arguments["glob"], "config/**");
+    assert!(
+        operations
+            .iter()
+            .all(|operation| operation.tool != "verified_change")
+    );
+}
+
+#[test]
+fn an_explicit_change_plan_can_still_request_verified_change() {
+    let operations = plan(
+        "Prepare an implementation plan for changing `compile_context`",
+        Some("compile_context"),
+        16_000,
+    );
+    assert!(
+        operations
+            .iter()
+            .any(|operation| operation.tool == "verified_change")
+    );
+}
+
+#[test]
+fn active_skill_hints_override_intent_and_can_forbid_change_plans() {
+    let operations = plan_with_hints(
+        "Prepare an implementation plan for `CORTEX_SHADOW`.",
+        None,
+        4_000,
+        PlanPolicy::default(),
+        crate::PlanHints {
+            intent: Some(crate::IntentHint::RuntimeConfig),
+            source_followup: Some(true),
+            skip_change_plan: true,
+            has_prior_attempts: false,
+        },
+    );
+    assert!(
+        operations
+            .iter()
+            .any(|operation| operation.id == "WX-CONFIG")
+    );
+    assert!(
+        operations
+            .iter()
+            .all(|operation| operation.kind != EvidenceKind::ChangePlan)
+    );
+}
+
+#[test]
+fn regex_metacharacters_in_identifiers_are_escaped() {
+    let pattern = search_pattern(&["a.b".to_owned(), "c::d".to_owned()]);
+    assert_eq!(pattern, "a\\.b|c::d");
+    // Slashes must stay literal: Rust's regex crate rejects `\/`.
+    assert_eq!(
+        search_pattern(&["/api/skills/compile".to_owned()]),
+        "/api/skills/compile"
+    );
+}
+
+#[test]
+fn a_small_budget_stops_asking_for_evidence_it_cannot_carry() {
+    let generous = plan("rename `RetryLimitTooLarge`", Some("apply_command"), 16_000);
+    assert_eq!(generous.len(), 4);
+    let tight = plan("rename `RetryLimitTooLarge`", Some("apply_command"), 600);
+    assert!(tight.len() < generous.len());
+    assert_eq!(
+        tight.first().map(|operation| operation.tool),
+        Some("search_code")
+    );
+    assert!(
+        !tight
+            .iter()
+            .any(|operation| operation.tool == "verified_change")
+    );
+}
+
+#[test]
+fn a_tiny_budget_still_produces_usable_operation_budgets() {
+    for operation in plan("touch `alpha_one`", None, 1) {
+        let budget = operation.arguments["token_budget"].as_u64().unwrap();
+        assert!(budget > 0, "{} received a zero budget", operation.tool);
+    }
+}
+
+#[test]
+fn git_history_intent_asks_for_history_first() {
+    let operations = plan(
+        "Who changed `compile_context` last?",
+        Some("compile_context"),
+        4_000,
+    );
+    let tools: Vec<&str> = operations.iter().map(|operation| operation.tool).collect();
+    assert_eq!(
+        tools.first().copied(),
+        Some("git_history"),
+        "history questions must keep git_history under a 4k budget, got {tools:?}"
+    );
+    assert!(tools.contains(&"search_code"));
+    assert!(
+        !tools.contains(&"context_bundle"),
+        "symbol source is secondary on a history question"
+    );
+    let history = operations
+        .iter()
+        .find(|operation| operation.tool == "git_history")
+        .expect("git_history planned");
+    assert!(history.bounded);
+    assert_eq!(history.kind, EvidenceKind::GitHistory);
+    assert_eq!(history.arguments["include_analytics"], false);
+}
+
+#[test]
+fn stack_trace_intent_maps_the_task_text() {
+    let task = "thread 'main' panicked at src/retry.rs:12:1:\nstack backtrace:";
+    let operations = plan(task, None, 4_000);
+    let tools: Vec<&str> = operations.iter().map(|operation| operation.tool).collect();
+    assert_eq!(tools.first().copied(), Some("map_stacktrace"));
+    let mapped = operations
+        .iter()
+        .find(|operation| operation.tool == "map_stacktrace")
+        .expect("map_stacktrace planned");
+    assert_eq!(mapped.kind, EvidenceKind::StackTrace);
+    assert_eq!(mapped.arguments["text"], task);
+    assert!(
+        !tools.contains(&"list_endpoints"),
+        "a panic is not an API-contract question"
+    );
+}
+
+#[test]
+fn test_selection_intent_asks_for_select_tests_first() {
+    let operations = plan(
+        "Which tests should I run after changing compile_context?",
+        Some("compile_context"),
+        4_000,
+    );
+    let tools: Vec<&str> = operations.iter().map(|operation| operation.tool).collect();
+    assert_eq!(tools.first().copied(), Some("select_tests"));
+    assert!(
+        !tools.contains(&"context_bundle") && !tools.contains(&"module_map"),
+        "select_tests already walks dependents of the change"
+    );
+    let selected = operations
+        .iter()
+        .find(|operation| operation.tool == "select_tests")
+        .expect("select_tests planned");
+    assert_eq!(selected.kind, EvidenceKind::TestSelection);
+    assert_eq!(selected.arguments["max_tests"], 24);
+}
+
+#[test]
+fn prior_run_memory_is_planned_when_events_exist() {
+    let prior = crate::PriorRunMemory::from_parts(vec![crate::PriorRunEvent {
+        run_id: "run-1".to_owned(),
+        sequence: 4,
+        kind: "node_failed".to_owned(),
+        node_id: Some("gate".to_owned()),
+        detail: Some("thin packet".to_owned()),
+        recorded_at: 1_700_000_000,
+    }]);
+    let operations = crate::plan::plan_with_prior(
+        "Still failing `compile_context` after the last attempt",
+        Some("compile_context"),
+        4_000,
+        PlanPolicy::default(),
+        crate::PlanHints::default(),
+        Some(&prior),
+        None,
+    );
+    let tools: Vec<&str> = operations.iter().map(|operation| operation.tool).collect();
+    assert_eq!(
+        tools.first().copied(),
+        Some("memory_context"),
+        "prior-attempt questions must keep memory under a 4k budget, got {tools:?}"
+    );
+    assert_eq!(operations[0].kind, EvidenceKind::Memory);
+    assert!(tools.contains(&"search_code"));
+}

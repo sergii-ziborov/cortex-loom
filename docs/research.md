@@ -13,7 +13,7 @@ upstream material must retain the [MIT notice](https://raw.githubusercontent.com
 
 ## Weavatrix refactor boundary
 
-The backend uses first-party Rust crates only: `weavatrix-rust` for read-only repository evidence, `weavatrix-refactor-plan` for bounded parsing/validation/fingerprints, and `weavatrix-edit` for exact in-memory rendering. These crates do not provide a native semantic rename/signature/move planner, so Cortex does not claim one. A strong upstream coding agent authors the plan from cited evidence; Cortex validates and previews it and never applies it.
+The backend uses first-party Rust crates only: `weavatrix-rust` 2.16.3 for read-only repository evidence, `weavatrix-refactor-plan` 0.1.1 for bounded parsing/validation/fingerprints, and `weavatrix-edit` 0.1.7 for exact in-memory rendering. 2.16.1+ is taken for session `Arc` sharing, cached `graph_stats`, `expected_repository` drift checks, `git_read_blob`, and graph `inspect_symbol`. 2.16.2 keeps n8n/Dify/Agent/Mermaid/Web3 out of this planner. 2.16.3 is taken so `coverage_map` is documented as ingest-only (Quality may publish `.weavatrix/coverage/lcov.info`; a missing report is unmeasured, not 0%). Weavatrix Quality (`@weavatrix/wvq` / `wvq-*` 0.1.0-alpha.5) stays a sibling PROVE product: Cortex does not depend on it, execute its runners, or copy `quality_run` / obligation proof. Workflow/Web3/Agent/diagram operations from 2.11–2.16 are not planned here. These crates do not provide a native semantic rename/signature/move planner, so Cortex does not claim one. A strong upstream coding agent authors the plan from cited evidence; Cortex validates and previews it and never applies it.
 
 ## MCP
 
@@ -35,11 +35,15 @@ Initial profiles to evaluate rather than blindly install:
 
 Model digest, quantization, schema/prompt version, context, and device must be pinned in an evaluated profile.
 
-## GPU and NPU
+## Local runtimes
 
-Ollama’s [hardware documentation](https://docs.ollama.com/gpu) documents GPU/CPU paths, not a Windows or Linux NPU backend. NPU execution therefore needs a separate pluggable adapter such as [OpenVINO GenAI](https://github.com/openvinotoolkit/openvino.genai) for Intel hardware or [Foundry Local](https://github.com/microsoft/foundry-local) where its supported device stack applies.
+Ollama’s [hardware documentation](https://docs.ollama.com/gpu) documents GPU/CPU paths, not a Windows or Linux NPU backend. An NPU path needs a separate adapter such as [OpenVINO GenAI](https://github.com/openvinotoolkit/openvino.genai) or [Foundry Local](https://github.com/microsoft/foundry-local) where that stack applies.
 
-The current development machine has an Intel Core Ultra 7 255U, Intel Graphics, Intel AI Boost NPU, about 51 GB RAM, and no NVIDIA runtime. Ollama 0.32.5 is installed, but its two present XiYanSQL models are domain-specific and are not accepted as general coding fallbacks.
+Models-off is a valid product path. A missing local model is not an
+installation error. Domain-specific SQL models are not accepted as
+general coding fallbacks. Pin digest, quantization, schema/prompt
+version, and device in an evaluated profile before treating a local
+model as advisory.
 
 ## Agent Finder scan
 

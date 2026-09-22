@@ -32,17 +32,20 @@ impl WeavatrixAdapter {
         let refreshed = engine.refresh_if_stale().map_err(|error| {
             WeavatrixError::Engine(format!("Weavatrix refresh failed: {error}"))
         })?;
-        let mut graph_status = native_call(engine, "graph_stats", json!({}))?;
+        let mut graph_status = native_call(engine, &root, "graph_stats", json!({}))?;
         normalize_graph_stats(&mut graph_status);
         let module_map = native_call(
             engine,
+            &root,
             "module_map",
             json!({"top_n": 24, "include_non_product": false}),
         )?;
         let symbol_context = symbol
+            .filter(|label| crate::fold::is_graph_symbol(label))
             .map(|label| {
                 native_call(
                     engine,
+                    &root,
                     "context_bundle",
                     json!({
                         "label": label,
@@ -55,6 +58,7 @@ impl WeavatrixAdapter {
             .transpose()?;
         let verification = native_call(
             engine,
+            &root,
             "verified_change",
             json!({
                 "task": task,
@@ -323,18 +327,26 @@ impl WeavatrixAdapter {
             Some(inventory_glob.as_str()),
         );
         for operation in operations {
-            match native_call(engine, operation.tool, operation.arguments.clone()) {
+            match native_call(engine, &root, operation.tool, operation.arguments.clone()) {
                 Ok(value) => {
                     if let Some(overrun) = budget_overrun(operation.tool, &value) {
                         warnings.push(overrun);
                     }
-                    if operation.tool == "search_code" {
-                        search_hits.extend(crate::source_followup::hits_from_search(&value));
-                    }
+                    let value = if operation.tool == "search_code" {
+                        let mut filtered = value;
+                        crate::source_followup::retain_product_search_matches(&mut filtered, task);
+                        search_hits.extend(crate::source_followup::hits_from_search(&filtered));
+                        filtered
+                    } else {
+                        value
+                    };
                     if operation.tool == "select_tests" || operation.tool == "map_stacktrace" {
                         search_hits.extend(crate::source_followup::hits_from_json_paths(
                             &super::render::extract_text(&value),
                         ));
+                    }
+                    if operation.tool == "find_dead_code" || operation.tool == "find_duplicates" {
+                        search_hits.extend(crate::source_followup::hits_from_health_report(&value));
                     }
                     evidence.extend(fragments(
                         operation.id,
@@ -348,9 +360,11 @@ impl WeavatrixAdapter {
         }
         if source_followup {
             search_hits.extend(crate::source_followup::hits_from_stack_text(task));
+            crate::source_followup::prepend_named_source_hits(&mut search_hits, task);
             crate::source_followup::prepend_sibling_test_hits(&mut search_hits, task, symbol);
             append_implied_coverage_hits(
                 engine,
+                &root,
                 &mut search_hits,
                 &mut warnings,
                 task,
@@ -360,9 +374,10 @@ impl WeavatrixAdapter {
             if crate::plan_intent::is_broad(task) {
                 search_hits.extend(callee_hits_from_evidence(&evidence));
             }
-            if let Some(symbol) = symbol {
+            if let Some(symbol) = symbol.filter(|name| crate::fold::is_graph_symbol(name)) {
                 append_definition_read(
                     engine,
+                    &root,
                     &mut evidence,
                     &mut warnings,
                     &search_hits,
@@ -374,6 +389,7 @@ impl WeavatrixAdapter {
             let preferred = crate::verify::source_priority_patterns(task, symbol, hints);
             append_source_reads(
                 engine,
+                &root,
                 &mut evidence,
                 &mut warnings,
                 &search_hits,
@@ -387,9 +403,16 @@ impl WeavatrixAdapter {
                 },
             );
             if crate::plan_intent::is_broad(task) {
-                append_type_expansion_reads(engine, &mut evidence, &mut warnings, task, budget);
+                append_type_expansion_reads(
+                    engine,
+                    &root,
+                    &mut evidence,
+                    &mut warnings,
+                    task,
+                    budget,
+                );
             }
-            if let Some(symbol) = symbol {
+            if let Some(symbol) = symbol.filter(|name| crate::fold::is_graph_symbol(name)) {
                 prune_incomplete_definition_duplicates(&mut evidence, symbol);
             }
         }

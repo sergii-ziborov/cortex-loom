@@ -698,6 +698,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "keccak"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb26cec98cce3a3d96cbb7bced3c4b16e3d13f27ec56dbd62cbc8f39cfb9d653"
+dependencies = [
+ "cpufeatures 0.2.17",
+]
+
+[[package]]
 name = "lexical-core"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1071,6 +1080,16 @@ dependencies = [
  "cfg-if",
  "cpufeatures 0.3.1",
  "digest 0.11.3",
+]
+
+[[package]]
+name = "sha3"
+version = "0.10.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77fd7028345d415a4034cf8777cd4f8ab1851274233b45f84e3d955502d93874"
+dependencies = [
+ "digest 0.10.7",
+ "keccak",
 ]
 
 [[package]]
@@ -1453,7 +1472,7 @@ version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5bc69185652622f52eb602dd8bc9db258fd671b8f826b49449e6013e98014940"
 dependencies = [
- "weavatrix-scan",
+ "weavatrix-scan 0.4.6",
 ]
 
 [[package]]
@@ -1515,20 +1534,21 @@ dependencies = [
 
 [[package]]
 name = "weavatrix-rust"
-version = "2.10.0"
+version = "2.16.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "93f5b0a6dd4a29b8bf0659c1261116a6b1f814037a669cab9a58259be84e42ed"
+checksum = "556eb627e8e3975fa97b5eb67df90a715e71647883fe3a4a7675b5667b1393c2"
 dependencies = [
  "blazingly-json",
  "proc-macro2",
  "serde",
+ "sha3",
  "syn 3.0.5",
  "weavatrix-clone",
  "weavatrix-git",
  "weavatrix-graph",
  "weavatrix-memory",
  "weavatrix-parse",
- "weavatrix-scan",
+ "weavatrix-scan 0.5.3",
  "weavatrix-search",
  "weavatrix-search-vector",
  "weavatrix-semantic",
@@ -1544,6 +1564,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "weavatrix-scan"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77cb4b4cbe4fedd41ad461afe3320516bed5d4882ec5c24f8cfe6b23a38c3a56"
+dependencies = [
+ "winapi-util",
+]
+
+[[package]]
 name = "weavatrix-search"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1554,7 +1583,7 @@ dependencies = [
  "regex-automata",
  "regex-syntax",
  "sha2 0.10.9",
- "weavatrix-scan",
+ "weavatrix-scan 0.4.6",
 ]
 
 [[package]]

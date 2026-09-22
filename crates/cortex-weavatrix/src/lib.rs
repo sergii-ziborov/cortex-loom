@@ -1,26 +1,21 @@
 mod adapter;
-mod budget;
-mod certificate;
-mod certified;
-mod context;
-mod definition;
-mod fold;
-mod hints;
-mod languages;
-mod layers;
-mod mechanisms;
+mod compile;
+mod core;
+mod memory;
 pub mod plan;
-mod plan_intent;
-mod refactor_preview;
-mod run_memory;
-mod snapshot;
-mod source_followup;
+mod source;
 mod verify;
 
 pub use adapter::{
     EvidenceBundle, EvidenceFragment, EvidenceKind, WeavatrixAdapter, WeavatrixConfig,
     WeavatrixError,
 };
+pub use compile::{certificate, certified, context};
+pub use core::{budget, definition, fold, hints, languages, layers, mechanisms, snapshot};
+pub use memory::{refactor_preview, run_memory};
+pub use plan::intent as plan_intent;
+pub(crate) use source as source_followup;
+
 pub use budget::{BudgetPin, adaptive_budget};
 pub use certified::compile_certified_bundle;
 pub use context::{
@@ -28,11 +23,15 @@ pub use context::{
     compile_probe_bundle,
 };
 pub use fold::{
-    DEFAULT_SOURCE_GLOB, fold_text, search_glob, segment_identifier, window_covers_span,
+    DEFAULT_SOURCE_GLOB, fold_text, graph_seed, is_graph_symbol, is_source_file_name,
+    named_crate_scope, named_source_files, search_glob, segment_identifier, window_covers_span,
 };
 pub use hints::{IntentHint, PlanHints};
 pub use languages::{LanguageInventory, inventory};
-pub use plan_intent::{TaskIntent, asks_for_prior_attempts, detect};
+pub use plan::asks_for_coverage;
+pub use plan_intent::{
+    TaskIntent, asks_for_dead_production, asks_for_duplicate_share, asks_for_prior_attempts, detect,
+};
 pub use refactor_preview::{PreviewChange, RefactorPreview, preview_refactor_plan};
 pub use run_memory::{PriorRunEvent, PriorRunMemory};
 pub use snapshot::repository_snapshot;
@@ -44,6 +43,6 @@ mod contract_tests {
     fn first_party_plan_contract_is_available() {
         let limits = weavatrix_refactor_plan::RefactorPlanLimits::default();
         assert!(limits.max_operations > 0);
-        assert_eq!(weavatrix_rust::VERSION, "2.10.0");
+        assert_eq!(weavatrix_rust::VERSION, "2.16.3");
     }
 }

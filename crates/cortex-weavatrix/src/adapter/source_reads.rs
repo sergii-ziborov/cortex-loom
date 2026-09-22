@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use serde_json::{Value, json};
 use weavatrix_rust::Weavatrix;
 
@@ -21,6 +23,7 @@ pub(super) struct SourceReadPlan<'a> {
 /// sibling file without spending compile budget on another search dump.
 pub(super) fn append_implied_coverage_hits(
     engine: &mut Weavatrix,
+    root: &Path,
     search_hits: &mut Vec<crate::source_followup::SearchHit>,
     warnings: &mut Vec<String>,
     task: &str,
@@ -46,17 +49,21 @@ pub(super) fn append_implied_coverage_hits(
             "glob": "{src,apps,crates,ui,config}/**/*",
             "token_budget": 400,
         });
-        match native_call(engine, "search_code", arguments) {
+        match native_call(engine, root, "search_code", arguments) {
             Ok(value) => {
-                search_hits.extend(crate::source_followup::hits_from_search(&value));
+                let mut filtered = value;
+                crate::source_followup::retain_product_search_matches(&mut filtered, task);
+                search_hits.extend(crate::source_followup::hits_from_search(&filtered));
             }
             Err(error) => warnings.push(format!("implied coverage search unavailable: {error}")),
         }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn append_source_reads(
     engine: &mut Weavatrix,
+    root: &Path,
     evidence: &mut Vec<EvidenceFragment>,
     warnings: &mut Vec<String>,
     search_hits: &[crate::source_followup::SearchHit],
@@ -86,8 +93,11 @@ pub(super) fn append_source_reads(
         paths.len()
     ));
     for (index, hit) in paths.iter().enumerate() {
-        let arguments = crate::source_followup::read_arguments_with(hit, per_file, plan.window);
-        match native_call(engine, "read_source", arguments) {
+        if already_has_source(evidence, &hit.path) {
+            continue;
+        }
+        let arguments = read_arguments_for(hit, per_file, plan.window, plan.task);
+        match native_call(engine, root, "read_source", arguments) {
             Ok(value) => {
                 if let Some(overrun) = budget_overrun("read_source", &value) {
                     warnings.push(overrun);
@@ -111,8 +121,10 @@ pub(super) fn append_source_reads(
 /// Prefer a Weavatrix graph span when one is already in the bundle. Brace
 /// balance is only a last-resort completeness check for languages without
 /// a span.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn append_definition_read(
     engine: &mut Weavatrix,
+    root: &Path,
     evidence: &mut Vec<EvidenceFragment>,
     warnings: &mut Vec<String>,
     search_hits: &[crate::source_followup::SearchHit],
@@ -122,6 +134,7 @@ pub(super) fn append_definition_read(
 ) {
     append_definition_read_as(
         engine,
+        root,
         evidence,
         warnings,
         search_hits,
@@ -140,6 +153,7 @@ pub(super) fn append_definition_read(
 #[allow(clippy::too_many_lines)]
 pub(super) fn append_definition_read_as(
     engine: &mut Weavatrix,
+    root: &Path,
     evidence: &mut Vec<EvidenceFragment>,
     warnings: &mut Vec<String>,
     search_hits: &[crate::source_followup::SearchHit],
@@ -178,7 +192,8 @@ pub(super) fn append_definition_read_as(
                 })
                 .cloned()
         })
-        .or_else(|| locate_definition(engine, symbol, warnings));
+        .or_else(|| named_source_path_hit(symbol))
+        .or_else(|| locate_definition(engine, root, symbol, warnings));
     let Some(hit) = definition_hit else {
         warnings.push(format!(
             "definition read skipped: no defining hit for {symbol}"
@@ -216,7 +231,7 @@ pub(super) fn append_definition_read_as(
             "after": after,
             "token_budget": token_budget,
         });
-        match native_call(engine, "read_source", arguments) {
+        match native_call(engine, root, "read_source", arguments) {
             Ok(value) => {
                 let text = super::render::extract_text(&value);
                 let complete = definition_complete(&value, &text, symbol, graph_span.as_ref());
@@ -292,11 +307,40 @@ fn definition_complete(
     false
 }
 
+fn named_source_path_hit(symbol: &str) -> Option<crate::source_followup::SearchHit> {
+    let path = symbol.replace('\\', "/");
+    if !crate::fold::is_repo_source_path(&path) {
+        return None;
+    }
+    if !crate::fold::SOURCE_SUFFIXES
+        .iter()
+        .any(|suffix| crate::fold::fold_text(&path).ends_with(suffix))
+    {
+        return None;
+    }
+    Some(crate::source_followup::SearchHit {
+        path,
+        line: 1,
+        text: symbol.to_owned(),
+    })
+}
+
 fn locate_definition(
     engine: &mut Weavatrix,
+    root: &Path,
     symbol: &str,
     warnings: &mut Vec<String>,
 ) -> Option<crate::source_followup::SearchHit> {
+    let inspect = json!({
+        "label": symbol,
+        "max_related": 4,
+        "max_references": 0,
+    });
+    if let Ok(value) = native_call(engine, root, "inspect_symbol", inspect)
+        && let Some(hit) = hit_from_inspect(&value, symbol)
+    {
+        return Some(hit);
+    }
     let escaped = regex_escape(symbol);
     let arguments = json!({
         "query": format!(r"(fn|struct|enum|trait|type|class|interface|function|def|func)\s+{escaped}\b"),
@@ -304,7 +348,7 @@ fn locate_definition(
         "max_results": 8,
         "token_budget": 400,
     });
-    match native_call(engine, "search_code", arguments) {
+    match native_call(engine, root, "search_code", arguments) {
         Ok(value) => crate::source_followup::hits_from_search(&value)
             .into_iter()
             .find(|hit| crate::source_followup::definition_head_index(&hit.text, symbol).is_some()),
@@ -315,6 +359,74 @@ fn locate_definition(
             None
         }
     }
+}
+
+pub(super) fn hit_from_inspect(
+    value: &Value,
+    symbol: &str,
+) -> Option<crate::source_followup::SearchHit> {
+    let node = value
+        .get("inspection")
+        .and_then(|inspection| inspection.get("node"))
+        .or_else(|| value.get("node"))?;
+    let label = node.get("label").and_then(Value::as_str).unwrap_or("");
+    if !label.is_empty()
+        && !label.eq_ignore_ascii_case(symbol)
+        && !label.contains(symbol)
+        && !symbol.contains(label)
+    {
+        return None;
+    }
+    let span = node.get("span")?;
+    let path = span.get("file").and_then(Value::as_str)?.to_owned();
+    if path.is_empty() {
+        return None;
+    }
+    let line = span
+        .get("start")
+        .and_then(|start| start.get("line"))
+        .and_then(Value::as_u64)
+        .and_then(|line| u32::try_from(line).ok())
+        .unwrap_or(1);
+    Some(crate::source_followup::SearchHit {
+        path,
+        line,
+        text: symbol.to_owned(),
+    })
+}
+
+fn already_has_source(evidence: &[EvidenceFragment], path: &str) -> bool {
+    let want = path.replace('\\', "/");
+    evidence.iter().any(|fragment| {
+        fragment.kind == EvidenceKind::SourceReads
+            && fragment
+                .locator
+                .path
+                .as_deref()
+                .is_some_and(|have| have.replace('\\', "/") == want)
+    })
+}
+
+fn read_arguments_for(
+    hit: &crate::source_followup::SearchHit,
+    token_budget: u32,
+    window: crate::source_followup::SourceWindow,
+    task: &str,
+) -> Value {
+    let identifiers = crate::plan::extract_identifiers(task);
+    let named = crate::fold::named_source_files(&identifiers);
+    let want = hit.path.replace('\\', "/");
+    let whole = named.iter().any(|path| path.replace('\\', "/") == want);
+    if whole {
+        return json!({
+            "path": hit.path,
+            "start_line": 1,
+            "before": 0,
+            "after": 800,
+            "token_budget": token_budget.max(2_400),
+        });
+    }
+    crate::source_followup::read_arguments_with(hit, token_budget, window)
 }
 
 fn regex_escape(value: &str) -> String {

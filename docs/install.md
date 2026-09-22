@@ -22,8 +22,9 @@ Optional, never required to compile evidence:
   `CORTEX_LLM_BACKEND=composer` (Composer, Sonnet 5, Opus 5, or Haiku) —
   see [LLM backends](llm-backends.md)
 
-CPU inference stays off unless a profile opts in. See
-[local models](local-models.md).
+Optional local models stay off unless a profile opts in. See
+[local models](local-models.md). CLI walkthrough:
+[cli.md](cli.md) and [guide.md](guide.md).
 
 ## Libraries (crates.io)
 

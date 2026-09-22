@@ -40,7 +40,7 @@ alone, without building a graph.
 
 ## Method
 
-Each fixture in `crates/cortex-bench/src/tasks.rs` declares the directories a
+Each fixture in `crates/cortex-bench/src/fixtures/tasks.rs` declares the directories a
 keyword sweep would open and a set of **anchors** — literals that prove a
 required fact is present. An arm scores `recall` (anchors satisfied) and
 `tokens/fact` (context tokens per fact actually delivered). An arm that returns
@@ -197,11 +197,12 @@ comes from priority-ordered budgeting across operations, not from dedup.
 
 ## Measured 2026-08-15 — restored probe, plus core and langs
 
-Host: Windows 11, Intel Core Ultra 7 255U (14 logical), 47.5 GB RAM,
-Intel Graphics. `rustc 1.97.1`. **No NVIDIA GPU.** The context bench
-is CPU-only (Weavatrix graph + compile). GPU/NPU are unused unless
-`CORTEX_SEMANTIC=1` or a gated local profile is on. Resources sampled
-every 250 ms from `scripts/measure-bench.ps1`.
+What this stamp verified: the same ten probe tasks, forty declared
+facts, this repository, Weavatrix graph plus compile, no coding agent.
+`CORTEX_SEMANTIC=1` and gated local profiles were off unless a later
+stamp says otherwise. Repeat with
+`cargo test -p cortex-bench --lib` then
+`cargo run -p cortex-bench -- --repo . --budget 4000 --set probe`.
 
 ### Probe — 10 tasks, 40 facts, 4 000-token budget
 
@@ -225,9 +226,6 @@ Same facts as the 21 363 baseline, **12.5% fewer** selected tokens
 (compact dependents render, not a cheaper counter). Against naive:
 **95.3% fewer** selected tokens at equal recall.
 
-Resources for the same 10-task run: **14.9 s wall**, **13.8 s CPU**,
-**83.5 MB** peak working set.
-
 ### Probe — same tasks, 16 000-token budget
 
 Stamp `restore-40-16k`. A wider budget is slack, not quality.
@@ -238,7 +236,7 @@ Stamp `restore-40-16k`. A wider budget is slack, not quality.
 | Cortex + source | **22 818** | **40/40** |
 
 Same 40/40. Extra tokens (~4k over the 4k-budget packet) are unused
-headroom. Resources: **22.9 s wall**, **14.4 s CPU**, **80.5 MB** peak.
+headroom.
 
 ### Core fixtures — 7 tasks, 41 facts, 4 000-token budget
 
@@ -272,13 +270,11 @@ identifiers / Python `def` / a short graph span as a miss.
 
 Every `cortex-source` task reports `sufficient: true`. Targeted now
 matches source recall on this set. `cortex-loom` (four operations, no
-windows) stays 18/41. Resources: **14.2 s wall**, **22.8 s CPU**,
-**80.7 MB** peak.
+windows) stays 18/41.
 
 Stamp `close-2-probe` (2026-08-18): first-pass semantic hits plus
 source windows that name their path. Source and targeted both
-**19 035 / 40/40**. `cortex-loom` stays 24/40. Resources: **21.6 s
-wall**, **30.8 s CPU**, **86.2 MB** peak.
+**19 035 / 40/40**. `cortex-loom` stays 24/40.
 
 ### Languages — 6 tiny fixtures (TS, JS, Python, Go, Java, C#)
 
@@ -301,8 +297,7 @@ dumping the repo.
 
 `cortex-loom` (no source follow-up) stays **8/12** — it finds the
 cap constant and drops the `function` / `def` / `func` head on TS,
-JS, Python, and Go. Resources: **38.5 s wall**, **8.5 s CPU**,
-**80.0 MB** peak.
+JS, Python, and Go.
 
 Sequence recheck on the same tree: stamp `sequence-after-core-fix`,
 native **28/28**, **10 401 → 3 812** tokens. `promoted` is false
@@ -1256,3 +1251,25 @@ reports (SHA-256
 The aspirational `~30k` source cost is still missed by 2 623 selected tokens,
 so the next lever remains more selective direct-source packing—not hot-path
 model compression.
+
+## Coding-agent matrix (SweepLoom, separate study)
+
+This is not a token-recall bench. It asks whether a coding agent closed
+T1 / T2 / T3 on SweepLoom `9f2646c`, with or without a Cortex packet.
+Method, isolation, and spend meters:
+[benchmarks/coding-agents](../benchmarks/coding-agents).
+Narrative: [guide.md](guide.md).
+
+Score is **task-close /10** against the best close of that task in
+this tree. Do not mix Cursor chars÷4 with Claude
+`input+output+cache_create`. Do not score 429 / `is_error` logs.
+
+Best filled closes: T1 Sonnet Without 10.0 (`apply_cleanup`); T2 Grok
+models-off 10.0 (shared naive classifier); T3 Opus Without 10.0 and
+Grok × Opus-classifier 10.0 (18-line facade). Haiku models-off T3 is
+9.4 at 59,823 Claude tokens. Opus leftover CLI lanes are gaps, not a
+quality ranking.
+
+The context benches above remain the way to repeat *token/fact*
+measurements (`cargo test -p cortex-bench --lib`). The coding-agent
+matrix is the way to repeat *task close*.

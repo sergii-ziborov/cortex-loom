@@ -28,19 +28,14 @@
 //! every arm is scored against declared [`Anchor`]s and the headline figure is
 //! tokens per satisfied fact, not raw token count.
 
-mod external_skills;
-pub mod intent_tasks;
-pub mod lang_tasks;
-pub mod manifest;
-pub mod naive;
-pub mod probe_tasks;
-pub mod release;
-pub mod report;
-pub mod schedule;
-pub mod scoreboard;
-pub mod sequence;
-pub mod sequence_arms;
-pub mod tasks;
+mod fixtures;
+mod harness;
+
+pub use fixtures::{intent_tasks, lang_tasks, probe_tasks, tasks};
+pub(crate) use harness::external_skills;
+pub use harness::{
+    manifest, naive, release, report, schedule, scoreboard, sequence, sequence_arms,
+};
 
 use crate::intent_tasks::intent_tasks;
 use crate::lang_tasks::lang_tasks;

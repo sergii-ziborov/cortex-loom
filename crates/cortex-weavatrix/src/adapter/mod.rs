@@ -1,15 +1,15 @@
-mod cleanup;
 mod evidence;
 mod expand;
-mod facet_loop;
 mod gather;
 mod locator;
 mod render;
 mod retry;
-mod session_pool;
 mod source_reads;
+mod support;
 #[cfg(test)]
 mod tests;
+
+pub(crate) use support::{cleanup, coverage_render, facet_loop, session_pool};
 
 use std::fmt::{Display, Formatter};
 use std::path::{Path, PathBuf};

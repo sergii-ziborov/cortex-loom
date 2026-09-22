@@ -99,12 +99,20 @@ def main() -> int:
     parser.add_argument("--wave", type=int, default=3)
     parser.add_argument("--offset", type=int, default=0)
     parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument(
+        "--trees",
+        default="",
+        help="comma-separated worktree names; empty means the full Claude queue",
+    )
     parser.add_argument("--prepare-only", action="store_true")
     args = parser.parse_args()
     BASE.mkdir(parents=True, exist_ok=True)
     LOGS.mkdir(exist_ok=True)
     PROMPTS.mkdir(exist_ok=True)
     selected = cells()
+    wanted = {name.strip() for name in args.trees.split(",") if name.strip()}
+    if wanted:
+        selected = [cell for cell in selected if cell["tree"] in wanted]
     if args.limit:
         selected = selected[args.offset : args.offset + args.limit]
     else:
@@ -122,6 +130,7 @@ def main() -> int:
         return 0
     binary = claude_bin()
     running: list[subprocess.Popen[str]] = []
+    launched: list[subprocess.Popen[str]] = []
     queued = [
         cell
         for cell in selected
@@ -132,10 +141,12 @@ def main() -> int:
         while len(running) >= args.wave:
             running = [proc for proc in running if proc.poll() is None]
             time.sleep(5)
-        running.append(launch(cell, binary))
-    codes = [proc.wait() for proc in running]
+        proc = launch(cell, binary)
+        running.append(proc)
+        launched.append(proc)
+    codes = [proc.wait() for proc in launched]
     failed = sum(code != 0 for code in codes)
-    print(f"wave finished failed={failed}")
+    print(f"wave finished failed={failed} launched={len(launched)}")
     return 1 if failed else 0
 
 

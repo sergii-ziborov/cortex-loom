@@ -11,24 +11,17 @@ use std::fmt::{Display, Formatter};
 
 use serde::Serialize;
 
-pub mod backend;
-pub mod comparators;
-pub mod corpus;
-mod corpus_micro;
-pub mod fixtures;
-pub mod holdout;
-pub mod leakage;
-pub mod metrics;
-mod micro_cases;
-pub mod micro_train;
-mod micro_vocab;
-pub mod openai_backend;
-mod profile_suites;
-pub mod prompts;
-pub mod report;
-pub mod runner;
-pub mod sequence_suite;
-pub mod verdict;
+mod data;
+mod measure;
+mod suites;
+
+pub use data::{corpus, fixtures, micro_train};
+pub(crate) use data::{corpus_micro, micro_cases, micro_vocab};
+pub use measure::{
+    backend, comparators, metrics, openai_backend, prompts, report, runner, verdict,
+};
+pub(crate) use suites::profile_suites;
+pub use suites::{holdout, leakage, sequence_suite};
 
 pub use cortex_context::ranking;
 
@@ -68,8 +61,3 @@ impl Display for EvalError {
 }
 
 impl std::error::Error for EvalError {}
-
-#[cfg(test)]
-mod micro_tests;
-#[cfg(test)]
-mod tests;

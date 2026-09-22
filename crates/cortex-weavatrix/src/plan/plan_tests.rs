@@ -205,6 +205,10 @@ fn blast_radius_intent_asks_for_dependents_first() {
         "blast-radius questions must keep dependents under a 4k budget, got {tools:?}"
     );
     assert!(tools.contains(&"get_dependents"));
+    assert!(
+        tools.contains(&"find_references"),
+        "blast-radius must list occurrences, not only related neighbours"
+    );
     let search = operations
         .iter()
         .find(|operation| operation.tool == "search_code")

@@ -29,6 +29,7 @@ pub(super) fn extract_text(value: &Value) -> String {
     let text = source_lines(value)
         .or_else(|| search_matches(value))
         .or_else(|| symbol_inspection(value))
+        .or_else(|| reference_hits(value))
         .or_else(|| graph_neighbors(value))
         .or_else(|| git_history(value))
         .or_else(|| git_blob(value))
@@ -113,6 +114,43 @@ fn symbol_inspection(value: &Value) -> Option<String> {
         }
     }
     (!out.is_empty()).then_some(out)
+}
+
+/// `find_references`: the definition plus each incoming occurrence.
+fn reference_hits(value: &Value) -> Option<String> {
+    let references = value.get("references")?.as_array()?;
+    let state = value.get("state").and_then(Value::as_str).unwrap_or("UNKNOWN");
+    let mut out = format!("references: {} state={state}\n", references.len());
+    for row in references {
+        let role = row.get("role").and_then(Value::as_str).unwrap_or("reference");
+        let relation = row
+            .get("relation")
+            .and_then(Value::as_str)
+            .unwrap_or("related");
+        let node = row.get("node").filter(|node| !node.is_null());
+        let label = node
+            .and_then(|node| node.get("label"))
+            .and_then(Value::as_str)
+            .unwrap_or("?");
+        let kind = node
+            .and_then(|node| node.get("kind"))
+            .and_then(Value::as_str)
+            .unwrap_or("symbol");
+        let at = span_location(row.get("span"));
+        if role == "definition" {
+            let _ = writeln!(out, "  definition {label} ({kind}) {at}");
+        } else {
+            let _ = writeln!(out, "  <- {relation} {label} ({kind}) {at}");
+        }
+    }
+    if value
+        .pointer("/page/has_more")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        out.push_str("[references truncated by max_results]\n");
+    }
+    (!references.is_empty()).then_some(out)
 }
 
 /// `get_neighbors` returns the same relationship block without the wrapper.

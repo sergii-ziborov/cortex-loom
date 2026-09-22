@@ -147,6 +147,23 @@ pub(super) fn modules_op(policy: PlanPolicy) -> PlannedOperation {
     }
 }
 
+/// Occurrence list for one symbol. `get_dependents` can answer with
+/// `related` neighbours that never name the function. `find_references`
+/// (weavatrix-rust 2.17) lists the definition and each incoming site.
+pub(super) fn references_op(symbol: &str, policy: PlanPolicy) -> PlannedOperation {
+    PlannedOperation {
+        id: "WX-REFS",
+        tool: "find_references",
+        kind: EvidenceKind::Dependents,
+        arguments: json!({
+            "label": symbol,
+            "max_results": 40,
+        }),
+        expected_tokens: policy.dependents_tokens.min(1_200),
+        bounded: false,
+    }
+}
+
 pub(super) fn dependents_op(symbol: &str, policy: PlanPolicy) -> PlannedOperation {
     PlannedOperation {
         id: "WX-DEPENDENTS",

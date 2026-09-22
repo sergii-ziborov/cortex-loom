@@ -1,6 +1,6 @@
 //! Deterministic task-aware evidence planning.
 //!
-//! Weavatrix exposes 64 operations. Asking the same four of them for every
+//! Weavatrix 2.17 exposes 67 operations. Asking the same four of them for every
 //! task is why a compiled packet could describe a repository's structure
 //! without containing a single identifier the task named — measured, not
 //! assumed: see `docs/benchmark.md`. Git history, stack-trace mapping, and
@@ -381,6 +381,7 @@ fn plan_all(
         TaskIntent::BlastRadius => {
             if let Some(symbol) = symbol.filter(|name| crate::fold::is_graph_symbol(name)) {
                 operations.push(dependents_op(symbol, policy));
+                operations.push(operations::references_op(symbol, policy));
                 // Type names only. Call edges cover functions completely
                 // (measured 4/4 on the reference ground truth), so adding
                 // neighbours there just evicted the search hits under the

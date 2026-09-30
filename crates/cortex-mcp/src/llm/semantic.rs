@@ -5,7 +5,7 @@
 //! profile JSON `gatePassed` flag is ignored. Scores only reorder fragments
 //! within a priority band; any failure falls back to deterministic order.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -137,59 +137,68 @@ impl SemanticScorer {
     }
 
     fn embed_cached(&self, inputs: &[String], snapshot: &str) -> Result<Vec<Vec<f32>>, String> {
-        let keys: Vec<String> = inputs
-            .iter()
-            .map(|text| format!("{snapshot}:{}", content_hash(text)))
-            .collect();
-        let mut missing = Vec::new();
-        {
-            let cache = self
-                .cache
-                .lock()
-                .map_err(|_| "embedding cache lock poisoned".to_owned())?;
-            for (key, text) in keys.iter().zip(inputs.iter()) {
-                if !cache.contains_key(key) {
-                    missing.push((key.clone(), text.clone()));
-                }
-            }
-        }
-        if !missing.is_empty() {
-            let fresh = self
-                .provider
-                .embed(&EmbedRequest {
-                    inputs: missing.iter().map(|(_, text)| text.clone()).collect(),
-                })
-                .map_err(|error| error.to_string())?
-                .value;
-            if fresh.len() != missing.len() {
-                return Err("embed returned the wrong number of vectors".to_owned());
-            }
-            let mut cache = self
-                .cache
-                .lock()
-                .map_err(|_| "embedding cache lock poisoned".to_owned())?;
-            for ((key, _), vector) in missing.into_iter().zip(fresh) {
-                if cache.len() >= MAX_EMBED_CACHE
-                    && let Some(oldest) = cache.keys().next().cloned()
-                {
-                    cache.remove(&oldest);
-                }
-                cache.insert(key, vector);
-            }
-        }
-        let cache = self
-            .cache
+        embed_cached_with(&self.cache, inputs, snapshot, |missing| {
+            self.provider
+                .embed(&EmbedRequest { inputs: missing })
+                .map(|response| response.value)
+                .map_err(|error| error.to_string())
+        })
+    }
+}
+
+fn embed_cached_with(
+    cache: &Mutex<HashMap<String, Vec<f32>>>,
+    inputs: &[String],
+    snapshot: &str,
+    embed: impl FnOnce(Vec<String>) -> Result<Vec<Vec<f32>>, String>,
+) -> Result<Vec<Vec<f32>>, String> {
+    let keys: Vec<String> = inputs
+        .iter()
+        .map(|text| format!("{snapshot}:{}", content_hash(text)))
+        .collect();
+    // Keep the current batch independent of bounded-cache eviction, including
+    // eviction by another concurrent request before this one returns.
+    let mut results = HashMap::new();
+    let mut missing = Vec::new();
+    let mut missing_keys = HashSet::new();
+    {
+        let cache = cache
             .lock()
             .map_err(|_| "embedding cache lock poisoned".to_owned())?;
-        keys.into_iter()
-            .map(|key| {
-                cache
-                    .get(&key)
-                    .cloned()
-                    .ok_or_else(|| "embedding cache miss after fill".to_owned())
-            })
-            .collect()
+        for (key, text) in keys.iter().zip(inputs.iter()) {
+            if let Some(vector) = cache.get(key) {
+                results.insert(key.clone(), vector.clone());
+            } else if missing_keys.insert(key.clone()) {
+                missing.push((key.clone(), text.clone()));
+            }
+        }
     }
+    if !missing.is_empty() {
+        let fresh = embed(missing.iter().map(|(_, text)| text.clone()).collect())?;
+        if fresh.len() != missing.len() {
+            return Err("embed returned the wrong number of vectors".to_owned());
+        }
+        let mut cache = cache
+            .lock()
+            .map_err(|_| "embedding cache lock poisoned".to_owned())?;
+        for ((key, _), vector) in missing.into_iter().zip(fresh) {
+            if cache.len() >= MAX_EMBED_CACHE
+                && let Some(oldest) = cache.keys().next().cloned()
+            {
+                cache.remove(&oldest);
+            }
+            results.insert(key.clone(), vector.clone());
+            cache.insert(key, vector);
+        }
+    }
+    keys.into_iter()
+        .map(|key| {
+            results
+                .get(&key)
+                .cloned()
+                .ok_or_else(|| "embedding missing from current batch".to_owned())
+        })
+        .collect()
 }
 
 fn content_hash(text: &str) -> String {
@@ -339,5 +348,43 @@ mod tests {
         let scores = scores_from_ranking(&ids, &[2, 0, 1]);
         assert!(scores["c"] > scores["a"]);
         assert!(scores.values().all(|score| (0.0..1.0).contains(score)));
+    }
+
+    #[test]
+    fn batch_larger_than_cache_returns_every_vector() {
+        fn test_vector(text: &str) -> Vec<f32> {
+            vec![f32::from(
+                u16::try_from(text.len()).expect("small test input"),
+            )]
+        }
+        let cache = Mutex::new(HashMap::new());
+        for count in [0, 1, 255, 256, 257, 1024] {
+            let inputs: Vec<_> = (0..count).map(|index| format!("input-{index}")).collect();
+            let vectors = embed_cached_with(&cache, &inputs, "snapshot", |texts| {
+                Ok(texts.iter().map(|text| test_vector(text)).collect())
+            })
+            .unwrap();
+            assert_eq!(vectors.len(), count);
+            assert_eq!(
+                vectors,
+                inputs
+                    .iter()
+                    .map(|text| test_vector(text))
+                    .collect::<Vec<_>>()
+            );
+            assert!(cache.lock().unwrap().len() <= MAX_EMBED_CACHE);
+        }
+    }
+
+    #[test]
+    fn duplicate_inputs_are_embedded_once_and_keep_order() {
+        let cache = Mutex::new(HashMap::new());
+        let inputs = vec!["alpha".to_owned(), "beta".to_owned(), "alpha".to_owned()];
+        let vectors = embed_cached_with(&cache, &inputs, "snapshot", |texts| {
+            assert_eq!(texts, ["alpha", "beta"]);
+            Ok(vec![vec![1.0], vec![2.0]])
+        })
+        .unwrap();
+        assert_eq!(vectors, [vec![1.0], vec![2.0], vec![1.0]]);
     }
 }

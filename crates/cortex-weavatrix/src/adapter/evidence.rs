@@ -50,6 +50,23 @@ pub struct EvidenceFragment {
     pub group_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub declared_complete: Option<bool>,
+    /// Source rows omitted by Cortex's local dependent cap. This is not the
+    /// upstream search's total and must never be treated as a caller count.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub omitted_rows: usize,
+    /// Repository frames verified by the native mapper and still present in
+    /// this delivered fragment. A filename in raw text is not a mapped frame.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub resolved_frames: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_known: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continuation: Option<String>,
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)] // serde passes field references.
+fn is_zero(value: &usize) -> bool {
+    *value == 0
 }
 
 const fn default_head() -> bool {
@@ -68,6 +85,10 @@ impl Default for EvidenceFragment {
             locator: EvidenceLocator::default(),
             group_id: None,
             declared_complete: None,
+            omitted_rows: 0,
+            resolved_frames: 0,
+            total_known: None,
+            continuation: None,
         }
     }
 }
@@ -133,10 +154,23 @@ pub(super) fn fragments(
     source: &str,
     value: &Value,
 ) -> Vec<EvidenceFragment> {
-    let content = {
+    let (content, omitted_rows, source_truncated) = {
         let mut raw = extract_text(value);
+        let source_truncated = raw.contains("[truncated by Cortex Loom]")
+            || value.pointer("/page/has_more").and_then(Value::as_bool) == Some(true)
+            || value
+                .pointer("/page/offset")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+                > 0
+            || (kind == EvidenceKind::Dependents
+                && value
+                    .get("state")
+                    .and_then(Value::as_str)
+                    .is_some_and(|state| state != "RESOLVED"));
+        let mut omitted_rows = 0;
         if kind == EvidenceKind::Dependents {
-            raw = cap_dependents(&raw, 48);
+            (raw, omitted_rows) = cap_dependents(&raw, 48);
         }
         // A source window without its path cannot name the crate or file
         // (measured: probe-store crate-name vanished when module_map was
@@ -150,7 +184,7 @@ pub(super) fn fragments(
         {
             raw = format!("{path}\n{raw}");
         }
-        raw
+        (raw, omitted_rows, source_truncated)
     };
     let mut locator = locator_from(source, value);
     apply_blob_hash(&mut locator, &content);
@@ -165,12 +199,31 @@ pub(super) fn fragments(
     ]);
     let parts = split_content(&content, MAX_FRAGMENT_CHARS);
     let single = parts.len() == 1;
+    let incomplete_dependents =
+        kind == EvidenceKind::Dependents && (omitted_rows > 0 || !single || source_truncated);
+    let total_known = value
+        .pointer("/page/total")
+        .and_then(Value::as_u64)
+        .and_then(|total| usize::try_from(total).ok());
+    let continuation = value
+        .pointer("/page/next_cursor")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let resolved_paths = if kind == EvidenceKind::StackTrace {
+        resolved_frame_paths(value)
+    } else {
+        Vec::new()
+    };
     parts
         .into_iter()
         .enumerate()
         .map(|(index, part)| {
             let mut part_locator = locator.clone();
             apply_blob_hash(&mut part_locator, &part);
+            let resolved_frames = resolved_paths
+                .iter()
+                .filter(|path| part.contains(path.as_str()))
+                .count();
             EvidenceFragment {
                 id: if single {
                     group_id.clone()
@@ -184,9 +237,33 @@ pub(super) fn fragments(
                 facet,
                 locator: part_locator,
                 group_id: Some(group_id.clone()),
-                declared_complete: None,
+                declared_complete: incomplete_dependents.then_some(false),
+                omitted_rows,
+                resolved_frames,
+                total_known,
+                continuation: continuation.clone(),
             }
         })
+        .collect()
+}
+
+fn resolved_frame_paths(value: &Value) -> Vec<String> {
+    value
+        .get("frames")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|frame| {
+            frame.get("resolved").and_then(Value::as_bool) == Some(true)
+                && frame.get("classification").and_then(Value::as_str) == Some("repository")
+                && frame
+                    .get("line")
+                    .and_then(Value::as_u64)
+                    .is_some_and(|line| line > 0)
+        })
+        .filter_map(|frame| frame.get("file").and_then(Value::as_str))
+        .filter(|path| !path.is_empty())
+        .map(str::to_owned)
         .collect()
 }
 
@@ -227,7 +304,7 @@ fn facet_for(id: &str, kind: EvidenceKind) -> EvidenceFacet {
     }
 }
 
-fn cap_dependents(content: &str, max_lines: usize) -> String {
+fn cap_dependents(content: &str, max_lines: usize) -> (String, usize) {
     let mut rows: Vec<(i32, String, String)> = content
         .lines()
         .map(|line| {
@@ -247,21 +324,24 @@ fn cap_dependents(content: &str, max_lines: usize) -> String {
     rows.sort_by(|left, right| left.0.cmp(&right.0).then(left.1.cmp(&right.1)));
     let mut seen: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
     let mut kept = Vec::new();
+    let mut omitted = 0;
     for (_, file, line) in rows {
         if kept.len() >= max_lines {
-            break;
+            omitted += 1;
+            continue;
         }
         let count = seen.entry(file).or_insert(0);
         *count += 1;
         if *count > 2 {
+            omitted += 1;
             continue;
         }
         kept.push(line);
     }
     if kept.is_empty() {
-        return content.to_owned();
+        return (content.to_owned(), omitted);
     }
-    kept.join("\n")
+    (kept.join("\n"), omitted)
 }
 
 pub(super) fn split_content(content: &str, max_chars: usize) -> Vec<String> {
@@ -358,3 +438,7 @@ pub(super) fn native_call(
     bind_expected_repository(&mut arguments, root);
     operations::call(engine, name, arguments).map_err(WeavatrixError::Engine)
 }
+
+#[cfg(test)]
+#[path = "evidence_tests.rs"]
+mod tests;

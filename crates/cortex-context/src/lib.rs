@@ -92,7 +92,7 @@ pub struct ContextPacket {
     /// Split accounting for the counter that produced the numbers above.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_breakdown: Option<TokenBreakdown>,
-    /// Revision-stable handle: `pk_<hash>` of the selected citations and snapshot.
+    /// Handle for the delivered body, selection, budget, and snapshot.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub packet_id: Option<String>,
     /// Tree the packet was compiled against, e.g. `git:<commit>+dirty:<digest>`.
@@ -258,12 +258,16 @@ pub fn compile_context_with(
         .iter()
         .any(|item| item.state != EvidenceState::Verified);
     let snapshot = shared_snapshot(&request.items);
+    let delivered_content = content.trim_end().to_owned();
     let assigned_packet_id = Some(packet_id(&[
         snapshot.as_deref().unwrap_or_default(),
         &included_ids.join("\n"),
+        &omitted_ids.join("\n"),
+        &request.max_tokens.to_string(),
+        &delivered_content,
     ]));
     Ok(ContextPacket {
-        content: content.trim_end().to_owned(),
+        content: delivered_content,
         included_ids,
         omitted_ids,
         raw_estimated_tokens: breakdown.candidate_tokens,

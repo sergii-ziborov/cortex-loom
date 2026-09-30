@@ -17,6 +17,7 @@ pub(crate) struct TrackedFragment<'a> {
     pub facet: cortex_context::EvidenceFacet,
     pub content: &'a str,
     pub declared_complete: Option<bool>,
+    pub resolved_frames: usize,
 }
 
 pub(crate) fn required_facets(
@@ -109,6 +110,7 @@ pub(crate) fn tracked(fragment: &EvidenceFragment) -> TrackedFragment<'_> {
         facet: fragment.facet,
         content: fragment.content.as_str(),
         declared_complete: fragment.declared_complete,
+        resolved_frames: fragment.resolved_frames,
     }
 }
 
@@ -140,6 +142,7 @@ fn facets_closed_by(
     }
     if (fragment.facet == cortex_context::EvidenceFacet::CallerSignature
         || fragment.kind == EvidenceKind::Dependents)
+        && fragment.declared_complete != Some(false)
         && has_caller_payload(fragment.content)
         && names_target(fragment.content, symbol)
     {
@@ -173,7 +176,7 @@ fn facets_closed_by(
                 validator: "memory_context/v1",
             });
         }
-        EvidenceKind::StackTrace if has_stack_payload(fragment.content) => {
+        EvidenceKind::StackTrace if fragment.resolved_frames > 0 => {
             closed.push(Close {
                 facet: FACET_ERRORS.to_owned(),
                 validator: "map_stacktrace/v1",
@@ -251,10 +254,6 @@ fn has_commit_payload(content: &str) -> bool {
         return false;
     }
     lower.contains("commits: ") || content.split_whitespace().any(|token| token.len() == 12)
-}
-
-fn has_stack_payload(content: &str) -> bool {
-    content.contains(".rs:") || content.contains(".rs")
 }
 
 fn mentions_defaults(task: &str) -> bool {
@@ -346,5 +345,38 @@ mod tests {
         assert!(hit.sufficient);
         assert_eq!(hit.claims[0].cardinality, 1);
         assert_eq!(hit.claims[0].validator, "graph_dependents/v1");
+    }
+
+    #[test]
+    fn clipped_dependents_do_not_close_callers() {
+        let mut clipped = EvidenceFragment::new(
+            "ev_clipped",
+            EvidenceKind::Dependents,
+            "weavatrix:find_references",
+            "  <- calls target (function) src/caller.rs:1",
+        );
+        clipped.declared_complete = Some(false);
+        clipped.omitted_rows = 2;
+        let certificate = certificate_from(
+            &[tracked(&clipped)],
+            vec![FACET_CALLERS.to_owned()],
+            false,
+            Some("target"),
+        );
+        assert!(!certificate.sufficient);
+    }
+
+    #[test]
+    fn stack_facet_requires_a_typed_resolved_frame() {
+        let mut mapped = EvidenceFragment::new(
+            "ev_stack",
+            EvidenceKind::StackTrace,
+            "weavatrix:map_stacktrace",
+            "src/app.ts:8 TypeError",
+        );
+        let required = vec![FACET_ERRORS.to_owned()];
+        assert!(!certificate_from(&[tracked(&mapped)], required.clone(), false, None).sufficient);
+        mapped.resolved_frames = 1;
+        assert!(certificate_from(&[tracked(&mapped)], required, false, None).sufficient);
     }
 }

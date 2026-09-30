@@ -27,10 +27,39 @@ fn registry_exposes_only_the_cortex_sequence_contract() {
         "sequence_copy",
         "sequence_lint",
         "sequence_step_read",
+        "run_step_read",
     ] {
         assert!(names.contains(&expected), "missing {expected}");
     }
     assert!(!names.iter().any(|name| name.contains("superpowers")));
+}
+
+#[test]
+fn run_apply_schema_lists_only_public_commands() {
+    let catalog = build_server(test_state()).catalog();
+    let tool = catalog
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tool| tool["name"] == "run_apply")
+        .unwrap();
+    let mut actions = tool["inputSchema"]["properties"]["command"]["oneOf"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["properties"]["action"]["const"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    actions.sort_unstable();
+    assert_eq!(
+        actions,
+        [
+            "cancel",
+            "complete_node",
+            "start_node",
+            "submit_evidence",
+            "trigger_retry"
+        ]
+    );
 }
 
 fn test_state() -> CortexMcpState {

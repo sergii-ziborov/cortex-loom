@@ -26,6 +26,7 @@ use cortex_router::{
 const CLASSIFICATION_INSTRUCTION: &str = "You classify one engineering task for a routing policy. Reply with exactly one label. Labels: none = deterministic tooling or repository graph analysis; local_small = extracting fields from supplied text only; local_medium = summarizing, compressing, or drafting advice from supplied evidence only; upstream_strong = everything else. Any task that creates, fixes, implements, changes, or updates code or state is upstream_strong. Any task touching security, authentication, concurrency, migration, release, version bump, git tag, deployment, or publication is upstream_strong. When uncertain choose upstream_strong.";
 
 const TIER_LABELS: &[&str] = &["none", "local_small", "local_medium", "upstream_strong"];
+static COMPOSER_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LlmBackend {
@@ -100,9 +101,10 @@ pub struct RoutedWork {
     pub decision: RoutingDecision,
     pub latency_ms: Option<u64>,
     pub classifier_profile: Option<String>,
-    pub usage: TokenUsage,
+    pub usage: Option<TokenUsage>,
     pub backend: LlmBackend,
     pub attempted: bool,
+    pub succeeded: bool,
     pub warning: Option<String>,
     pub classifier_model: Option<String>,
     pub agent_model: Option<String>,
@@ -115,9 +117,10 @@ impl RoutedWork {
             decision,
             latency_ms: None,
             classifier_profile: None,
-            usage: TokenUsage::default(),
+            usage: None,
             backend: LlmBackend::Off,
             attempted: false,
+            succeeded: false,
             warning: None,
             classifier_model: None,
             agent_model: None,
@@ -126,18 +129,21 @@ impl RoutedWork {
 
     #[must_use]
     pub fn internal_model_json(&self) -> Value {
-        let total = self.usage.total();
+        let total = self.usage.map(TokenUsage::total);
         json!({
             "mode": self.backend.as_str(),
             "called": self.attempted,
+            "succeeded": self.succeeded,
+            "fallbackUsed": self.attempted && !self.succeeded,
+            "usageKind": if self.usage.is_some() { "provider_reported" } else { "unknown" },
             "profile": self.classifier_profile,
             "classifierModel": self.classifier_model,
             "agentModel": self.agent_model,
-            "promptTokens": self.usage.prompt_tokens,
-            "completionTokens": self.usage.completion_tokens,
+            "promptTokens": self.usage.map(|usage| usage.prompt_tokens),
+            "completionTokens": self.usage.map(|usage| usage.completion_tokens),
             "totalTokens": total,
-            "composerTokens": if matches!(self.backend, LlmBackend::Composer) { total } else { 0 },
-            "localTokens": if matches!(self.backend, LlmBackend::Local) { total } else { 0 },
+            "composerTokens": if matches!(self.backend, LlmBackend::Composer) { total } else { None },
+            "localTokens": if matches!(self.backend, LlmBackend::Local) { total } else { None },
             "warning": self.warning,
         })
     }
@@ -233,9 +239,10 @@ impl LlmRouter {
             decision: route_with_classification(request, lexical),
             latency_ms: None,
             classifier_profile: None,
-            usage: TokenUsage::default(),
+            usage: None,
             backend: self.backend,
             attempted: false,
+            succeeded: false,
             warning: None,
             classifier_model: self.classifier_model.clone(),
             agent_model: self.agent_model.clone(),
@@ -246,7 +253,7 @@ impl LlmRouter {
         &self,
         request: &RoutingRequest,
         lexical: Classification,
-        asked: Result<(ModelTier, u64, TokenUsage), String>,
+        asked: Result<(ModelTier, u64, Option<TokenUsage>), String>,
     ) -> RoutedWork {
         match asked {
             Ok((llm_tier, latency_ms, usage)) => {
@@ -260,6 +267,7 @@ impl LlmRouter {
                     usage,
                     backend: self.backend,
                     attempted: true,
+                    succeeded: true,
                     warning: None,
                     classifier_model: self.classifier_model.clone(),
                     agent_model: self.agent_model.clone(),
@@ -269,9 +277,10 @@ impl LlmRouter {
                 decision: route_with_classification(request, lexical),
                 latency_ms: None,
                 classifier_profile: None,
-                usage: TokenUsage::default(),
+                usage: None,
                 backend: self.backend,
                 attempted: true,
+                succeeded: false,
                 warning: Some(error),
                 classifier_model: self.classifier_model.clone(),
                 agent_model: self.agent_model.clone(),
@@ -279,7 +288,18 @@ impl LlmRouter {
         }
     }
 
-    fn ask_tier(&self, task: &str) -> Result<(ModelTier, u64, TokenUsage), String> {
+    fn ask_tier(&self, task: &str) -> Result<(ModelTier, u64, Option<TokenUsage>), String> {
+        // Per-request alias routers have separate Mutex values; serialize all
+        // of them against the same loopback Composer device/service.
+        let _shared = if self.backend == LlmBackend::Composer {
+            Some(
+                COMPOSER_LOCK
+                    .lock()
+                    .map_err(|_| "composer classifier lock poisoned".to_owned())?,
+            )
+        } else {
+            None
+        };
         let _guard = self
             .lock
             .lock()

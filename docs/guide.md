@@ -14,7 +14,7 @@ Who calls prepare_packet, and what breaks if it starts refusing more packets?
 
 ```powershell
 cortex-loom doctor --repo .
-cortex-loom prepare --repo . --task-file task.md --budget 6000 --format json > packet.json
+cortex-loom prepare --repo . --task-file task.md --max-tokens 6000 --format json > packet.json
 ```
 
 Read `packetId`, `symbols`, `sufficient`, and `missing`. If a listed

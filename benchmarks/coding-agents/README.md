@@ -2,7 +2,7 @@
 
 This benchmark compares four lanes, not a single without/with pair:
 without Cortex; Cortex with models off; Cortex with Composer as its
-internal LLM; and Cortex with its own enabled LLMs. SweepLoom is the
+internal classifier; and Cortex with a local classifier. SweepLoom is the
 target repository, not a product under test, and is not part of the
 comparison.
 
@@ -38,9 +38,12 @@ artifacts.
 ## Deterministic Cortex lane
 
 `cortex_mcp_client.py` starts the current `cortex-mcp` binary over stdio with
-the two-tool `agent` profile. It removes `CORTEX_LLM` and `CORTEX_SEMANTIC`
-from the child environment, initializes MCP, calls `cortex_prepare`, and calls
-`cortex_expand` only for handles returned by that preparation.
+the two-tool `agent` profile. It explicitly disables semantic ordering and
+shadow mode, uses a fresh temporary database, initializes MCP, calls
+`cortex_prepare`, and calls `cortex_expand` only for returned handles.
+It checks the reported backend and classifier success before labeling a
+model lane. The fresh database contains no prior run memory, and this client
+does not exercise workflow commands or warm cache.
 
 Every coding agent must execute the client before ordinary repository
 inspection. The resulting packet is evidence, not instructions. Agents must
@@ -192,5 +195,8 @@ Sonnet 5, Opus 5, or Haiku) when `CORTEX_LLM_BACKEND=composer` and the
 proxy is up. Pick the model with `--classifier-model` or
 `cortex_prepare.classifierModel`. Run IDs `CORTEX_CLSSON_*`,
 `CORTEX_CLSOP_*`, and `CORTEX_CLSHK_*` are those classifier variants.
-That spend is `internalModel.composerTokens`, not the coding-agent
-transcript. See `docs/llm-backends.md`.
+Older proxy runs filled `internalModel.composerTokens` with a `chars/4`
+estimate, not a CLI/provider receipt. The current benchmark proxy omits
+usage when the CLI does not report it; Cortex returns `usageKind: unknown`
+and `composerTokens: null`. These numbers must not be mixed with measured
+coding-agent usage. See `docs/llm-backends.md`.

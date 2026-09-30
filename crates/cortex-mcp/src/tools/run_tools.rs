@@ -149,7 +149,7 @@ pub(crate) fn register(
         )
         .typed_tool(
             "run_apply",
-            "Apply one revision-checked start, evidence submission, completion, human decision, bounded retry, or cancellation. This records state only; external execution authority remains with the selected agent or human.",
+            "Apply one revision-checked public transition: start, evidence submission, completion, bounded retry, or cancellation. Human decisions, leases, invalidation, oracle attestation, and lease-owner commands require a trusted host using the run library.",
             json!({
                 "type": "object",
                 "properties": {
@@ -210,32 +210,6 @@ pub(crate) fn register(
                             {
                                 "type": "object",
                                 "properties": {
-                                    "action": {"const": "decide_human_gate"},
-                                    "expectedRevision": {"type": "integer", "minimum": 1},
-                                    "nodeId": {"type": "string", "minLength": 1},
-                                    "decision": {"type": "string", "enum": ["approved", "rejected"]},
-                                    "actor": {"type": "string", "minLength": 1, "maxLength": 16384},
-                                    "reason": {"type": "string", "minLength": 1, "maxLength": 16384},
-                                    "selectedEdgeIds": {
-                                        "type": "array",
-                                        "items": {"type": "string", "minLength": 1},
-                                        "maxItems": 4096
-                                    },
-                                    "evidenceIds": {
-                                        "type": "array",
-                                        "items": {"type": "string", "minLength": 1, "maxLength": 1024},
-                                        "maxItems": 256
-                                    }
-                                },
-                                "required": [
-                                    "action", "expectedRevision", "nodeId", "decision",
-                                    "actor", "reason"
-                                ],
-                                "additionalProperties": false
-                            },
-                            {
-                                "type": "object",
-                                "properties": {
                                     "action": {"const": "trigger_retry"},
                                     "expectedRevision": {"type": "integer", "minimum": 1},
                                     "retryNodeId": {"type": "string", "minLength": 1},
@@ -263,6 +237,9 @@ pub(crate) fn register(
             move |context, arguments: RunApplyArgs| {
                 if context.is_cancelled() {
                     return ToolReply::error("cancelled");
+                }
+                if !public_command(&arguments.command) {
+                    return ToolReply::error("command requires a trusted host");
                 }
                 match apply_state
                     .store
@@ -322,6 +299,20 @@ pub(crate) fn register(
         )
 }
 
+fn public_command(command: &RunCommand) -> bool {
+    match command {
+        RunCommand::StartNode { executor, .. }
+        | RunCommand::SubmitEvidence { executor, .. }
+        | RunCommand::CompleteNode { executor, .. } => executor.is_none(),
+        RunCommand::TriggerRetry { .. } | RunCommand::Cancel { .. } => true,
+        RunCommand::DecideHumanGate { .. }
+        | RunCommand::ClaimLease { .. }
+        | RunCommand::ReleaseLease { .. }
+        | RunCommand::InvalidateEvidence { .. }
+        | RunCommand::AttestOracle { .. } => false,
+    }
+}
+
 fn run_summary(run: &RunDocument) -> serde_json::Value {
     serde_json::json!({
         "id": run.id,
@@ -333,4 +324,30 @@ fn run_summary(run: &RunDocument) -> serde_json::Value {
         "ready": run.nodes.iter().filter(|node| node.status == NodeRunStatus::Ready).count(),
         "running": run.nodes.iter().filter(|node| node.status == NodeRunStatus::Running).count()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn raw_privileged_command_cannot_bypass_mcp_discovery() {
+        let human: RunCommand = serde_json::from_value(json!({
+            "action": "decide_human_gate", "expectedRevision": 1,
+            "nodeId": "gate", "decision": "approved", "actor": "model", "reason": "I say so"
+        }))
+        .unwrap();
+        assert!(!public_command(&human));
+        let oracle: RunCommand = serde_json::from_value(json!({
+            "action": "attest_oracle", "expectedRevision": 1, "kind": "ci",
+            "passed": true, "attestedBy": "model", "reason": "I say so"
+        }))
+        .unwrap();
+        assert!(!public_command(&oracle));
+        let ordinary: RunCommand = serde_json::from_value(json!({
+            "action": "start_node", "expectedRevision": 1, "nodeId": "step"
+        }))
+        .unwrap();
+        assert!(public_command(&ordinary));
+    }
 }

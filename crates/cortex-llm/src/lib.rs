@@ -63,7 +63,8 @@ pub struct ClassifyRequest {
     pub labels: Vec<String>,
 }
 
-/// Prompt and completion tokens a runtime reported. Zero means it did not say.
+/// Prompt and completion tokens a runtime reported. Absence is represented by
+/// `Option<TokenUsage>` at the call site, never by a fabricated zero.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TokenUsage {
@@ -86,8 +87,8 @@ pub struct ProviderResponse<T> {
     /// Wall-clock milliseconds, so a latency-tolerant role can be shown to be
     /// costing what it was budgeted.
     pub latency_ms: u64,
-    /// Tokens the runtime billed or estimated. Absent usage stays zero.
-    pub usage: TokenUsage,
+    /// Tokens reported by the runtime, if supplied. This is not a billing receipt.
+    pub usage: Option<TokenUsage>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

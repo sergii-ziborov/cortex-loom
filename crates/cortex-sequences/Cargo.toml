@@ -8,6 +8,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+cortex-context = { path = "../cortex-context" }
 cortex-domain = { path = "../cortex-domain" }
 cortex-skills = { path = "../cortex-skills" }
 serde.workspace = true

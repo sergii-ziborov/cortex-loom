@@ -1,4 +1,4 @@
-﻿use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use cortex_domain::GraphDocument;
 use cortex_run::{
@@ -210,6 +210,36 @@ impl RunStore {
         let mut statement = connection.prepare(
             "SELECT event FROM run_events
              WHERE run_id = ?1 ORDER BY sequence DESC LIMIT ?2",
+        )?;
+        let events = statement
+            .query_map(params![id, limit], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut parsed = events
+            .into_iter()
+            .map(|value| serde_json::from_str(&value).map_err(StoreError::from))
+            .collect::<Result<Vec<RunEvent>, _>>()?;
+        parsed.reverse();
+        Ok(parsed)
+    }
+
+    /// Select meaningful outcomes before applying the tail limit. A failure
+    /// must not vanish merely because 200 later lease/start events exist.
+    pub fn recent_signal_events(
+        &self,
+        id: &str,
+        limit: usize,
+    ) -> Result<Vec<RunEvent>, StoreError> {
+        if self.get(id)?.is_none() {
+            return Err(StoreError::RunNotFound(id.to_owned()));
+        }
+        let limit = i64::try_from(limit.clamp(1, 500)).unwrap_or(500);
+        let connection = self.lock()?;
+        let mut statement = connection.prepare(
+            "SELECT event FROM run_events WHERE run_id = ?1
+             AND json_extract(event, '$.kind') IN (
+                'node_failed', 'node_succeeded', 'human_rejected', 'human_approved',
+                'evidence_invalidated', 'retry_triggered', 'oracle_attested', 'cancelled'
+             ) ORDER BY sequence DESC LIMIT ?2",
         )?;
         let events = statement
             .query_map(params![id, limit], |row| row.get::<_, String>(0))?

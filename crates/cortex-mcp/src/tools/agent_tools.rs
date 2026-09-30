@@ -2,8 +2,10 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Instant;
 
-use crate::llm_route::RoutedWork;
+use crate::llm_route::{LlmBackend, LlmRouteConfig, RoutedWork};
+use cortex_context::packet_id as context_packet_id;
 use cortex_router::{RoutingRequest, classify, route};
 use cortex_sequences::candidate_templates;
 use cortex_weavatrix::{
@@ -26,6 +28,8 @@ pub struct AgentPrepare {
     pub task: String,
     pub run_id: Option<String>,
     pub budget_class: Option<String>,
+    /// Exact compiler body budget. Separate from the adaptive budget class.
+    pub max_tokens: Option<u32>,
     /// Loopback classifier alias for this call only: composer, sonnet-5, opus-5, haiku.
     pub classifier_model: Option<String>,
 }
@@ -62,7 +66,7 @@ pub(crate) fn register(
     server
         .typed_tool(
             "cortex_prepare",
-            "Route the task and compile a bounded evidence packet. The caller names repository, task, optional runId, budgetClass, and classifierModel only — mutation, verification, and availability are derived, never self-declared.",
+            "Classify and compile a bounded evidence packet. Optional budgetClass selects an adaptive band; maxTokens is an exact compiler-body limit. Routing is advisory, not execution permission.",
             json!({
                 "type": "object",
                 "properties": {
@@ -70,6 +74,7 @@ pub(crate) fn register(
                     "task": {"type": "string", "maxLength": 16384},
                     "runId": {"type": "string", "maxLength": 256},
                     "budgetClass": {"type": "string", "enum": ["auto", "tight", "normal", "wide"], "default": "auto"},
+                    "maxTokens": {"type": "integer", "minimum": 1, "maximum": 100_000},
                     "classifierModel": {
                         "type": "string",
                         "enum": ["composer", "sonnet-5", "opus-5", "haiku"],
@@ -117,38 +122,20 @@ pub(crate) fn register(
 }
 
 pub fn prepare_packet(state: &CortexMcpState, arguments: AgentPrepare) -> Result<Value, String> {
-    let pin = BudgetPin::parse(arguments.budget_class.as_deref());
-    let max_tokens = adaptive_budget(&arguments.task, pin);
+    let started = Instant::now();
+    // Admission must precede classifier inference: task text can itself be private.
+    state.workspaces.check(&arguments.repository)?;
+    if arguments.task.trim().is_empty() || arguments.task.chars().count() > 16_384 {
+        return Err("task must contain 1..=16384 characters".to_owned());
+    }
+    let (pin, max_tokens) = prepare_budget(&arguments)?;
     let symbols = extract_identifiers(&arguments.task);
     let request = RoutingRequest::new(arguments.task.clone());
-    let routed = match arguments.classifier_model.as_deref() {
-        Some(alias) => match crate::composer_llm::router_for_alias(alias) {
-            Ok(router) => router.decide_prepare(&request),
-            Err(error) => {
-                let mut work = RoutedWork::lexical(route(&request));
-                work.attempted = true;
-                work.warning = Some(error);
-                work.classifier_model = Some(alias.to_owned());
-                work
-            }
-        },
-        None => state.llm_router.as_ref().map_or_else(
-            || RoutedWork::lexical(route(&request)),
-            |router| router.decide_prepare(&request),
-        ),
-    };
+    let routed = route_prepare(state, &request, arguments.classifier_model.as_deref());
     let routing = routed.decision.clone();
     let classification = classify(&arguments.task);
-    let workflow = candidate_templates(&arguments.task)
-        .into_iter()
-        .next()
-        .map(|candidate| {
-            json!({
-                "sequenceId": candidate.template_id,
-                "matchedHints": candidate.matched_hints,
-            })
-        });
-    let compiled = compile_weavatrix(
+    let workflow = workflow_hint(&arguments.task);
+    let mut compiled = compile_weavatrix(
         state,
         &CompileArgs {
             repository: arguments.repository.clone(),
@@ -161,20 +148,33 @@ pub fn prepare_packet(state: &CortexMcpState, arguments: AgentPrepare) -> Result
             hints: None,
         },
     )?;
+    let task_digest = task_hash(&arguments.task);
+    let base_id = compiled
+        .context
+        .packet_id
+        .as_deref()
+        .ok_or("compiled packet has no packetId")?;
+    let id = context_packet_id(&[
+        base_id,
+        &task_digest,
+        arguments.run_id.as_deref().unwrap_or_default(),
+        &max_tokens.to_string(),
+    ]);
+    compiled.context.packet_id = Some(id.clone());
+    if let Some(report) = compiled.sufficiency.as_mut() {
+        report.certificate.packet_id = Some(id.clone());
+    }
     let missing = compiled
         .sufficiency
         .as_ref()
         .map(|report| report.missing_evidence.clone())
         .unwrap_or_default();
-    let Some(id) = compiled.context.packet_id.clone() else {
-        return Err("compiled packet has no packetId".to_owned());
-    };
     let snapshot = compiled.context.snapshot_id.clone();
     state.packets.insert(StoredPacket {
         id: id.clone(),
         repository: arguments.repository.clone(),
         task: arguments.task.clone(),
-        task_hash: task_hash(&arguments.task),
+        task_hash: task_digest.clone(),
         run_id: arguments.run_id,
         symbols: symbols.clone(),
         snapshot_id: snapshot.clone(),
@@ -193,15 +193,24 @@ pub fn prepare_packet(state: &CortexMcpState, arguments: AgentPrepare) -> Result
         "repository": arguments.repository,
         "symbols": symbols,
         "snapshotId": snapshot,
-        "taskHash": task_hash(&arguments.task),
+        "taskHash": task_digest,
         "certificateHash": compiled
             .sufficiency
             .as_ref()
             .map(|report| certificate_hash(&report.certificate)),
         "routing": routing,
+        "executionAdmission": {
+            "ready": false,
+            "reason": if compiled.sufficiency.as_ref().is_some_and(|report| !report.sufficient) {
+                "insufficient_evidence"
+            } else {
+                "external_executor_unverified"
+            },
+            "localAvailability": "unverified",
+        },
         "mutationLikely": classification.mutation_likely,
         "workflowStep": workflow,
-        "budgetClass": pin.as_str(),
+        "budgetClass": if arguments.max_tokens.is_some() { "exact" } else { pin.as_str() },
         "maxTokens": max_tokens,
         "context": compiled.context,
         "coverage": compiled.sufficiency,
@@ -210,7 +219,64 @@ pub fn prepare_packet(state: &CortexMcpState, arguments: AgentPrepare) -> Result
         "expansionHandles": handles,
         "warnings": compiled.warnings,
         "internalModel": routed.internal_model_json(),
+        "prepareLatencyMs": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
     }))
+}
+
+fn prepare_budget(arguments: &AgentPrepare) -> Result<(BudgetPin, u32), String> {
+    let pin = BudgetPin::parse(arguments.budget_class.as_deref());
+    let max_tokens = match arguments.max_tokens {
+        Some(value @ 1..=100_000) => value,
+        Some(_) => return Err("maxTokens must be in 1..=100000".to_owned()),
+        None => adaptive_budget(&arguments.task, pin),
+    };
+    Ok((pin, max_tokens))
+}
+
+fn workflow_hint(task: &str) -> Option<Value> {
+    candidate_templates(task)
+        .into_iter()
+        .next()
+        .map(|candidate| {
+            json!({
+                "sequenceId": candidate.template_id,
+                "matchedHints": candidate.matched_hints,
+            })
+        })
+}
+
+fn route_prepare(
+    state: &CortexMcpState,
+    request: &RoutingRequest,
+    alias: Option<&str>,
+) -> RoutedWork {
+    match alias {
+        Some(alias)
+            if !matches!(
+                LlmRouteConfig::from_env().resolve_backend(),
+                Ok(LlmBackend::Composer)
+            ) =>
+        {
+            let mut work = RoutedWork::lexical(route(request));
+            work.classifier_model = Some(alias.to_owned());
+            work.warning = Some("classifierModel blocked by operator backend policy".to_owned());
+            work
+        }
+        Some(alias) => match crate::composer_llm::router_for_alias(alias) {
+            Ok(router) => router.decide_prepare(request),
+            Err(error) => {
+                let mut work = RoutedWork::lexical(route(request));
+                work.attempted = true;
+                work.warning = Some(error);
+                work.classifier_model = Some(alias.to_owned());
+                work
+            }
+        },
+        None => state.llm_router.as_ref().map_or_else(
+            || RoutedWork::lexical(route(request)),
+            |router| router.decide_prepare(request),
+        ),
+    }
 }
 
 pub fn expand_saved(
@@ -261,18 +327,33 @@ pub fn expand_packet(
             hints: Some(hints),
         },
     ) {
-        Ok(packet) => Ok(json!({
-            "packetId": stored.id,
-            "stale": false,
-            "snapshotId": packet.context.snapshot_id,
-            "taskHash": stored.task_hash,
-            "certificateHash": stored.certificate_hash,
-            "facet": facet,
-            "context": packet.context,
-            "coverage": packet.sufficiency,
-            "certificate": packet.sufficiency.as_ref().map(|report| &report.certificate),
-            "warnings": packet.warnings,
-        })),
+        Ok(mut packet) => {
+            let base_id = packet
+                .context
+                .packet_id
+                .as_deref()
+                .ok_or("expanded packet has no packetId")?;
+            let child_id = context_packet_id(&[base_id, &stored.id, facet]);
+            packet.context.packet_id = Some(child_id.clone());
+            if let Some(report) = packet.sufficiency.as_mut() {
+                report.certificate.packet_id = Some(child_id.clone());
+            }
+            Ok(json!({
+                "packetId": child_id,
+                "parentPacketId": stored.id,
+                "stale": false,
+                "snapshotId": packet.context.snapshot_id,
+                "taskHash": task_hash(&packet.task),
+                "parentTaskHash": stored.task_hash,
+                "certificateHash": packet.sufficiency.as_ref().map(|report| certificate_hash(&report.certificate)),
+                "parentCertificateHash": stored.certificate_hash,
+                "facet": facet,
+                "context": packet.context,
+                "coverage": packet.sufficiency,
+                "certificate": packet.sufficiency.as_ref().map(|report| &report.certificate),
+                "warnings": packet.warnings,
+            }))
+        }
         Err(error) => Err(error),
     }
 }

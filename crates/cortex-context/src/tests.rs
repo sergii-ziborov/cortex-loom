@@ -419,6 +419,15 @@ fn packet_identity_follows_snapshot_and_selected_ids() {
             .is_some_and(|id| id.starts_with("pk_"))
     );
 
+    let mut changed_body = first.clone();
+    changed_body.content = "pub enabled: bool = true;".to_owned();
+    let revised = compile_context(&ContextRequest {
+        items: vec![changed_body],
+        max_tokens: 1_000,
+        deduplicate: true,
+    })
+    .unwrap();
+    assert_ne!(packet.packet_id, revised.packet_id);
     let mut changed = first;
     changed.locator.as_mut().expect("locator").snapshot_id = Some("git:abc+dirty:ffff".to_owned());
     let later = compile_context(&ContextRequest {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Loopback OpenAI-compatible proxy: cursor-agent classifiers.
+"""Benchmark-only loopback proxy for cursor-agent classification.
 
 Binds 127.0.0.1:8787 by default (`CORTEX_COMPOSER_PORT`). Used by
 CORTEX_LLM_BACKEND=composer.
@@ -10,17 +10,21 @@ from __future__ import annotations
 
 import json
 import os
+import hmac
+import shutil
 import subprocess
 import tempfile
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("CORTEX_COMPOSER_PORT", "8787"))
-AGENT = os.environ.get(
-    "CORTEX_COMPOSER_AGENT",
-    r"C:\Users\SergiiZiborov\AppData\Local\cursor-agent\agent.cmd",
-)
+AGENT = os.environ.get("CORTEX_COMPOSER_AGENT") or shutil.which("agent") or "agent"
+API_KEY = os.environ.get("CORTEX_COMPOSER_API_KEY")
+MAX_REQUEST_BYTES = 65_536
+JOBS = threading.BoundedSemaphore(1)
+LABELS = frozenset(("none", "local_small", "local_medium", "upstream_strong"))
 ALIASES = {
     "composer": "composer-2.5",
     "composer-2.5": "composer-2.5",
@@ -50,46 +54,37 @@ def resolve_model(requested: str | None) -> tuple[str, str]:
     raise ValueError(f"unknown classifier model: {raw}")
 
 
-def classify(prompt: str, agent_model: str) -> tuple[str, int, int]:
-    workspace = Path(tempfile.mkdtemp(prefix="cortex-classifier-proxy-"))
+class ClassifierFailure(Exception):
+    """A CLI failure or invalid answer; the caller owns lexical fallback."""
+
+
+def classify(prompt: str, agent_model: str) -> str:
     boxed = (
         "Reply with only one label and nothing else: "
         "none, local_small, local_medium, or upstream_strong.\n\n"
         + prompt
     )
-    argv = [
-        AGENT,
-        "--print",
-        "--trust",
-        "--model",
-        agent_model,
-        "--output-format",
-        "text",
-        "--workspace",
-        str(workspace),
-        boxed,
-    ]
-    if "haiku" not in agent_model:
-        argv[2:2] = ["--mode", "ask"]
-    completed = subprocess.run(
-        argv,
-        check=False,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        timeout=180,
-    )
-    text = (completed.stdout or "").strip() or (completed.stderr or "").strip()
-    if completed.returncode != 0 and not text:
-        text = f"upstream_strong\nproxy error: {agent_model} exit {completed.returncode}"
-    if not text:
-        text = "upstream_strong"
-    prompt_tokens = max(1, len(prompt) // 4)
-    completion_tokens = max(1, len(text) // 4)
-    labels = ("none", "local_small", "local_medium", "upstream_strong")
-    if not any(token in text.replace("`", " ").split() for token in labels):
-        text = "upstream_strong"
-    return text, prompt_tokens, completion_tokens
+    if not JOBS.acquire(blocking=False):
+        raise ClassifierFailure("classifier busy")
+    try:
+        with tempfile.TemporaryDirectory(prefix="cortex-classifier-proxy-") as temporary:
+            argv = [
+                AGENT, "--print", "--mode", "ask", "--trust",
+                "--model", agent_model, "--output-format", "text",
+                "--workspace", str(Path(temporary)), boxed,
+            ]
+            completed = subprocess.run(
+                argv, check=False, capture_output=True, text=True,
+                encoding="utf-8", timeout=180,
+            )
+        if completed.returncode != 0:
+            raise ClassifierFailure(f"classifier CLI exited with status {completed.returncode}")
+        answer = (completed.stdout or "").strip().strip("`").strip()
+        if answer not in LABELS:
+            raise ClassifierFailure("classifier CLI returned no valid label")
+        return answer
+    finally:
+        JOBS.release()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -123,7 +118,19 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.rstrip("/") not in {"/v1/chat/completions", "/chat/completions"}:
             self._send(404, {"error": {"message": "not found"}})
             return
-        length = int(self.headers.get("content-length", "0"))
+        if API_KEY and not hmac.compare_digest(
+            self.headers.get("authorization", ""), f"Bearer {API_KEY}"
+        ):
+            self._send(401, {"error": {"message": "unauthorized"}})
+            return
+        try:
+            length = int(self.headers.get("content-length", "0"))
+        except ValueError:
+            self._send(400, {"error": {"message": "invalid content length"}})
+            return
+        if not 0 < length <= MAX_REQUEST_BYTES:
+            self._send(413, {"error": {"message": "request exceeds classifier limit"}})
+            return
         raw = self.rfile.read(length)
         try:
             request = json.loads(raw.decode("utf-8"))
@@ -137,12 +144,24 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError as error:
             self._send(400, {"error": {"message": str(error)}})
             return
+        # The CLI has no generation-token control. Only the fixed classifier
+        # contract is accepted; this is an output-validation ceiling, not a
+        # claim about the CLI's hidden token spend.
+        if request.get("max_tokens") != 16:
+            self._send(400, {"error": {"message": "only max_tokens=16 classifier requests are supported"}})
+            return
         messages = request.get("messages") or []
         prompt = "\n\n".join(
             str(item.get("content", "")) for item in messages if isinstance(item, dict)
         )
         try:
-            text, prompt_tokens, completion_tokens = classify(prompt, agent_model)
+            text = classify(prompt, agent_model)
+        except ClassifierFailure as error:
+            self._send(503 if str(error) == "classifier busy" else 502, {"error": {"message": str(error)}})
+            return
+        except subprocess.TimeoutExpired:
+            self._send(504, {"error": {"message": "classifier CLI timed out"}})
+            return
         except Exception as error:
             self._send(500, {"error": {"message": str(error)}})
             return
@@ -152,6 +171,8 @@ class Handler(BaseHTTPRequestHandler):
                 "id": "chatcmpl-cortex-classifier",
                 "object": "chat.completion",
                 "model": alias,
+                "effectiveModel": agent_model,
+                "usageKind": "unknown",
                 "choices": [
                     {
                         "index": 0,
@@ -159,11 +180,6 @@ class Handler(BaseHTTPRequestHandler):
                         "finish_reason": "stop",
                     }
                 ],
-                "usage": {
-                    "prompt_tokens": prompt_tokens,
-                    "completion_tokens": completion_tokens,
-                    "total_tokens": prompt_tokens + completion_tokens,
-                },
             },
         )
 

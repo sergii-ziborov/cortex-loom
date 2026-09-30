@@ -129,6 +129,21 @@ fn active_step_packet_discloses_only_the_selected_step() {
 }
 
 #[test]
+fn active_step_packet_rejects_a_too_small_delivery_budget() {
+    let mut graph = instantiate_template("discover-and-plan", "packet-limit", "Packet").unwrap();
+    let step = graph
+        .nodes
+        .iter_mut()
+        .find(|node| node.label.starts_with("Ask Weavatrix"))
+        .unwrap();
+    let node_id = step.id.clone();
+    step.config
+        .insert("maxInputTokens".to_owned(), serde_json::json!(1));
+    let error = active_step_packet(&graph, &node_id, &[]).unwrap_err();
+    assert!(error.to_string().contains("maxInputTokens"), "{error}");
+}
+
+#[test]
 fn lint_reports_each_safety_and_structure_invariant() {
     let baseline = instantiate_template("bounded-implementation", "lint", "Lint").unwrap();
     assert!(lint_sequence(&baseline).is_empty());

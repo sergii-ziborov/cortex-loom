@@ -1,11 +1,11 @@
 # Cortex LLM backends
 
-`cortex_prepare` now reports `internalModel` so a caller can see which
-backend ran and how many tokens it spent. Three backends, one at a time:
+`cortex_prepare` reports `internalModel` so a caller can see which
+backend ran and whether the runtime reported usage. Three backends, one at a time:
 
 | `CORTEX_LLM_BACKEND` | What runs | Token fields |
 | --- | --- | --- |
-| `off` (default) | Lexical `route()` only | all zeros |
+| `off` (default) | Lexical `route()` only | `null` (no model call) |
 | `local` | Gated classifier from `config/llm-profiles.json` (OVMS qwen3-8b when live) | `localTokens` |
 | `composer` | Loopback cursor-agent proxy (`classifierModel`) | `composerTokens` |
 
@@ -43,7 +43,8 @@ omits it; `[effort=high]` is rejected by cursor-agent.
 
 Default URL is `http://127.0.0.1:8787` (`/v1/chat/completions`). A remote
 host is refused. If the proxy is down, prepare stays lexical and
-`internalModel.warning` explains why; `composerTokens` stays 0.
+`internalModel.warning` explains why; `composerTokens` is `null` when
+usage was not reported. `usageKind: unknown` is not a zero-cost claim.
 
 ## Packet field
 
@@ -54,11 +55,14 @@ host is refused. If the proxy is down, prepare stays lexical and
   "profile": "cursor-sonnet-5-classifier",
   "classifierModel": "sonnet-5",
   "agentModel": "claude-sonnet-5-thinking-max",
-  "promptTokens": 80,
-  "completionTokens": 2,
-  "totalTokens": 82,
-  "composerTokens": 82,
-  "localTokens": 0,
+  "succeeded": true,
+  "fallbackUsed": false,
+  "usageKind": "unknown",
+  "promptTokens": null,
+  "completionTokens": null,
+  "totalTokens": null,
+  "composerTokens": null,
+  "localTokens": null,
   "warning": null
 }
 ```

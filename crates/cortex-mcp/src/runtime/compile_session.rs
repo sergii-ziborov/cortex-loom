@@ -24,6 +24,7 @@ pub(crate) fn compile_weavatrix(
     state: &CortexMcpState,
     arguments: &CompileArgs,
 ) -> Result<CompiledEvidenceBundle, String> {
+    let started = Instant::now();
     state.workspaces.check(&arguments.repository)?;
     let hints = resolve_hints(state, arguments)?;
     let source_followup = hints.source_followup_or(true);
@@ -41,7 +42,6 @@ pub(crate) fn compile_weavatrix(
             })
             .collect::<Vec<_>>()
     });
-    let started = Instant::now();
     let mut semantic_note = None;
     let relevance = score(state, arguments, &mut bundle, &mut semantic_note);
     let mut packet = if retry.is_some() {

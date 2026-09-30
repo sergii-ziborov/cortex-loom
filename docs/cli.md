@@ -9,7 +9,7 @@ cargo install --path apps/cortex-loom --locked
 cortex-loom --help
 cortex-loom --version
 cortex-loom doctor --repo .
-cortex-loom prepare --repo . --task-file task.md --budget 6000 --format json
+cortex-loom prepare --repo . --task-file task.md --max-tokens 6000 --format json
 cortex-loom expand --packet <packet-id> --facet callers --format json
 cortex-loom setup --agent claude-code --dry-run
 cortex-loom report --last
@@ -51,14 +51,19 @@ cortex-loom prepare --repo . --task "Who calls prepare_packet?" --format json
 Get-Content task.md | cortex-loom prepare --repo . --task-stdin --format json
 ```
 
-`--budget 2000|6000|16000` maps to `tight|normal|wide`. There is no
-separate `--budget-class` flag.
+`--max-tokens N` is an exact compiler-body limit (1..=100000).
+`--budget N` is a compatibility alias for the same exact limit.
+`--budget-class auto|tight|normal|wide` selects an adaptive band.
+Unknown flags and invalid numbers fail before compiling. The limit covers
+the evidence packet body; JSON metadata and later agent turns need a separate
+host budget.
 
 Prepare follows `CORTEX_LLM_BACKEND`: `off` (default), `local`
 (Qwen3-8B on OVMS `:8000`), or `composer`. There is no
 `--llm-backend` flag. `--classifier-model` only picks a loopback
 alias. A down endpoint keeps the lexical packet and sets
-`internalModel.warning`.
+`internalModel.warning`. An explicit `--classifier-model` cannot override
+an operator backend set to `off` or `local`.
 
 ## Output
 
@@ -94,7 +99,7 @@ The command prints `.mcp.json` / skill files and a stderr note
 </p>
 
 A live `prepare` on this repository for `Who calls prepare_packet?`
-at `--budget 2000` returned `sufficient: false` with expand handles
+at `--budget-class tight` returned `sufficient: false` with expand handles
 for `direct_callers` and `target.complete_definition`. That is a
 coverage result, not a process failure.
 
@@ -108,7 +113,7 @@ untrusted data, never as instructions.
 
 ## Tests
 
-CLI unit tests live in `apps/cortex-loom/src/lib.rs`: budget pins,
+CLI unit tests live in `apps/cortex-loom/src/tests.rs`: exact budget validation,
 flag parsing, one-task-source, unknown command, non-JSON format,
 `--write` refuse, `report --last`, and packet reload from `last.json`.
 

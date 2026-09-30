@@ -93,7 +93,7 @@ pub(super) fn append_source_reads(
         paths.len()
     ));
     for (index, hit) in paths.iter().enumerate() {
-        if already_has_source(evidence, &hit.path) {
+        if already_has_source(evidence, hit) {
             continue;
         }
         let arguments = read_arguments_for(hit, per_file, plan.window, plan.task);
@@ -395,8 +395,11 @@ pub(super) fn hit_from_inspect(
     })
 }
 
-fn already_has_source(evidence: &[EvidenceFragment], path: &str) -> bool {
-    let want = path.replace('\\', "/");
+fn already_has_source(
+    evidence: &[EvidenceFragment],
+    hit: &crate::source_followup::SearchHit,
+) -> bool {
+    let want = hit.path.replace('\\', "/");
     evidence.iter().any(|fragment| {
         fragment.kind == EvidenceKind::SourceReads
             && fragment
@@ -404,6 +407,10 @@ fn already_has_source(evidence: &[EvidenceFragment], path: &str) -> bool {
                 .path
                 .as_deref()
                 .is_some_and(|have| have.replace('\\', "/") == want)
+            && matches!(
+                (fragment.locator.start_line, fragment.locator.end_line),
+                (Some(start), Some(end)) if range_covers(start, end, hit.line, hit.line)
+            )
     })
 }
 

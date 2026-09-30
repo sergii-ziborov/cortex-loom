@@ -184,8 +184,8 @@ struct OpenAiUsage {
     completion_tokens: u32,
 }
 
-fn token_usage(usage: Option<OpenAiUsage>) -> TokenUsage {
-    usage.map_or_else(TokenUsage::default, |usage| TokenUsage {
+fn token_usage(usage: Option<OpenAiUsage>) -> Option<TokenUsage> {
+    usage.map(|usage| TokenUsage {
         prompt_tokens: usage.prompt_tokens,
         completion_tokens: usage.completion_tokens,
     })
@@ -238,7 +238,7 @@ impl LlmProvider for OpenAiProvider {
             value: rows.into_iter().map(|row| row.embedding).collect(),
             placement: self.placement(),
             latency_ms,
-            usage: TokenUsage::default(),
+            usage: None,
         })
     }
 
@@ -415,6 +415,7 @@ mod tests {
         )
         .unwrap();
         let usage = super::token_usage(parsed.usage);
+        let usage = usage.unwrap();
         assert_eq!(usage.prompt_tokens, 19);
         assert_eq!(usage.completion_tokens, 2);
         assert_eq!(usage.total(), 21);

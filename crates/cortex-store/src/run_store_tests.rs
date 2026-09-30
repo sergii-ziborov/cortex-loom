@@ -223,6 +223,40 @@ fn workspace_bind_survives_reload_and_does_not_break_replay() {
     );
 }
 
+#[test]
+fn signal_selection_precedes_tail_limit() {
+    let graphs = GraphStore::open_in_memory().unwrap();
+    let graph = graphs.seed_if_missing(&default_control_plane()).unwrap();
+    let runs = graphs.runs();
+    runs.create("run-signal", &graph).unwrap();
+    let mut event = runs.events("run-signal", 0, 1).unwrap().remove(0);
+    let connection = runs.connection.lock().unwrap();
+    for sequence in 2..=204_u64 {
+        event.sequence = sequence;
+        event.kind = if sequence == 2 {
+            cortex_run::RunEventKind::NodeFailed
+        } else {
+            cortex_run::RunEventKind::NodeStarted
+        };
+        connection
+            .execute(
+                "INSERT INTO run_events (run_id, sequence, event, recorded_at) VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![
+                    "run-signal",
+                    i64::try_from(sequence).unwrap(),
+                    serde_json::to_string(&event).unwrap(),
+                    event.recorded_at
+                ],
+            )
+            .unwrap();
+    }
+    drop(connection);
+    assert_eq!(runs.recent_events("run-signal", 200).unwrap().len(), 200);
+    let signals = runs.recent_signal_events("run-signal", 32).unwrap();
+    assert_eq!(signals.len(), 1);
+    assert_eq!(signals[0].sequence, 2);
+}
+
 fn spawn_start(
     runs: RunStore,
     barrier: Arc<Barrier>,

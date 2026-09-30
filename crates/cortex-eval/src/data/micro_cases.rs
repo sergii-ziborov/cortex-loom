@@ -12,7 +12,6 @@ use crate::micro_vocab::{
     CONSTANTS, CRATES, ENV_KEYS, FILES, FOLD_PAIRS, IDENTIFIERS, JSON_KEYS, LABELS, PROSE_NOUNS,
     ROUTING_BAIT, UNICODE_IDENTS, decoy, pick,
 };
-
 /// One generated training case, under the same contract as a holdout fixture.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MicroTrainCase {

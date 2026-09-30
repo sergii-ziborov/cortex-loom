@@ -1,7 +1,7 @@
 //! Compile prior Cortex run events into a Weavatrix `memory_context` call.
 //!
 //! The planner stays independent of `cortex-run`. Callers map their own event
-//! types into [`PriorRunEvent`]. Only high-signal failures, rejections,
+//! types into [`PriorRunEvent`]. High-signal failures, recoveries, approvals,
 //! invalidations, retries, and cancellations become facts.
 
 use serde_json::{Value, json};
@@ -15,10 +15,13 @@ use weavatrix_rust::memory::{
 
 const HIGH_SIGNAL: &[&str] = &[
     "node_failed",
+    "node_succeeded",
     "human_rejected",
+    "human_approved",
     "evidence_invalidated",
     "retry_triggered",
     "cancelled",
+    "oracle_attested",
 ];
 
 const MAX_EVENTS: usize = 32;
@@ -283,6 +286,25 @@ mod tests {
         let memory = PriorRunMemory::from_parts(vec![started, failed()]);
         assert_eq!(memory.events.len(), 1);
         assert_eq!(memory.events[0].kind, "node_failed");
+    }
+
+    #[test]
+    fn verified_recovery_remains_alongside_the_failure() {
+        let success = PriorRunEvent {
+            kind: "node_succeeded".to_owned(),
+            sequence: 5,
+            detail: Some("fix passed independent checks".to_owned()),
+            recorded_at: 1_700_000_001,
+            ..failed()
+        };
+        let memory = PriorRunMemory::from_parts(vec![failed(), success]);
+        assert_eq!(memory.events.len(), 2);
+        let arguments = memory.memory_arguments("repair task", 600).unwrap();
+        assert!(
+            arguments
+                .to_string()
+                .contains("fix passed independent checks")
+        );
     }
 
     #[test]

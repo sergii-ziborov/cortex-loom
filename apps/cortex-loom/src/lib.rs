@@ -38,7 +38,7 @@ fn print_help() {
         "cortex-loom {} - local prepare/expand over the same compiler as cortex-mcp\n\n\
          Commands:\n  \
          doctor [--repo <path>]\n  \
-         prepare --repo <path> (--task <text> | --task-file <file> | --task-stdin) [--budget 6000] [--format json]\n  \
+         prepare --repo <path> (--task <text> | --task-file <file> | --task-stdin) [--max-tokens 6000 | --budget-class normal] [--format json]\n  \
          expand --packet <id> --facet <facet> [--repo <path>]\n  \
          setup --agent claude-code|codex|copilot [--dry-run]\n  \
          report --last\n\n\
@@ -54,6 +54,7 @@ fn doctor(arguments: &[String]) -> Result<(), String> {
     } else {
         Flags::parse(arguments)?
     };
+    flags.validate(&["repo"], &[])?;
     let repository = flags
         .optional("repo")
         .map_or_else(|| PathBuf::from("."), PathBuf::from);
@@ -87,8 +88,45 @@ fn prepare(arguments: &[String]) -> Result<(), String> {
         .map_err(|error| format!("--repo: {error}. Pass an existing repository."))?;
     flags.require_json_format()?;
     let task = flags.task()?;
-    let budget = flags.optional("budget");
-    let budget_class = budget.as_deref().map(budget_class_from_tokens);
+    flags.validate(
+        &[
+            "repo",
+            "task",
+            "task-file",
+            "budget",
+            "max-tokens",
+            "budget-class",
+            "format",
+            "run-id",
+            "classifier-model",
+        ],
+        &["task-stdin"],
+    )?;
+    let exact = flags
+        .optional("max-tokens")
+        .or_else(|| flags.optional("budget"));
+    if exact.is_some() && flags.optional("budget-class").is_some() {
+        return Err("choose --max-tokens or --budget-class".to_owned());
+    }
+    if flags.optional("max-tokens").is_some() && flags.optional("budget").is_some() {
+        return Err("choose only one of --max-tokens and --budget".to_owned());
+    }
+    let max_tokens = exact
+        .map(|value| {
+            value
+                .parse::<u32>()
+                .ok()
+                .filter(|value| (1..=100_000).contains(value))
+                .ok_or_else(|| "--max-tokens must be an integer in 1..=100000".to_owned())
+        })
+        .transpose()?;
+    let budget_class = flags.optional("budget-class");
+    if budget_class
+        .as_deref()
+        .is_some_and(|value| !matches!(value, "auto" | "tight" | "normal" | "wide"))
+    {
+        return Err("--budget-class must be auto, tight, normal, or wide".to_owned());
+    }
     let state = CortexMcpState::open(database_in(&repository))?;
     let packet = prepare_packet(
         &state,
@@ -97,6 +135,7 @@ fn prepare(arguments: &[String]) -> Result<(), String> {
             task: task.clone(),
             run_id: flags.optional("run-id"),
             budget_class,
+            max_tokens,
             classifier_model: flags.optional("classifier-model"),
         },
     )?;
@@ -107,6 +146,7 @@ fn prepare(arguments: &[String]) -> Result<(), String> {
 
 fn expand(arguments: &[String]) -> Result<(), String> {
     let flags = Flags::parse(arguments)?;
+    flags.validate(&["packet", "facet", "repo", "format"], &[])?;
     flags.require_json_format()?;
     let packet_id = flags.value("packet")?;
     let facet = flags.value("facet")?;
@@ -122,6 +162,7 @@ fn expand(arguments: &[String]) -> Result<(), String> {
 
 fn setup(arguments: &[String]) -> Result<(), String> {
     let flags = Flags::parse(arguments)?;
+    flags.validate(&["agent"], &["dry-run", "write"])?;
     let raw = flags.value("agent")?;
     let agent = AgentKind::parse(&raw)
         .or_else(|| AgentKind::parse(&raw.replace('-', "_")))
@@ -140,7 +181,9 @@ fn setup(arguments: &[String]) -> Result<(), String> {
 }
 
 fn report(arguments: &[String]) -> Result<(), String> {
-    if !arguments.iter().any(|argument| argument == "--last") {
+    let flags = Flags::parse(arguments)?;
+    flags.validate(&[], &["last"])?;
+    if !flags.has("last") {
         return Err("report needs --last".to_owned());
     }
     let repository = PathBuf::from(".")
@@ -233,14 +276,6 @@ fn load_packet(repository: &Path, packet_id: &str) -> Result<AgentPacket, String
     })
 }
 
-fn budget_class_from_tokens(value: &str) -> String {
-    match value.parse::<u32>().unwrap_or(4000) {
-        0..=2500 => "tight".to_owned(),
-        2501..=8000 => "normal".to_owned(),
-        _ => "wide".to_owned(),
-    }
-}
-
 fn print_json(value: &Value) -> Result<(), String> {
     println!(
         "{}",
@@ -275,6 +310,9 @@ impl Flags {
             }
             let name = raw.trim_start_matches('-').to_owned();
             if matches!(name.as_str(), "dry-run" | "write" | "last" | "task-stdin") {
+                if switches.contains(&name) {
+                    return Err(format!("duplicate --{name}"));
+                }
                 switches.push(name);
                 index += 1;
                 continue;
@@ -283,6 +321,9 @@ impl Flags {
                 .get(index + 1)
                 .ok_or_else(|| format!("--{name} requires a value"))?
                 .clone();
+            if pairs.iter().any(|(existing, _)| existing == &name) {
+                return Err(format!("duplicate --{name}"));
+            }
             pairs.push((name, value));
             index += 2;
         }
@@ -299,6 +340,20 @@ impl Flags {
             .iter()
             .find(|(key, _)| key == name)
             .map(|(_, value)| value.clone())
+    }
+
+    fn validate(&self, pairs: &[&str], switches: &[&str]) -> Result<(), String> {
+        for (name, _) in &self.pairs {
+            if !pairs.contains(&name.as_str()) {
+                return Err(format!("unknown --{name}"));
+            }
+        }
+        for name in &self.switches {
+            if !switches.contains(&name.as_str()) {
+                return Err(format!("unknown --{name}"));
+            }
+        }
+        Ok(())
     }
 
     fn path(&self, name: &str) -> Result<PathBuf, String> {
@@ -346,99 +401,5 @@ impl Flags {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn budget_pins_follow_token_request() {
-        assert_eq!(budget_class_from_tokens("2000"), "tight");
-        assert_eq!(budget_class_from_tokens("6000"), "normal");
-        assert_eq!(budget_class_from_tokens("16000"), "wide");
-    }
-
-    #[test]
-    fn flags_parse_dry_run_and_repo() {
-        let flags = Flags::parse(&[
-            "--agent".to_owned(),
-            "claude-code".to_owned(),
-            "--dry-run".to_owned(),
-        ])
-        .unwrap();
-        assert_eq!(flags.value("agent").unwrap(), "claude-code");
-        assert!(flags.has("dry-run"));
-    }
-
-    #[test]
-    fn flags_reject_two_task_sources() {
-        let flags = Flags::parse(&[
-            "--task".to_owned(),
-            "Who calls prepare?".to_owned(),
-            "--task-file".to_owned(),
-            "task.md".to_owned(),
-        ])
-        .unwrap();
-        assert!(flags.task().unwrap_err().contains("only one"));
-    }
-
-    #[test]
-    fn unknown_command_points_at_help() {
-        let error = run(&["serve".to_owned()]).unwrap_err();
-        assert!(error.contains("unknown command"));
-        assert!(error.contains("--help"));
-    }
-
-    #[test]
-    fn prepare_rejects_non_json_format() {
-        let error = run(&[
-            "prepare".to_owned(),
-            "--repo".to_owned(),
-            ".".to_owned(),
-            "--task".to_owned(),
-            "Who calls prepare?".to_owned(),
-            "--format".to_owned(),
-            "markdown".to_owned(),
-        ])
-        .unwrap_err();
-        assert!(error.contains("unsupported --format"));
-    }
-
-    #[test]
-    fn setup_refuses_write() {
-        let error = run(&[
-            "setup".to_owned(),
-            "--agent".to_owned(),
-            "claude-code".to_owned(),
-            "--write".to_owned(),
-        ])
-        .unwrap_err();
-        assert!(error.contains("preview-only"));
-    }
-
-    #[test]
-    fn report_requires_last_flag() {
-        assert!(run(&["report".to_owned()]).unwrap_err().contains("--last"));
-    }
-
-    #[test]
-    fn flags_require_a_task_source() {
-        let flags = Flags::parse(&["--repo".to_owned(), ".".to_owned()]).unwrap();
-        assert!(flags.task().unwrap_err().contains("missing --task"));
-    }
-
-    #[test]
-    fn load_packet_reads_last_json() {
-        let root = std::env::temp_dir().join(format!("cortex-loom-cli-{}", std::process::id()));
-        let dir = cli_dir(&root);
-        fs::create_dir_all(&dir).unwrap();
-        fs::write(
-            dir.join("last.json"),
-            r#"{"task":"Who calls prepare?","packet":{"packetId":"pk_test","taskHash":"abc","symbols":["prepare"],"maxTokens":4000}}"#,
-        )
-        .unwrap();
-        let packet = load_packet(&root, "pk_test").unwrap();
-        assert_eq!(packet.id, "pk_test");
-        assert_eq!(packet.task, "Who calls prepare?");
-        assert_eq!(packet.symbols, ["prepare"]);
-        let _ = fs::remove_dir_all(&root);
-    }
-}
+#[path = "tests.rs"]
+mod tests;

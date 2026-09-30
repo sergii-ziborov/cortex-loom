@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use cortex_context::{RUNTIME_COUNTER, TokenCounter};
 use cortex_domain::{EdgeKind, GraphDocument};
 use serde::{Deserialize, Serialize};
 
@@ -80,7 +81,7 @@ pub fn active_step_packet(
     sort_unique(&mut success_edges);
     sort_unique(&mut recovery_edges);
     sort_unique(&mut escalation_edges);
-    Ok(ActiveStepPacket {
+    let packet = ActiveStepPacket {
         graph_id: graph.id.clone(),
         graph_revision: graph.revision,
         node_id: node.id.clone(),
@@ -94,7 +95,17 @@ pub fn active_step_packet(
         success_edges,
         recovery_edges,
         escalation_edges,
-    })
+    };
+    let serialized = serde_json::to_string(&packet)
+        .map_err(|error| SequenceError::InvalidSequence(error.to_string()))?;
+    let estimated = RUNTIME_COUNTER.count(&serialized);
+    if estimated > packet.max_input_tokens {
+        return Err(SequenceError::InvalidSequence(format!(
+            "active step packet requires {estimated} conservative tokens, exceeds maxInputTokens {}",
+            packet.max_input_tokens
+        )));
+    }
+    Ok(packet)
 }
 
 fn bounded_evidence_ids(values: &[String]) -> Result<Vec<String>, SequenceError> {

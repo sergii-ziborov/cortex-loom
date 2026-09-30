@@ -32,8 +32,8 @@ pub use tools::agent_tools::{
     AgentPacket, AgentPrepare, expand_packet, expand_saved, prepare_packet,
 };
 pub(crate) use tools::{
-    agent_tools, context_tools, graph_skill_tools, route_metric_tools, run_tools, sequence_tools,
-    weavatrix_tools,
+    agent_tools, context_tools, graph_skill_tools, route_metric_tools, run_step_tools, run_tools,
+    sequence_tools, weavatrix_tools,
 };
 
 use llm_route::{LlmRouteConfig, LlmRouter};
@@ -341,6 +341,7 @@ pub fn build_server_with(state: CortexMcpState, profile: ServerProfile) -> Concu
             let server = route_metric_tools::register(server, &state, route);
             let server = weavatrix_tools::register(server, &state);
             let server = run_tools::register(server, Arc::clone(&state));
+            let server = run_step_tools::register(server, &state);
             sequence_tools::register(server, &state)
         }
     }

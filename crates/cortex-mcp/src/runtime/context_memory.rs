@@ -1,26 +1,23 @@
 //! Load high-signal Cortex run events for Weavatrix `memory_context`.
 //!
-//! Until repository/commit/task-signature matching exists, prior memory is
+//! Until repository/commit/task-signature matching exists, memory is
 //! loaded only for an explicit `runId`. Scanning recent Failed runs by
 //! "previous attempt" wording mixes foreign context into the current task.
 
-use cortex_run::{RunEvent, RunEventKind, RunStatus};
+use cortex_run::{RunEvent, RunEventKind};
 use cortex_store::GraphStore;
 use cortex_weavatrix::{PriorRunEvent, PriorRunMemory};
 
-const TAIL_EVENTS: usize = 200;
+const SIGNAL_EVENTS: usize = 32;
 
 pub(crate) fn load_prior(store: &GraphStore, run_id: Option<&str>) -> PriorRunMemory {
     let Some(run_id) = run_id.filter(|id| !id.trim().is_empty()) else {
         return PriorRunMemory::default();
     };
-    let Ok(Some(run)) = store.runs().get(run_id) else {
+    let Ok(Some(_run)) = store.runs().get(run_id) else {
         return PriorRunMemory::default();
     };
-    if run.status == RunStatus::Running {
-        return PriorRunMemory::default();
-    }
-    match store.runs().recent_events(run_id, TAIL_EVENTS) {
+    match store.runs().recent_signal_events(run_id, SIGNAL_EVENTS) {
         Ok(loaded) => {
             PriorRunMemory::from_parts(loaded.into_iter().filter_map(from_run_event).collect())
         }
@@ -31,18 +28,18 @@ pub(crate) fn load_prior(store: &GraphStore, run_id: Option<&str>) -> PriorRunMe
 fn from_run_event(event: RunEvent) -> Option<PriorRunEvent> {
     let kind = match event.kind {
         RunEventKind::NodeFailed => "node_failed",
+        RunEventKind::NodeSucceeded => "node_succeeded",
         RunEventKind::HumanRejected => "human_rejected",
+        RunEventKind::HumanApproved => "human_approved",
         RunEventKind::EvidenceInvalidated => "evidence_invalidated",
         RunEventKind::RetryTriggered => "retry_triggered",
         RunEventKind::Cancelled => "cancelled",
+        RunEventKind::OracleAttested => "oracle_attested",
         RunEventKind::Created
         | RunEventKind::NodeStarted
-        | RunEventKind::NodeSucceeded
         | RunEventKind::EvidenceSubmitted
         | RunEventKind::LeaseClaimed
-        | RunEventKind::LeaseReleased
-        | RunEventKind::HumanApproved
-        | RunEventKind::OracleAttested => return None,
+        | RunEventKind::LeaseReleased => return None,
     };
     Some(PriorRunEvent {
         run_id: if event.run_id.is_empty() {
@@ -81,11 +78,14 @@ mod tests {
     }
 
     #[test]
-    fn only_failures_and_retries_are_mapped() {
+    fn outcomes_and_failures_are_mapped() {
         assert!(from_run_event(event(RunEventKind::NodeStarted, "go")).is_none());
         let failed = from_run_event(event(RunEventKind::NodeFailed, "thin packet")).unwrap();
         assert_eq!(failed.kind, "node_failed");
         assert_eq!(failed.detail.as_deref(), Some("thin packet"));
+        let succeeded =
+            from_run_event(event(RunEventKind::NodeSucceeded, "fixed and checked")).unwrap();
+        assert_eq!(succeeded.kind, "node_succeeded");
     }
 
     #[test]
@@ -97,7 +97,7 @@ mod tests {
     }
 
     #[test]
-    fn running_run_is_not_loaded() {
+    fn running_run_without_signals_loads_nothing() {
         let store = GraphStore::open_in_memory().unwrap();
         let graph = store
             .seed_if_missing(&cortex_domain::default_control_plane())

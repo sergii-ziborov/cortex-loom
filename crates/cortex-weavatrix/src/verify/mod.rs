@@ -379,10 +379,24 @@ fn record_followup_coverage(
     for coverage in coverage_requirements(task, symbol, intent) {
         let name = format!("source_term:{}", coverage.label);
         required.push(name.clone());
-        let in_source = coverage
-            .content_patterns
-            .iter()
-            .any(|pattern| profile.coverage_text.contains(pattern));
+        let in_source = if coverage.label == "runtime_flag" {
+            let wanted = coverage
+                .content_patterns
+                .first()
+                .map_or("cortex_", String::as_str);
+            profile.coverage_fragments.iter().any(|fragment| {
+                fragment
+                    .split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_')
+                    .any(|word| {
+                        word.starts_with("CORTEX_") && word.to_ascii_lowercase().contains(wanted)
+                    })
+            })
+        } else {
+            coverage
+                .content_patterns
+                .iter()
+                .any(|pattern| profile.coverage_text.contains(pattern))
+        };
         // Only named identifiers may close from search/symbol prose.
         // Semantic contracts (`fn rank`, `merge_tiers`) still need a
         // source window, or the first pass skips the retry that finds them.

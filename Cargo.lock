@@ -296,6 +296,7 @@ name = "cortex-sequences"
 version = "0.1.0"
 dependencies = [
  "blazingly-json",
+ "cortex-context",
  "cortex-domain",
  "cortex-skills",
  "hex",

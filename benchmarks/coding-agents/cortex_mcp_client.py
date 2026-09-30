@@ -64,6 +64,23 @@ def call(
     return result_text(receive(stdout, request_id))
 
 
+def assert_effective_lane(prepared: dict[str, Any], backend: str, model: str) -> None:
+    internal = prepared.get("internalModel") or {}
+    effective = internal.get("mode")
+    if effective != backend:
+        raise RuntimeError(f"requested {backend} lane, Cortex reported {effective!r}")
+    if backend == "off":
+        if internal.get("called"):
+            raise RuntimeError("models-off lane invoked a classifier")
+        return
+    if not internal.get("called") or not internal.get("succeeded"):
+        raise RuntimeError(
+            f"{backend} classifier did not succeed: {internal.get('warning') or 'no result'}"
+        )
+    if backend == "composer" and internal.get("classifierModel") != model:
+        raise RuntimeError("composer classifier alias differed from the requested model")
+
+
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
@@ -124,6 +141,9 @@ def main() -> int:
 
     environment = os.environ.copy()
     environment.pop("CORTEX_SEMANTIC", None)
+    for key in list(environment):
+        if key.startswith("CORTEX_SHADOW"):
+            environment.pop(key)
     profiles = Path(__file__).resolve().parents[2] / "config" / "llm-profiles.json"
     if arguments.llm_backend == "off":
         environment.pop("CORTEX_LLM", None)
@@ -140,22 +160,16 @@ def main() -> int:
         environment["CORTEX_COMPOSER_MODEL"] = arguments.classifier_model
     with tempfile.TemporaryDirectory(prefix="cortex-agent-mcp-") as temporary:
         environment["CORTEX_LOOM_DB"] = str(Path(temporary) / "cortex-loom.db")
-        process = subprocess.Popen(
-            [
-                str(binary),
-                "--profile",
-                "agent",
-                "--workspace",
-                str(repository),
-            ],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            encoding="utf-8",
-            bufsize=1,
-            env=environment,
-        )
+        stderr_file = tempfile.TemporaryFile(mode="w+t", encoding="utf-8")
+        try:
+            process = subprocess.Popen(
+                [str(binary), "--profile", "agent", "--workspace", str(repository)],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr_file,
+                text=True, encoding="utf-8", bufsize=1, env=environment,
+            )
+        except Exception:
+            stderr_file.close()
+            raise
         if process.stdin is None or process.stdout is None:
             raise RuntimeError("failed to open Cortex MCP stdio")
         try:
@@ -201,6 +215,7 @@ def main() -> int:
                 "cortex_prepare",
                 prepare_arguments,
             )
+            assert_effective_lane(prepared, arguments.llm_backend, arguments.classifier_model)
             expansions = []
             if arguments.expand_missing:
                 handles = prepared.get("expansionHandles", [])
@@ -226,6 +241,10 @@ def main() -> int:
             json.dump(
                 {
                     "mode": f"cortex_{arguments.llm_backend}",
+                    "effectiveBackend": prepared["internalModel"]["mode"],
+                    "semanticEnabled": False,
+                    "shadowEnabled": False,
+                    "priorRunMemoryAvailable": False,
                     "prepare": prepared,
                     "expansions": expansions,
                 },
@@ -234,6 +253,13 @@ def main() -> int:
                 indent=2,
             )
             sys.stdout.write("\n")
+        except Exception as error:
+            stderr_file.flush()
+            stderr_file.seek(0)
+            detail = stderr_file.read()[-4000:].strip()
+            if detail:
+                raise RuntimeError(f"{error}; Cortex stderr: {detail}") from error
+            raise
         finally:
             process.stdin.close()
             try:
@@ -241,6 +267,7 @@ def main() -> int:
             except subprocess.TimeoutExpired:
                 process.terminate()
                 process.wait(timeout=5)
+            stderr_file.close()
     return 0
 
 

@@ -73,7 +73,7 @@ Four libraries are on crates.io (`cortex-context`, `cortex-domain`,
 ## Try a task without an agent
 
 ```powershell
-cortex-loom prepare --repo . --task-file task.md --budget 6000 --format json
+cortex-loom prepare --repo . --task-file task.md --max-tokens 6000 --format json
 cortex-loom expand --packet <packet-id> --facet callers --format json
 cortex-loom report --last
 ```

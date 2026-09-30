@@ -136,7 +136,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let state = AppState { store };
 
-    let api = Router::new()
+    let api_router = Router::new()
         .route("/api/status", get(status))
         .route("/api/skills/compile", post(compile_skill))
         .route("/api/skills/export", post(export_skill))
@@ -154,10 +154,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .merge(sequences::routes())
         .with_state(state);
     let use_embedded = !settings.explicit_ui_directory && !EMBEDDED_UI.entries().is_empty();
-    let app = if use_embedded {
-        api.fallback(embedded_ui)
+    let server_router = if use_embedded {
+        api_router.fallback(embedded_ui)
     } else {
-        api.fallback_service(
+        api_router.fallback_service(
             ServeDir::new(&settings.ui_directory).append_index_html_on_directories(true),
         )
     };
@@ -178,7 +178,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     );
     println!("Database: {}", settings.database.display());
-    axum::serve(listener, app)
+    axum::serve(listener, server_router)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
     Ok(())

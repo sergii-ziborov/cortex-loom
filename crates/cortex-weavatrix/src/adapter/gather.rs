@@ -361,7 +361,12 @@ impl WeavatrixAdapter {
         if source_followup {
             search_hits.extend(crate::source_followup::hits_from_stack_text(task));
             crate::source_followup::prepend_named_source_hits(&mut search_hits, task);
-            crate::source_followup::prepend_sibling_test_hits(&mut search_hits, task, symbol);
+            crate::source_followup::prepend_sibling_test_hits(
+                &mut search_hits,
+                task,
+                symbol,
+                &root,
+            );
             append_implied_coverage_hits(
                 engine,
                 &root,

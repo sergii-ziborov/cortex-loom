@@ -21,7 +21,7 @@ pub use tokens::{
 };
 
 use std::collections::{HashMap, HashSet};
-use std::fmt::{Display, Formatter};
+use std::fmt::{Display, Formatter, Write as _};
 
 use serde::{Deserialize, Serialize};
 
@@ -338,11 +338,25 @@ fn validate(request: &ContextRequest) -> Result<(), ContextError> {
 }
 
 fn render_item(item: &EvidenceItem, body: &str) -> String {
+    let location = item.locator.as_ref().map_or_else(String::new, |locator| {
+        let mut text = String::new();
+        if let Some(path) = &locator.path
+            && !item.source.contains(path)
+        {
+            let _ = write!(text, " path=\"{}\"", xml_escape(path));
+            if let Some(start) = locator.start_line {
+                let end = locator.end_line.unwrap_or(start);
+                let _ = write!(text, " lines=\"{start}-{end}\"");
+            }
+        }
+        text
+    });
     format!(
-        "<evidence id=\"{}\" trust=\"{}\" source=\"{}\">\n<![CDATA[{}]]>\n</evidence>\n\n",
+        "<evidence id=\"{}\" trust=\"{}\" source=\"{}\"{}>\n<![CDATA[{}]]>\n</evidence>\n\n",
         xml_escape(&item.id),
         xml_escape(&item.heading_label()),
         xml_escape(&item.source),
+        location,
         cdata_escape(body.trim())
     )
 }

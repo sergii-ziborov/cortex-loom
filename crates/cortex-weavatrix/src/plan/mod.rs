@@ -18,10 +18,14 @@ use crate::plan_intent::TaskIntent;
 use crate::{EvidenceKind, PlanHints, PriorRunMemory};
 
 mod coverage;
+mod creation;
+mod focus;
 pub mod intent;
 mod operations;
 
 pub use coverage::asks_for_coverage;
+pub use creation::is_new_feature_without_owner;
+pub use focus::{coding_declaration_query, coding_focus_query};
 pub use operations::search_code_query;
 use operations::{
     asks_for_change_plan, dependents_op, endpoints_op, git_history_op, memory_op, modules_op,
@@ -163,6 +167,9 @@ pub fn extract_identifiers(task: &str) -> Vec<String> {
 
 fn push_identifier(found: &mut Vec<String>, candidate: &str, explicit: bool) {
     let candidate = trim_identifier_token(candidate);
+    if !explicit && creation::is_style_label(candidate) {
+        return;
+    }
     if !(is_identifier(candidate) || (explicit && is_explicit_identifier(candidate))) {
         return;
     }
@@ -410,6 +417,19 @@ fn plan_all(
         }
         TaskIntent::IdentifierChange | TaskIntent::RuntimeConfig | TaskIntent::PriorAttempt => {}
     }
+    // A task can ask for both caller impact and transport entry points.
+    // Intent selects the primary operation, while these explicit requests
+    // preserve the other operation even if a classifier supplied a hint.
+    if intent != TaskIntent::BlastRadius
+        && intent::asks_for_caller_impact(task)
+        && let Some(symbol) = symbol.filter(|name| crate::fold::is_graph_symbol(name))
+    {
+        operations.push(dependents_op(symbol, policy));
+        operations.push(operations::references_op(symbol, policy));
+    }
+    if intent != TaskIntent::ApiContract && intent::asks_for_endpoint_impact(task) {
+        operations.push(endpoints_op(policy));
+    }
     if let Some(prior) = prior.filter(|memory| !memory.is_empty())
         && let Some(memory) = memory_op(task, prior, policy)
     {
@@ -427,6 +447,14 @@ fn plan_all(
             search_budget,
             policy,
             intent,
+            inventory_glob,
+        ));
+    }
+    if intent == TaskIntent::IdentifierChange && is_new_feature_without_owner(task) {
+        operations.extend(focus::planned_ops(
+            task,
+            search_budget,
+            policy,
             inventory_glob,
         ));
     }
@@ -465,5 +493,7 @@ const fn skip_secondary_graph(intent: TaskIntent) -> bool {
     )
 }
 
+#[cfg(test)]
+mod impact_tests;
 #[cfg(test)]
 mod plan_tests;

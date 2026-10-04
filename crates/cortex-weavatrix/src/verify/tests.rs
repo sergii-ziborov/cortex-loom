@@ -6,6 +6,144 @@ fn fragment(id: &str, kind: EvidenceKind, content: &str) -> EvidenceFragment {
 }
 
 #[test]
+fn impact_coverage_needs_complete_callers_and_transport_evidence() {
+    let task = "How do changes to `compile_evidence_bundle` affect its callers and the MCP/HTTP entry points used by `cortex_prepare`?";
+    let mut partial_callers = fragment(
+        "ev_callers",
+        EvidenceKind::Dependents,
+        "  <- calls compile_evidence_bundle (function) src/caller.rs:10",
+    );
+    partial_callers.declared_complete = Some(false);
+    let bundle = EvidenceBundle {
+        repository: "repo".to_owned(),
+        evidence: vec![
+            fragment(
+                "ev_search",
+                EvidenceKind::SearchHits,
+                "src/caller.rs:10: compile_evidence_bundle; cortex_prepare",
+            ),
+            fragment(
+                "ev_definition",
+                EvidenceKind::SourceReads,
+                "pub fn compile_evidence_bundle() { cortex_prepare(); }",
+            ),
+            partial_callers,
+            fragment("ev_endpoints", EvidenceKind::Endpoints, "POST /mcp"),
+        ],
+        ..EvidenceBundle::default()
+    };
+    let selected = |count: usize| {
+        bundle.evidence[..count]
+            .iter()
+            .map(|item| item.id.clone())
+            .collect::<Vec<_>>()
+    };
+    let assess = |ids: &[String]| {
+        assess_compiled(
+            &bundle,
+            ids,
+            task,
+            Some("compile_evidence_bundle"),
+            PlanHints::default(),
+            false,
+            false,
+        )
+    };
+    let definition_only = assess(&selected(2));
+    assert!(!definition_only.sufficient);
+    assert!(
+        definition_only
+            .required_evidence
+            .contains(&"dependents".to_owned())
+    );
+    assert!(
+        definition_only
+            .required_evidence
+            .contains(&"endpoints".to_owned())
+    );
+    assert!(
+        definition_only
+            .certificate
+            .missing
+            .contains(&"direct_callers".to_owned())
+    );
+    assert!(
+        definition_only
+            .certificate
+            .missing
+            .contains(&"public_api_effect".to_owned())
+    );
+
+    let partial = assess(&selected(4));
+    assert!(!partial.sufficient);
+    assert_eq!(partial.certificate.missing, ["direct_callers"]);
+    assert!(!partial.certificate.satisfied.contains_key("direct_callers"));
+
+    let mut complete = bundle.clone();
+    complete.evidence[2].declared_complete = Some(true);
+    let report = assess_compiled(
+        &complete,
+        &selected(4),
+        task,
+        Some("compile_evidence_bundle"),
+        PlanHints::default(),
+        false,
+        false,
+    );
+    assert!(report.sufficient, "{report:?}");
+}
+
+#[test]
+fn call_chain_through_http_needs_more_than_the_target_definition() {
+    let task = "Investigate the call chain from compile_evidence_bundle through the Cortex MCP agent profile and HTTP transport; identify direct and transitive effects of added compile_context rejections.";
+    let bundle = EvidenceBundle {
+        repository: "repo".to_owned(),
+        evidence: vec![
+            fragment(
+                "ev_search",
+                EvidenceKind::SearchHits,
+                "compile_evidence_bundle in src/context.rs",
+            ),
+            fragment(
+                "ev_definition",
+                EvidenceKind::SourceReads,
+                "pub fn compile_evidence_bundle() {}",
+            ),
+        ],
+        ..EvidenceBundle::default()
+    };
+    let report = assess_compiled(
+        &bundle,
+        &["ev_search".to_owned(), "ev_definition".to_owned()],
+        task,
+        Some("compile_evidence_bundle"),
+        PlanHints::default(),
+        true,
+        false,
+    );
+    assert!(!report.sufficient);
+    assert!(
+        report
+            .certificate
+            .missing
+            .contains(&"direct_callers".to_owned())
+    );
+    assert!(
+        report
+            .certificate
+            .missing
+            .contains(&"public_api_effect".to_owned())
+    );
+    assert!(
+        report
+            .missing_evidence
+            .iter()
+            .any(|item| item.contains("http_transport")),
+        "{report:?}"
+    );
+}
+
+#[test]
 fn config_context_is_thin_until_search_and_source_both_survive() {
     let bundle = EvidenceBundle {
         repository: "repo".to_owned(),

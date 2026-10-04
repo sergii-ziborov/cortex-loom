@@ -55,3 +55,69 @@ fn upstream_page_continuation_keeps_callers_incomplete() {
     assert_eq!(items[0].total_known, Some(4));
     assert_eq!(items[0].continuation.as_deref(), Some("v1:1"));
 }
+
+#[test]
+fn scoped_ui_search_preserves_hits_under_a_small_budget() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .unwrap();
+    let mut engine = weavatrix_rust::Weavatrix::open(&root).unwrap();
+    let value = native_call(
+        &mut engine,
+        &root,
+        "search_code",
+        json!({
+            "query": "(?i)\\bpriority\\b", "is_regex": true,
+            "glob": "ui/src/**/*.{ts,tsx,js,jsx}", "max_results": 40,
+            "before": 1, "after": 1, "token_budget": 800
+        }),
+    )
+    .unwrap();
+    let matches = value["matches"].as_array().unwrap();
+    assert!(
+        matches
+            .iter()
+            .any(|hit| hit["path"] == "ui/src/components/helpContent.ts"),
+        "{value}"
+    );
+    assert!(
+        matches
+            .iter()
+            .all(|hit| !hit["path"].as_str().unwrap_or("").contains("node_modules"))
+    );
+}
+
+#[test]
+fn unscoped_focus_search_keeps_product_hits_under_a_small_budget() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .unwrap();
+    let mut engine = weavatrix_rust::Weavatrix::open(&root).unwrap();
+    let value = native_call(
+        &mut engine,
+        &root,
+        "search_code",
+        json!({
+            "query": "(?i)\\bpriority\\b", "is_regex": true,
+            "max_results": 40, "before": 1, "after": 1,
+            "token_budget": 800
+        }),
+    )
+    .unwrap();
+    let matches = value["matches"].as_array().unwrap();
+    assert!(
+        matches.iter().any(|hit| {
+            hit["path"]
+                .as_str()
+                .is_some_and(|path| path.starts_with("crates/") || path.starts_with("ui/src/"))
+        }),
+        "{value}"
+    );
+    assert!(
+        matches
+            .iter()
+            .all(|hit| { !hit["path"].as_str().unwrap_or("").contains("node_modules") })
+    );
+}

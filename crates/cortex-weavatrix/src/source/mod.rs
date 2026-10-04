@@ -9,81 +9,12 @@ use serde_json::{Value, json};
 
 use crate::plan::PlanPolicy;
 
-/// Most distinct source windows to open after a search. Beyond this the
-/// follow-up starts to resemble a directory sweep.
-pub const MAX_SOURCE_FILES: usize = 6;
-
-/// Lines kept above and below each hit.
-///
-/// `serve_http` sits ~20 lines above the `/mcp` route registration; keep a
-/// generous above-window so the entry point lands in the same read.
-pub const SOURCE_BEFORE: u32 = 24;
-pub const SOURCE_AFTER: u32 = 48;
-
-/// Window shape for one gather pass.
-///
-/// A broad, enumerating question needs more and larger windows than an
-/// identifier question: the measured cross-cutting probe compiled barely half
-/// its budget and lost every fact that lived one file away from the hits.
-/// Breadth widens the follow-up deterministically; the compiler budget is
-/// still the ceiling, so a widened gather can never overrun the packet.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SourceWindow {
-    /// Distinct files to open.
-    pub max_files: usize,
-    /// Lines above each hit.
-    pub before: u32,
-    /// Lines below each hit.
-    pub after: u32,
-    /// Numerator of the budget share the source pool may use (denominator 5).
-    pub pool_fifths: u32,
-    /// Extra per-file ceiling. `0` means the pool split is the only cap.
-    pub max_per_file: u32,
-}
-
-impl SourceWindow {
-    /// Window for one task: enumerating questions get the wide shape.
-    ///
-    /// The pool grew to four fifths once graph answers rendered as text:
-    /// a broad question was compiling 2 518 of 4 000 and still missing
-    /// one-file-away facts.
-    #[must_use]
-    pub fn for_task(task: &str) -> Self {
-        if crate::plan_intent::is_broad(task) {
-            Self {
-                max_files: 9,
-                before: SOURCE_BEFORE,
-                after: 120,
-                pool_fifths: 4,
-                max_per_file: 0,
-            }
-        } else if crate::plan_intent::detect(task) == crate::plan_intent::TaskIntent::TestSelection
-        {
-            // Head + one later site: JSON token_budget from line 1 misses line 50.
-            Self {
-                max_files: 2,
-                before: SOURCE_BEFORE,
-                after: 32,
-                pool_fifths: 1,
-                max_per_file: 280,
-            }
-        } else {
-            Self::default()
-        }
-    }
-}
-
-impl Default for SourceWindow {
-    fn default() -> Self {
-        Self {
-            max_files: MAX_SOURCE_FILES,
-            before: SOURCE_BEFORE,
-            after: SOURCE_AFTER,
-            pool_fifths: 2,
-            max_per_file: 0,
-        }
-    }
-}
+mod coding;
+mod owner;
+mod window;
+pub(crate) use owner::{coding_owner_hit, owner_budget};
+use window::schema_key_mentioned;
+pub use window::{SOURCE_BEFORE, SourceWindow};
 
 /// Where a symbol's definition head sits in a text, if it is there at all.
 ///
@@ -237,7 +168,10 @@ pub fn hits_from_search(value: &Value) -> Vec<SearchHit> {
     hits
 }
 
+#[cfg(test)]
+mod coding_tests;
 mod hits;
+pub use hits::already_a_test_path as is_test_path;
 #[cfg(test)]
 pub use hits::sibling_test_hits;
 pub use hits::{
@@ -262,6 +196,10 @@ pub fn unique_paths_for_patterns(
     task: &str,
 ) -> Vec<SearchHit> {
     let hits = hits::keep_product_hits(hits, task);
+    let distinct_files = crate::plan::is_new_feature_without_owner(task);
+    let schema_in_mcp = distinct_files
+        && task.to_ascii_lowercase().contains("mcp")
+        && task.to_ascii_lowercase().contains("schema");
     let mut preferred_paths: std::collections::HashMap<&str, std::collections::HashSet<&str>> =
         std::collections::HashMap::new();
     for hit in &hits {
@@ -290,10 +228,31 @@ pub fn unique_paths_for_patterns(
             (
                 path_rank(&hit.path, task)
                     .saturating_mul(10)
+                    .saturating_add(
+                        if distinct_files
+                            && !hits::already_a_test_path(&hit.path)
+                            && declaration_hit(&hit.text)
+                        {
+                            500
+                        } else {
+                            0
+                        },
+                    )
+                    .saturating_add(
+                        if schema_in_mcp
+                            && hit.path.contains("mcp")
+                            && schema_key_mentioned(task, &hit.text)
+                        {
+                            300
+                        } else {
+                            0
+                        },
+                    )
                     .saturating_add(affinity)
                     .saturating_add(preference_score(&hit.text, preferred_patterns))
                     .saturating_add(hits::test_suite_head_bonus(hit, task))
-                    .saturating_add(hits::same_crate_test_bonus(hit, &hits, task)),
+                    .saturating_add(hits::same_crate_test_bonus(hit, &hits, task))
+                    .saturating_add(hits::coding_test_bonus(hit, &hits, task)),
                 index,
                 hit,
             )
@@ -302,6 +261,9 @@ pub fn unique_paths_for_patterns(
     ranked.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(&right.1)));
     let mut chosen: Vec<SearchHit> = Vec::new();
     for (_, _, hit) in &ranked {
+        if distinct_files && chosen.iter().any(|seen| seen.path == hit.path) {
+            continue;
+        }
         if let Some(index) = chosen.iter().position(|seen: &SearchHit| {
             seen.path == hit.path && seen.line.abs_diff(hit.line) <= SOURCE_BEFORE
         }) {
@@ -317,9 +279,32 @@ pub fn unique_paths_for_patterns(
             break;
         }
     }
-    reserve_uncovered_patterns(&mut chosen, &ranked, preferred_patterns, max_files);
+    reserve_uncovered_patterns(
+        &mut chosen,
+        &ranked,
+        preferred_patterns,
+        max_files,
+        distinct_files,
+    );
     hits::keep_suite_head_and_one_later(&mut chosen, task);
+    coding::open_coding_tests_from_head(&mut chosen, task);
     chosen
+}
+
+fn declaration_hit(text: &str) -> bool {
+    let line = text.trim_start();
+    [
+        "enum ",
+        "struct ",
+        "class ",
+        "type ",
+        "trait ",
+        "interface ",
+        "fn ",
+        "def ",
+    ]
+    .iter()
+    .any(|head| line.starts_with(head) || line.starts_with(&format!("pub {head}")))
 }
 
 /// Keep one window for each preferred term no selected hit carries.
@@ -332,6 +317,7 @@ fn reserve_uncovered_patterns(
     ranked: &[(i32, usize, &SearchHit)],
     preferred_patterns: &[String],
     max_files: usize,
+    distinct_files: bool,
 ) {
     for pattern in preferred_patterns {
         let needle = pattern.to_ascii_lowercase();
@@ -345,7 +331,8 @@ fn reserve_uncovered_patterns(
         let Some((_, _, hit)) = ranked.iter().find(|(_, _, hit)| {
             hit.text.to_ascii_lowercase().contains(&needle)
                 && !chosen.iter().any(|seen| {
-                    seen.path == hit.path && seen.line.abs_diff(hit.line) <= SOURCE_BEFORE
+                    seen.path == hit.path
+                        && (distinct_files || seen.line.abs_diff(hit.line) <= SOURCE_BEFORE)
                 })
         }) else {
             continue;
@@ -374,14 +361,10 @@ fn path_rank(path: &str, task: &str) -> i32 {
     let normalized = path.replace('\\', "/");
     let lower = normalized.to_ascii_lowercase();
     let task_fold = crate::fold::fold_text(task);
-    let wants_ui = task_fold.contains("ui")
-        || task_fold.contains("frontend")
-        || task_fold.contains("tsx")
-        || task_fold.contains("react")
-        || task_fold.contains("css");
+    let wants_ui = crate::plan_intent::asks_for_ui(task);
     let wants_tests = crate::plan_intent::detect(task)
         == crate::plan_intent::TaskIntent::TestSelection
-        || task_fold.contains("test");
+        || crate::plan_intent::asks_for_test_source(task);
     let extension = std::path::Path::new(&lower)
         .extension()
         .and_then(|ext| ext.to_str())
@@ -400,11 +383,24 @@ fn path_rank(path: &str, task: &str) -> i32 {
     if lower.starts_with("apps/") || lower.starts_with("crates/") {
         score += 20;
     }
+    if task_fold.contains("mcp")
+        && task_fold.contains("schema")
+        && lower.split('/').any(|part| part.contains("mcp"))
+    {
+        score += 10;
+    }
+    if (lower.starts_with("benchmarks/") || lower.split('/').any(|part| part.ends_with("-bench")))
+        && !task_fold.contains("bench")
+        && crate::plan_intent::is_coding_change(task)
+        && crate::plan::extract_identifiers(task).is_empty()
+    {
+        score -= 60;
+    }
     if lower.starts_with("config/") || lower.ends_with("/.env") || lower == ".env" {
         score += 35;
     }
     if lower.starts_with("ui/") || lower.contains("/ui/") {
-        score += if wants_ui { 35 } else { -5 };
+        score += if wants_ui { 65 } else { -5 };
     }
     let is_test_path = lower.contains("/tests/")
         || lower.contains("/test/")

@@ -468,9 +468,14 @@ mod tests {
     }
 
     #[test]
-    fn bundled_run_is_byte_deterministic() {
-        let first = serde_json::to_vec_pretty(&run(None).unwrap()).unwrap();
-        let second = serde_json::to_vec_pretty(&run(None).unwrap()).unwrap();
+    fn bundled_run_is_deterministic_apart_from_wall_clock_sla() {
+        let mut first = run(None).unwrap();
+        let mut second = run(None).unwrap();
+        // The p95 SLA depends on host load; it is measured, not deterministic.
+        first.gate.p95_sla_passed = false;
+        second.gate.p95_sla_passed = false;
+        let first = serde_json::to_vec_pretty(&first).unwrap();
+        let second = serde_json::to_vec_pretty(&second).unwrap();
         assert_eq!(first, second);
     }
 

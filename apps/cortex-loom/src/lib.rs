@@ -130,13 +130,14 @@ fn prepare(arguments: &[String]) -> Result<(), String> {
     let state = CortexMcpState::open(database_in(&repository))?;
     let packet = prepare_packet(
         &state,
-        AgentPrepare {
+        &AgentPrepare {
             repository: repository.clone(),
             task: task.clone(),
             run_id: flags.optional("run-id"),
             budget_class,
             max_tokens,
             classifier_model: flags.optional("classifier-model"),
+            response_format: None,
         },
     )?;
     persist_last(&repository, &task, &packet)?;

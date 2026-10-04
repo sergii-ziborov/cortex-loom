@@ -5,7 +5,7 @@
 //! work is allowed to spend more so the packet stays complete.
 
 use crate::plan::extract_identifiers;
-use crate::plan_intent::{TaskIntent, detect, is_broad};
+use crate::plan_intent::{TaskIntent, detect, is_broad, is_coding_change};
 
 pub const MIN_BUDGET: u32 = 1_200;
 pub const MAX_BUDGET: u32 = 10_000;
@@ -65,7 +65,37 @@ pub fn adaptive_budget(task: &str, pin: BudgetPin) -> u32 {
     if mixed_script(task) {
         tokens = tokens.saturating_add(500);
     }
+    // A cross-surface edit needs editable source for each requested concern.
+    // The earlier 2.4k default carried four filenames but too little code,
+    // so the coding agent immediately reopened every cited file. Do not
+    // widen a single-file change or override an explicit tight/normal pin.
+    if is_coding_change(task) && pin == BudgetPin::Auto {
+        tokens = match coding_surfaces(task) {
+            0 | 1 => tokens,
+            2 => tokens.max(6_000),
+            _ => tokens.max(10_000),
+        };
+    }
     clamp(tokens, pin)
+}
+
+fn coding_surfaces(task: &str) -> usize {
+    let lower = crate::fold::fold_text(task);
+    let words: std::collections::HashSet<_> = lower
+        .split(|ch: char| !ch.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .collect();
+    [
+        ["ui", "frontend", "react", "tsx"].as_slice(),
+        &["mcp", "tool", "schema"],
+        &["test", "tests", "regression"],
+        &["cli", "command"],
+        &["config", "configuration"],
+        &["http", "api", "endpoint"],
+    ]
+    .iter()
+    .filter(|family| family.iter().any(|word| words.contains(word)))
+    .count()
 }
 
 fn clamp(tokens: u32, pin: BudgetPin) -> u32 {
@@ -117,5 +147,22 @@ mod tests {
             BudgetPin::Tight,
         );
         assert!(tokens <= 2_000, "{tokens}");
+    }
+
+    #[test]
+    fn cross_surface_coding_gets_editable_context_without_widening_small_edits() {
+        let small = adaptive_budget("Rename `read_limited`", BudgetPin::Auto);
+        let multi = adaptive_budget(
+            "Add Elevated priority; update MCP schema, UI help, and focused tests",
+            BudgetPin::Auto,
+        );
+        assert!(small < 3_200, "{small}");
+        assert_eq!(multi, 10_000, "{multi}");
+        assert!(
+            adaptive_budget(
+                "Add Elevated priority; update MCP schema, UI help, and focused tests",
+                BudgetPin::Normal,
+            ) <= 5_000
+        );
     }
 }

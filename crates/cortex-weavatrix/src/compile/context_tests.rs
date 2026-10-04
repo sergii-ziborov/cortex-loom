@@ -69,6 +69,38 @@ fn search_and_dependents_outrank_graph_stats_but_never_the_task() {
 }
 
 #[test]
+fn unnamed_code_change_keeps_editable_source_ahead_of_search_rows() {
+    let bundle = EvidenceBundle {
+        repository: "repo".to_owned(),
+        evidence: vec![
+            fragment("WX-SEARCH-1", EvidenceKind::SearchHits, "priority hit"),
+            fragment("WX-SEARCH-2", EvidenceKind::SearchHits, "priority hit"),
+            fragment(
+                "WX-ENUM",
+                EvidenceKind::SourceReads,
+                "pub enum EvidencePriority {}",
+            ),
+            fragment("WX-MCP", EvidenceKind::SourceReads, "MCP priority schema"),
+            fragment("WX-UI", EvidenceKind::SourceReads, "UI priority help"),
+        ],
+        ..EvidenceBundle::default()
+    };
+    let task = "Add an Elevated priority; update the MCP schema and UI help";
+    let compiled = compile_evidence_bundle(bundle, task, 1_000, None).unwrap();
+    let ids = &compiled.context.included_ids;
+    let source_positions = ["WX-ENUM", "WX-MCP", "WX-UI"]
+        .iter()
+        .map(|id| ids.iter().position(|item| item == id).unwrap())
+        .collect::<Vec<_>>();
+    let search_position = ids.iter().position(|item| item == "WX-SEARCH-1").unwrap();
+    assert!(
+        source_positions
+            .iter()
+            .all(|index| *index < search_position)
+    );
+}
+
+#[test]
 fn a_broad_packet_labels_only_mechanisms_already_present() {
     let task = "List every mechanism that can silently cause an archive miss.";
     let bundle = EvidenceBundle {

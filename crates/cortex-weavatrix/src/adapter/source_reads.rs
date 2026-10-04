@@ -46,8 +46,7 @@ pub(super) fn append_implied_coverage_hits(
             "before": 2,
             "after": 2,
             "max_results": 24,
-            "glob": "{src,apps,crates,ui,config}/**/*",
-            "token_budget": 400,
+            "token_budget": 800,
         });
         match native_call(engine, root, "search_code", arguments) {
             Ok(value) => {
@@ -71,12 +70,18 @@ pub(super) fn append_source_reads(
     policy: crate::plan::PlanPolicy,
     plan: SourceReadPlan<'_>,
 ) {
-    let paths = crate::source_followup::unique_paths_for_patterns(
+    let mut paths = crate::source_followup::unique_paths_for_patterns(
         search_hits,
         plan.window.max_files,
         plan.preferred_patterns,
         plan.task,
     );
+    let owner = crate::source_followup::coding_owner_hit(evidence, plan.task);
+    if let Some(owner) = &owner {
+        paths.retain(|hit| hit.path != owner.path);
+        paths.truncate(plan.window.max_files.saturating_sub(1));
+        paths.insert(0, owner.clone());
+    }
     if paths.is_empty() {
         warnings.push("source follow-up skipped: search returned no file paths".to_owned());
         return;
@@ -96,18 +101,35 @@ pub(super) fn append_source_reads(
         if already_has_source(evidence, hit) {
             continue;
         }
-        let arguments = read_arguments_for(hit, per_file, plan.window, plan.task);
+        let is_owner = index == 0 && owner.as_ref().is_some_and(|owner| owner.path == hit.path);
+        let arguments = if is_owner {
+            json!({
+                "path": hit.path,
+                "start_line": 1,
+                "before": 0,
+                "after": 320,
+                "token_budget": crate::source_followup::owner_budget(budget),
+            })
+        } else {
+            read_arguments_for(hit, per_file, plan.window, plan.task)
+        };
         match native_call(engine, root, "read_source", arguments) {
             Ok(value) => {
                 if let Some(overrun) = budget_overrun("read_source", &value) {
                     warnings.push(overrun);
                 }
-                evidence.extend(fragments(
+                let mut added = fragments(
                     &format!("{}-{}", plan.id_prefix, index + 1),
                     EvidenceKind::SourceReads,
                     "weavatrix:read_source",
                     &value,
-                ));
+                );
+                for fragment in &mut added {
+                    // The requested repository path is known even when an
+                    // engine response omits path metadata.
+                    fragment.locator.path = Some(hit.path.clone());
+                }
+                evidence.extend(added);
             }
             Err(error) => {
                 warnings.push(format!("read_source unavailable for {}: {error}", hit.path));
@@ -248,10 +270,9 @@ pub(super) fn append_definition_read_as(
                         fragment.declared_complete = Some(complete);
                         fragment.locator.path = Some(hit.path.clone());
                         fragment.locator.start_line = Some(start_line);
-                        if let Some(end) = graph_span
-                            .as_ref()
-                            .and_then(|locator| locator.end_line)
-                            .or_else(|| lines_range(&value).map(|(_, end)| end))
+                        if let Some(end) = lines_range(&value)
+                            .map(|(_, end)| end)
+                            .or_else(|| graph_span.as_ref().and_then(|locator| locator.end_line))
                         {
                             fragment.locator.end_line = Some(end);
                         }
@@ -431,6 +452,19 @@ fn read_arguments_for(
             "before": 0,
             "after": 800,
             "token_budget": token_budget.max(2_400),
+        });
+    }
+    if hit.line == 1
+        && token_budget >= 1_000
+        && crate::plan_intent::asks_for_test_source(task)
+        && crate::source_followup::is_test_path(&hit.path)
+    {
+        return json!({
+            "path": hit.path,
+            "start_line": 1,
+            "before": 0,
+            "after": window.after,
+            "token_budget": token_budget.max(1_600),
         });
     }
     crate::source_followup::read_arguments_with(hit, token_budget, window)

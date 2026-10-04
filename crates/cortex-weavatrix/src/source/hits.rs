@@ -53,6 +53,37 @@ pub fn same_crate_test_bonus(hit: &SearchHit, hits: &[SearchHit], task: &str) ->
     if owner_mentions_symbol { 80 } else { -300 }
 }
 
+/// A coding task's test slot belongs to the crate with the requested
+/// declaration. Otherwise generic `context_compile` test hits can crowd out
+/// the actual enum and MCP schema source windows.
+#[must_use]
+pub fn coding_test_bonus(hit: &SearchHit, hits: &[SearchHit], task: &str) -> i32 {
+    if !crate::plan_intent::asks_for_test_source(task) || !already_a_test_path(&hit.path) {
+        return 0;
+    }
+    let path = hit.path.replace('\\', "/");
+    let Some(root) = crate_root(&path) else {
+        return -1_000;
+    };
+    let task = crate::fold::fold_text(task);
+    let requested: Vec<_> = task
+        .split(|ch: char| !ch.is_alphanumeric())
+        .filter(|word| word.len() >= 5)
+        .collect();
+    if hits.iter().any(|other| {
+        !already_a_test_path(&other.path)
+            && crate_root(&other.path.replace('\\', "/")) == Some(root)
+            && super::declaration_hit(&other.text)
+            && requested
+                .iter()
+                .any(|word| other.text.to_ascii_lowercase().contains(word))
+    }) {
+        if hit.line <= 8 { 450 } else { 250 }
+    } else {
+        -1_000
+    }
+}
+
 fn crate_root(path: &str) -> Option<&str> {
     path.find("/src/")
         .or_else(|| path.find("/tests/"))
@@ -211,11 +242,21 @@ pub fn keep_suite_head_and_one_later(chosen: &mut Vec<SearchHit>, task: &str) {
 }
 
 /// Put the owning crate's `tests.rs` ahead of mid-file search hits.
-pub fn prepend_sibling_test_hits(hits: &mut Vec<SearchHit>, task: &str, symbol: Option<&str>) {
-    if crate::plan_intent::detect(task) != crate::plan_intent::TaskIntent::TestSelection {
+pub fn prepend_sibling_test_hits(
+    hits: &mut Vec<SearchHit>,
+    task: &str,
+    symbol: Option<&str>,
+    root: &std::path::Path,
+) {
+    if crate::plan_intent::detect(task) != crate::plan_intent::TaskIntent::TestSelection
+        && !crate::plan_intent::asks_for_test_source(task)
+    {
         return;
     }
-    let siblings = sibling_test_hits(hits, symbol);
+    let siblings: Vec<_> = sibling_test_hits(hits, symbol)
+        .into_iter()
+        .filter(|hit| root.join(&hit.path).is_file())
+        .collect();
     if siblings.is_empty() {
         return;
     }
@@ -257,7 +298,11 @@ pub fn sibling_test_hits(hits: &[SearchHit], symbol: Option<&str>) -> Vec<Search
                         .contains(&symbol.to_ascii_lowercase())
                 })
             }),
-        _ => product.first().copied(),
+        _ => product
+            .iter()
+            .copied()
+            .find(|hit| super::declaration_hit(&hit.text))
+            .or_else(|| product.first().copied()),
     };
     let mut extra = Vec::new();
     let Some(hit) = owner else {
@@ -286,7 +331,7 @@ fn is_rust_path(path: &str) -> bool {
         .is_some_and(|ext| ext.eq_ignore_ascii_case("rs"))
 }
 
-fn already_a_test_path(path: &str) -> bool {
+pub fn already_a_test_path(path: &str) -> bool {
     let lower = path.to_ascii_lowercase();
     lower.ends_with("tests.rs")
         || lower.contains("/tests/")

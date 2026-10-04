@@ -64,7 +64,9 @@ def call(
     return result_text(receive(stdout, request_id))
 
 
-def assert_effective_lane(prepared: dict[str, Any], backend: str, model: str) -> None:
+def assert_effective_lane(
+    prepared: dict[str, Any], backend: str, model: str, *, allow_policy_skip: bool = False,
+) -> None:
     internal = prepared.get("internalModel") or {}
     effective = internal.get("mode")
     if effective != backend:
@@ -73,10 +75,22 @@ def assert_effective_lane(prepared: dict[str, Any], backend: str, model: str) ->
         if internal.get("called"):
             raise RuntimeError("models-off lane invoked a classifier")
         return
+    if not internal.get("called") and allow_policy_skip:
+        if (
+            internal.get("skipReason") == "lexical_floor_upstream_strong"
+            and prepared.get("routing", {}).get("modelTier") == "upstream_strong"
+        ):
+            return
+        raise RuntimeError("classifier was skipped without an upstream routing ceiling")
     if not internal.get("called") or not internal.get("succeeded"):
         raise RuntimeError(
             f"{backend} classifier did not succeed: {internal.get('warning') or 'no result'}"
         )
+    if backend == "local" and (
+        internal.get("role") != "routing_classifier"
+        or internal.get("agentModel") != "qwen3-8b"
+    ):
+        raise RuntimeError("local benchmark did not report the configured Qwen3-8B classifier")
     if backend == "composer" and internal.get("classifierModel") != model:
         raise RuntimeError("composer classifier alias differed from the requested model")
 
@@ -117,6 +131,11 @@ def main() -> int:
         choices=("composer", "sonnet-5", "opus-5", "haiku"),
         default="composer",
         help="Loopback proxy model when --llm-backend=composer.",
+    )
+    parser.add_argument(
+        "--allow-policy-skip",
+        action="store_true",
+        help="Allow a configured model that was correctly skipped for an upstream coding task; report modelUsed=false.",
     )
     arguments = parser.parse_args()
 
@@ -215,7 +234,10 @@ def main() -> int:
                 "cortex_prepare",
                 prepare_arguments,
             )
-            assert_effective_lane(prepared, arguments.llm_backend, arguments.classifier_model)
+            assert_effective_lane(
+                prepared, arguments.llm_backend, arguments.classifier_model,
+                allow_policy_skip=arguments.allow_policy_skip,
+            )
             expansions = []
             if arguments.expand_missing:
                 handles = prepared.get("expansionHandles", [])
@@ -242,6 +264,7 @@ def main() -> int:
                 {
                     "mode": f"cortex_{arguments.llm_backend}",
                     "effectiveBackend": prepared["internalModel"]["mode"],
+                    "modelUsed": bool(prepared["internalModel"]["called"]),
                     "semanticEnabled": False,
                     "shadowEnabled": False,
                     "priorRunMemoryAvailable": False,

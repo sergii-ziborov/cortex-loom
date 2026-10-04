@@ -30,12 +30,17 @@ pub(super) fn coverage_requirements(
     }
     let runtime_flag =
         runtime_flag_requirement(symbol.or_else(|| identifiers.first().map(String::as_str)));
-    for identifier in identifiers.into_iter().take(4) {
-        requirements.push(requirement(
-            format!("identifier:{identifier}"),
-            &[&identifier.to_ascii_lowercase()],
-            &[&crate::plan::search_pattern(&[identifier])],
-        ));
+    // A new feature may name a tool label or future member without naming an
+    // existing owner. Requiring every such label in the delivered packet
+    // creates false insufficiency after the source owners are already found.
+    if symbol.is_some() || !crate::plan::is_new_feature_without_owner(task) {
+        for identifier in identifiers.into_iter().take(4) {
+            requirements.push(requirement(
+                format!("identifier:{identifier}"),
+                &[&identifier.to_ascii_lowercase()],
+                &[&crate::plan::search_pattern(&[identifier])],
+            ));
+        }
     }
     requirements.extend(lifecycle_requirements(&lower, symbol, intent, runtime_flag));
     requirements.extend(route_store_requirements(&lower, intent));
@@ -43,6 +48,24 @@ pub(super) fn coverage_requirements(
     requirements.extend(quiet_mode_requirements(&lower));
     requirements.extend(block_join_requirements(&lower));
     requirements.extend(sibling_surface_requirements(&lower, intent));
+    if crate::plan_intent::asks_for_test_source(task) {
+        requirements.push(CoverageRequirement {
+            label: "test_source".to_owned(),
+            content_patterns: [
+                "tests.rs\n",
+                ".test.ts\n",
+                ".test.tsx\n",
+                "_test.py\n",
+                "/tests/",
+                "#[cfg(test)]",
+                "#[test]",
+            ]
+            .iter()
+            .map(|item| (*item).to_owned())
+            .collect(),
+            search_patterns: vec![r"#\[test\]|\.test\.|/tests/".to_owned()],
+        });
+    }
     requirements
 }
 
@@ -139,7 +162,9 @@ fn sibling_surface_requirements(lower: &str, intent: TaskIntent) -> Vec<Coverage
             &["mcp-session-id", "Mcp-Session-Id"],
         ));
     }
-    if intent == TaskIntent::BlastRadius && lower.contains("compile_context") {
+    if (intent == TaskIntent::BlastRadius || crate::plan_intent::asks_for_caller_impact(lower))
+        && lower.contains("compile_context")
+    {
         requirements.push(requirement(
             "mcp_server_builder",
             &["build_server"],

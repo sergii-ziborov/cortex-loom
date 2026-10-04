@@ -1,5 +1,15 @@
 use super::*;
 
+#[test]
+fn exact_source_heading_exposes_path_and_line_range() {
+    let mut source = item("source", "fn example() {}", EvidencePriority::High);
+    source.source = "weavatrix:read_source".to_owned();
+    source.locator.as_mut().unwrap().end_line = Some(12);
+    let rendered = render_item(&source, &source.content);
+    assert!(rendered.contains("path=\"src/source.rs\" lines=\"1-12\""));
+    assert!(rendered.contains("fn example() {}"));
+}
+
 fn item(id: &str, content: &str, priority: EvidencePriority) -> EvidenceItem {
     let mut item = EvidenceItem::new(
         id,

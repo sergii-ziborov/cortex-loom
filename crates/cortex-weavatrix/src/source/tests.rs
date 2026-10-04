@@ -53,6 +53,66 @@ fn product_rust_outranks_docs_ui_and_bench_fixtures() {
 }
 
 #[test]
+fn test_instruction_does_not_rank_dirty_tree_tests_above_production() {
+    let hits = vec![
+        hit("crates/example/src/tests.rs", 1),
+        hit("crates/example/src/priority.rs", 20),
+    ];
+    let chosen = unique_paths_for_patterns(
+        &hits,
+        1,
+        &[],
+        "Add an Elevated priority and run relevant tests",
+    );
+    assert_eq!(chosen[0].path, "crates/example/src/priority.rs");
+}
+
+#[test]
+fn coding_change_spreads_source_budget_across_distinct_files() {
+    let hits = vec![
+        hit("crates/example/src/priority.rs", 8),
+        hit("crates/example/src/priority.rs", 180),
+        hit("crates/example/src/schema.rs", 20),
+    ];
+    let task = "Add an Elevated priority and update the schema";
+    let chosen = unique_paths_for_patterns(&hits, 3, &[], task);
+    assert_eq!(chosen.len(), 2);
+    assert_eq!(chosen[0].path, "crates/example/src/priority.rs");
+    assert_eq!(chosen[1].path, "crates/example/src/schema.rs");
+    assert_eq!(SourceWindow::for_task(task).max_files, 3);
+}
+
+#[test]
+fn unnamed_feature_prefers_product_implementation_over_benchmark_prose() {
+    let hits = vec![
+        hit("crates/cortex-bench/src/lib.rs", 22),
+        hit("crates/cortex-context/src/evidence.rs", 8),
+    ];
+    let chosen = unique_paths_for_patterns(
+        &hits,
+        1,
+        &[],
+        "Add an Elevated priority to the evidence compiler",
+    );
+    assert_eq!(chosen[0].path, "crates/cortex-context/src/evidence.rs");
+}
+
+#[test]
+fn named_mcp_schema_prefers_the_schema_property_over_general_mcp_prose() {
+    let mut prose = hit("crates/cortex-mcp/src/lib.rs", 53);
+    prose.text = "/// priority is included in the MCP schema".to_owned();
+    let mut schema = hit("crates/cortex-mcp/src/tools/context_tools.rs", 28);
+    schema.text = "\"priority\": { \"type\": \"string\" }".to_owned();
+    let chosen = unique_paths_for_patterns(
+        &[prose, schema.clone()],
+        1,
+        &[],
+        "Add an Elevated priority and update the MCP schema",
+    );
+    assert_eq!(chosen[0], schema);
+}
+
+#[test]
 fn stack_text_names_the_panicking_file() {
     let hits = hits_from_stack_text(
         "thread 'main' panicked at crates/cortex-run/src/retry.rs:24:1:\nstack backtrace:",

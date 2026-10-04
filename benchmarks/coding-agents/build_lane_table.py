@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the requested five-lane spend table after new transcripts exist."""
+"""Build a descriptive lane table; legacy and transcript estimates are not comparable."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ WITHOUT = {
 }
 
 MODELS_OFF = {
-    ("Grok 4.6 extra high", "T1"): (40403, 9.4),
+    ("Grok 4.6 extra high", "T1"): (40403, 8.2),
     ("Grok 4.6 extra high", "T3"): (37580, 9.2),
     ("Composer 2.5", "T1"): (35083, 5.0),
     ("Composer 2.5", "T2"): (20152, 8.7),
@@ -65,7 +65,7 @@ def collect_new() -> dict[tuple[str, str, str], dict]:
         measured = analyze(path)
         if not measured.get("has_final_report"):
             continue
-        if measured.get("estimated_context_material_tok") is None:
+        if measured.get("estimated_full_task_tok") is None:
             continue
         rows[(model, task, lane)] = measured
     return rows
@@ -76,29 +76,38 @@ def main() -> None:
     out = []
     for model in ("Grok 4.6 extra high", "Composer 2.5"):
         for task in ("T1", "T2", "T3"):
-            off = MODELS_OFF.get((model, task))
+            legacy_off = MODELS_OFF.get((model, task))
+            off = None
             if (model, task, "models_off") in fresh:
                 item = fresh[(model, task, "models_off")]
-                off = (item["total_agent_spend_tok"], None)
+                off = item["estimated_full_task_tok"]
             on = None
             if (model, task, "models_on") in fresh:
                 item = fresh[(model, task, "models_on")]
-                on = item["total_agent_spend_tok"]
+                on = item["estimated_full_task_tok"]
             cmp = None
             if (model, task, "cortex_composer_llm") in fresh:
                 item = fresh[(model, task, "cortex_composer_llm")]
-                cmp = item["total_agent_spend_tok"]
+                cmp = item["estimated_full_task_tok"]
             out.append(
                 {
                     "model": model,
                     "task": task,
                     "without_spend": WITHOUT[(model, task)][0],
+                    "without_metric": "legacy_host_reference_total",
                     "without_score": WITHOUT[(model, task)][1],
-                    "models_off_spend": None if off is None else off[0],
-                    "models_off_score": None if off is None else off[1],
+                    "models_off_spend": off,
+                    "models_off_metric": "cursor_transcript_cumulative_estimate" if off is not None else None,
+                    "models_off_legacy_peak_plus_response_tok": None if legacy_off is None else legacy_off[0],
+                    "models_off_score": None,
+                    "models_off_legacy_score": None if legacy_off is None else legacy_off[1],
+                    "spend_ratio_valid": False,
                     "models_on_spend": on,
+                    "models_on_metric": "cursor_transcript_cumulative_estimate" if on is not None else None,
                     "cortex_composer_llm_spend": cmp,
+                    "cortex_composer_llm_metric": "cursor_transcript_cumulative_estimate" if cmp is not None else None,
                     "composer_direct_spend": COMPOSER_DIRECT[task][0],
+                    "composer_direct_metric": "legacy_host_reference_total",
                     "composer_direct_score": COMPOSER_DIRECT[task][1],
                 }
             )

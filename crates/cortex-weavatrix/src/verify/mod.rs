@@ -161,6 +161,7 @@ fn assess(
 ) -> EvidenceSufficiency {
     let intent = hints.intent_or_detect(task);
     let has_identifiers = symbol.is_some() || !extract_identifiers(task).is_empty();
+    let needs_code_evidence = has_identifiers || crate::plan_intent::is_coding_change(task);
     let mut required_kinds = Vec::new();
     match intent {
         TaskIntent::BlastRadius if symbol.is_some() => {
@@ -176,6 +177,12 @@ fn assess(
         | TaskIntent::BlastRadius
         | TaskIntent::PriorAttempt => {}
     }
+    if symbol.is_some() && crate::plan_intent::asks_for_caller_impact(task) {
+        required_kinds.push(EvidenceKind::Dependents);
+    }
+    if crate::plan_intent::asks_for_endpoint_impact(task) {
+        required_kinds.push(EvidenceKind::Endpoints);
+    }
     if hints.has_prior_attempts {
         required_kinds.push(EvidenceKind::Memory);
     }
@@ -188,7 +195,7 @@ fn assess(
     if crate::plan::asks_for_coverage(task) {
         required_kinds.push(EvidenceKind::CoverageMap);
     }
-    if has_identifiers {
+    if needs_code_evidence {
         required_kinds.push(EvidenceKind::SearchHits);
         if source_followup {
             required_kinds.push(EvidenceKind::SourceReads);
@@ -244,7 +251,7 @@ fn assess(
     );
     certificate.expansions_performed = u32::from(retry_performed);
     EvidenceSufficiency {
-        sufficient: missing.is_empty() && certificate.critical_missing().is_empty(),
+        sufficient: missing.is_empty() && certificate.sufficient,
         retry_performed,
         required_evidence: required,
         present_evidence: present,
@@ -278,6 +285,9 @@ pub(crate) fn retry_search_pattern(
         );
         if let Some(symbol) = symbol {
             patterns.push(crate::plan::search_code_query(&[symbol.to_owned()]));
+        }
+        if patterns.is_empty() && crate::plan_intent::is_coding_change(task) {
+            patterns.push(crate::plan::coding_focus_query(task));
         }
     }
     patterns.retain(|pattern| !pattern.is_empty());

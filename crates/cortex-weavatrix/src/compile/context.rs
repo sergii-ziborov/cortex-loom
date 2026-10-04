@@ -81,6 +81,7 @@ fn compile_layered(
         snapshot_id,
     } = bundle;
     let evidence_count = evidence.len();
+    let unnamed_coding_change = crate::plan::is_new_feature_without_owner(task);
     let mut items = Vec::with_capacity(evidence_count + 1);
     items.push({
         let mut task_item = EvidenceItem::new(
@@ -98,6 +99,16 @@ fn compile_layered(
     });
     items.extend(evidence.into_iter().map(|fragment| {
         let (mut priority, state) = evidence_policy(fragment.kind, fragment.head, fragment.facet);
+        // On a new coding feature, the editable source windows carry more
+        // value than the search rows that found them. Keep all requested
+        // surfaces before spending the remaining packet on duplicate hits.
+        if unnamed_coding_change {
+            match fragment.kind {
+                EvidenceKind::SourceReads => priority = EvidencePriority::High,
+                EvidenceKind::SearchHits => priority = EvidencePriority::Normal,
+                _ => {}
+            }
+        }
         // Suite head answers "which tests?". Later slices of the same file
         // stay Normal so a tight compile drops them first, not `tests.rs:1`.
         if crate::plan_intent::detect(task) == crate::plan_intent::TaskIntent::TestSelection

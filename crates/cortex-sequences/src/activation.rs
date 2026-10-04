@@ -7,11 +7,18 @@ use crate::templates;
 const MAX_CANDIDATES: usize = 3;
 
 const MUTATION_CUES: &[&str] = &[
+    "add",
     "implement",
     "build",
     "fix",
     "change",
     "edit",
+    "create",
+    "extend",
+    "update",
+    "modify",
+    "split",
+    "migrate",
     "refactor",
     "remove",
     "rename",
@@ -261,6 +268,19 @@ mod tests {
             );
             assert!(candidates.len() <= MAX_CANDIDATES);
         }
+    }
+
+    #[test]
+    fn adding_code_is_an_implementation_task() {
+        let candidates = candidate_templates(
+            "Add an Elevated priority to the compiler, update the schema, and run tests",
+        );
+        assert_eq!(candidates[0].template_id, "bounded-implementation");
+        assert!(
+            candidates[0]
+                .matched_hints
+                .contains(&"mutation:allowed".to_owned())
+        );
     }
 
     #[test]

@@ -30,6 +30,8 @@ MODEL_BY_KEY = {
     "SONNET": "Sonnet 5 max",
     "HAIKU": "Haiku 4.5",
 }
+
+
 def tokens(characters: int) -> int:
     return characters // 4
 
@@ -150,28 +152,29 @@ def analyze(path: Path) -> dict[str, Any]:
             has_final_report = has_final_report or (
                 not has_tool_call
                 and any(
-                isinstance(part, dict)
-                and part.get("type") == "text"
-                and FINAL_ID_RE.search(part.get("text") or "")
-                for part in content
+                    isinstance(part, dict)
+                    and part.get("type") == "text"
+                    and FINAL_ID_RE.search(part.get("text") or "")
+                    for part in content
                 )
             )
             result_size = reconstructed_result_size(record)
             result_characters += result_size
             prior += size + result_size
             peak = max(peak, prior)
-            if has_final_report:
-                break
-
     response_tokens = tokens(generated)
-    material_tokens = tokens(peak)
+    peak_context_tokens = tokens(peak)
+    cumulative_input_tokens = tokens(cumulative_read)
     return {
         "initial_request_tok": tokens(initial_request),
         "visible_request_tok": tokens(user_characters),
         "visible_response_tok": response_tokens,
         "visible_transcript_tok": tokens(user_characters + generated),
-        "estimated_context_material_tok": material_tokens,
-        "total_agent_spend_tok": material_tokens + response_tokens,
+        "estimated_peak_context_tok": peak_context_tokens,
+        "estimated_cumulative_input_tok": cumulative_input_tokens,
+        "estimated_full_task_tok": cumulative_input_tokens + response_tokens,
+        "estimate_kind": "transcript_chars_div4_with_reconstructed_tool_results",
+        "provider_usage_available": False,
         "assistant_turns": assistant_turns,
         "tool_calls": tool_calls,
         "reconstructed_result_tok": tokens(result_characters),

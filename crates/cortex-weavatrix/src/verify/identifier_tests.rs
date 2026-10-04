@@ -6,6 +6,92 @@ fn fragment(id: &str, kind: EvidenceKind, content: &str) -> EvidenceFragment {
 }
 
 #[test]
+fn code_change_without_existing_symbol_needs_search_and_source() {
+    let task = "Add an Elevated priority to the evidence compiler and run relevant tests.";
+    let empty = EvidenceBundle::default();
+    let report = assess_gathered(&empty, task, None, PlanHints::default(), true, 0, false);
+    assert!(!report.sufficient);
+    assert!(report.missing_evidence.contains(&"search_hits".to_owned()));
+    assert!(report.missing_evidence.contains(&"source_reads".to_owned()));
+}
+
+#[test]
+fn coding_packet_cannot_claim_test_coverage_without_a_test_source_window() {
+    let task = "Add priority and update tests";
+    let search = fragment(
+        "search",
+        EvidenceKind::SearchHits,
+        "search matches: 1\nsrc/lib.rs:1: pub enum Priority",
+    );
+    let source = EvidenceFragment::new(
+        "source",
+        EvidenceKind::SourceReads,
+        "src/lib.rs:1",
+        "src/lib.rs\npub enum Priority {}",
+    );
+    let mut bundle = EvidenceBundle {
+        evidence: vec![search, source],
+        ..EvidenceBundle::default()
+    };
+    let mut included = vec!["search".to_owned(), "source".to_owned()];
+    let missing = assess_compiled(
+        &bundle,
+        &included,
+        task,
+        None,
+        PlanHints::default(),
+        true,
+        false,
+    );
+    assert!(!missing.sufficient);
+    assert!(
+        missing
+            .missing_evidence
+            .contains(&"source_term:test_source".to_owned())
+    );
+    assert!(
+        missing
+            .certificate
+            .missing
+            .contains(&cortex_context::FACET_TESTS.to_owned())
+    );
+
+    bundle.evidence.push(EvidenceFragment::new(
+        "test",
+        EvidenceKind::SourceReads,
+        "src/tests.rs:1",
+        "src/tests.rs\n#[test]\nfn priority_order() {}",
+    ));
+    included.push("test".to_owned());
+    let complete = assess_compiled(
+        &bundle,
+        &included,
+        task,
+        None,
+        PlanHints::default(),
+        true,
+        false,
+    );
+    assert!(complete.sufficient, "{complete:?}");
+    assert_eq!(
+        complete.certificate.satisfied[cortex_context::FACET_TESTS],
+        ["test"]
+    );
+}
+
+#[test]
+fn new_feature_tool_label_does_not_require_an_existing_definition() {
+    let task = "Add Elevated priority with MCP context_compile schema and UI help";
+    let requirements =
+        super::coverage_requirements(task, None, crate::plan_intent::TaskIntent::IdentifierChange);
+    assert!(
+        !requirements
+            .iter()
+            .any(|item| item.label == "identifier:context_compile")
+    );
+}
+
+#[test]
 fn named_identifiers_may_close_from_search_hits() {
     let bundle = EvidenceBundle {
         repository: "repo".to_owned(),

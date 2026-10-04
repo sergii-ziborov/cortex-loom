@@ -3,6 +3,32 @@
 `cortex_prepare` reports `internalModel` so a caller can see which
 backend ran and whether the runtime reported usage. Three backends, one at a time:
 
+The agent response carries the coverage certificate once, at
+`coverage.certificate`; the top-level `certificateHash` binds the compact
+response to that certificate.
+`workflowStep.active: false` means the agent profile has only recommended a
+Cortex sequence. Its editable Superpowers-inspired step script has not been
+loaded or executed by this profile; token savings attributed to that script
+need a separate active-sequence run.
+
+`internalModel.role` is `routing_classifier` and `affectsEvidence` is
+`false`. Local Qwen and the Composer proxy can escalate the routing decision,
+but neither selects or compresses the evidence in `cortex_prepare`. A separate
+gated embedding profile may reorder evidence within a priority band; its
+provenance is reported as `semanticRanking` in the compiled context.
+For coding changes, the lexical route is already `upstream_strong`. Prepare
+skips the classifier in every backend because its answer cannot change that
+route. In that case `internalModel.called` is `false`, `usageKind` is
+`not_called`, and `skipReason` is `lexical_floor_upstream_strong`. A configured
+local or Composer mode on a coding task is **not** evidence of model use.
+The current coding path is therefore deterministic in all three configurations;
+neither Qwen nor Haiku/Sonnet drafts or compresses a code change. A measured
+full-task saving must come from better evidence selection or a separately
+tested advisory coding role, not a classifier that cannot affect the route.
+If the configured classifier fails, `cortex_prepare` also copies the fallback
+reason into its top-level `warnings`; check `internalModel.called` and
+`internalModel.succeeded` before naming a run a local-model lane.
+
 | `CORTEX_LLM_BACKEND` | What runs | Token fields |
 | --- | --- | --- |
 | `off` (default) | Lexical `route()` only | `null` (no model call) |
@@ -35,6 +61,13 @@ The CLI has no `--llm-backend` flag. `cortex-loom prepare` follows
 `--classifier-model sonnet-5` for the loopback aliases. MCP:
 `cortex_prepare({ repository, task, classifierModel: "opus-5" })`.
 
+Coding agents should request `responseFormat: "plain"`. It returns the same
+metadata as JSON followed by the exact `context.content` as literal source
+text, avoiding JSON escapes around code. `json` remains the default for
+existing programmatic clients. The `path` and `lines` attributes on source
+evidence show where each excerpt came from, so the agent can edit from the
+packet and open surrounding code only when needed.
+
 Aliases map to cursor-agent ids (`composer-2.5`,
 `claude-sonnet-5-thinking-max`, `claude-opus-5-thinking-high`,
 `claude-haiku-4-5`). Sonnet is max, not high. Opus stays high, not
@@ -51,6 +84,8 @@ usage was not reported. `usageKind: unknown` is not a zero-cost claim.
 ```json
 {
   "mode": "composer",
+  "role": "routing_classifier",
+  "affectsEvidence": false,
   "called": true,
   "profile": "cursor-sonnet-5-classifier",
   "classifierModel": "sonnet-5",

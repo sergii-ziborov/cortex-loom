@@ -14,7 +14,7 @@
     "reconstructed_result_tok": 27178,
     "elapsed_seconds": 1439.455,
     "has_final_report": true,
-    "total_agent_spend_tok": 35083
+    "legacy_peak_context_plus_response_tok": 35083
   },
   {
     "run_id": "CORTEX_WITH_T2_FABLE_20260915",
@@ -31,7 +31,7 @@
     "reconstructed_result_tok": 14040,
     "elapsed_seconds": 833.234,
     "has_final_report": true,
-    "total_agent_spend_tok": 31012
+    "legacy_peak_context_plus_response_tok": 31012
   },
   {
     "run_id": "CORTEX_WITH_T1_FABLE_20260915",
@@ -48,7 +48,7 @@
     "reconstructed_result_tok": 22665,
     "elapsed_seconds": 1498.818,
     "has_final_report": true,
-    "total_agent_spend_tok": 34818
+    "legacy_peak_context_plus_response_tok": 34818
   },
   {
     "run_id": "CORTEX_WITH_T1_SOL_XHIGH_20260915",
@@ -65,7 +65,7 @@
     "reconstructed_result_tok": 28633,
     "elapsed_seconds": 1504.344,
     "has_final_report": true,
-    "total_agent_spend_tok": 38360
+    "legacy_peak_context_plus_response_tok": 38360
   },
   {
     "run_id": "CORTEX_WITH_T1_GROK_20260915",
@@ -82,7 +82,7 @@
     "reconstructed_result_tok": 33192,
     "elapsed_seconds": 1410.619,
     "has_final_report": true,
-    "total_agent_spend_tok": 40403
+    "legacy_peak_context_plus_response_tok": 40403
   },
   {
     "run_id": "CORTEX_WITH_T2_SOL_XHIGH_20260915",
@@ -99,7 +99,7 @@
     "reconstructed_result_tok": 20415,
     "elapsed_seconds": 677.355,
     "has_final_report": true,
-    "total_agent_spend_tok": 33714
+    "legacy_peak_context_plus_response_tok": 33714
   },
   {
     "run_id": "CORTEX_WITH_T1_OPUS_20260915",
@@ -116,7 +116,7 @@
     "reconstructed_result_tok": 22817,
     "elapsed_seconds": 1533.056,
     "has_final_report": true,
-    "total_agent_spend_tok": 51139
+    "legacy_peak_context_plus_response_tok": 51139
   },
   {
     "run_id": "CORTEX_WITH_T2_COMPOSER_20260915",
@@ -133,7 +133,7 @@
     "reconstructed_result_tok": 13816,
     "elapsed_seconds": 2451.0,
     "has_final_report": true,
-    "total_agent_spend_tok": 20152
+    "legacy_peak_context_plus_response_tok": 20152
   },
   {
     "run_id": "CORTEX_WITH_T2_GROK_20260915",
@@ -162,7 +162,7 @@
     "elapsed_seconds": null,
     "has_final_report": true,
     "note": "JSONL is complete enough for token estimates. File mtime-ctime overnight wall is not used as elapsed_seconds.",
-    "total_agent_spend_tok": 37580
+    "legacy_peak_context_plus_response_tok": 37580
   },
   {
     "run_id": "CORTEX_WITH_T3_COMPOSER_20260916",
@@ -174,7 +174,7 @@
     "visible_response_tok": 7142,
     "visible_transcript_tok": 7508,
     "estimated_context_material_tok": 14460,
-    "total_agent_spend_tok": 21602,
+    "legacy_peak_context_plus_response_tok": 21602,
     "assistant_turns": 13,
     "tool_calls": 33,
     "reconstructed_result_tok": 6951,
@@ -193,7 +193,7 @@
     "visible_response_tok": 3857,
     "visible_transcript_tok": 4302,
     "estimated_context_material_tok": 13327,
-    "total_agent_spend_tok": 17184,
+    "legacy_peak_context_plus_response_tok": 17184,
     "assistant_turns": 13,
     "tool_calls": 29,
     "reconstructed_result_tok": 9025,
@@ -215,7 +215,7 @@
     "visible_response_tok": 4940,
     "visible_transcript_tok": 5368,
     "estimated_context_material_tok": 13741,
-    "total_agent_spend_tok": 18681,
+    "legacy_peak_context_plus_response_tok": 18681,
     "assistant_turns": 12,
     "tool_calls": 27,
     "reconstructed_result_tok": 8372,
@@ -237,7 +237,7 @@
     "visible_response_tok": 4894,
     "visible_transcript_tok": 5318,
     "estimated_context_material_tok": 25791,
-    "total_agent_spend_tok": 30685,
+    "legacy_peak_context_plus_response_tok": 30685,
     "assistant_turns": 17,
     "tool_calls": 44,
     "reconstructed_result_tok": 20473,
@@ -259,7 +259,7 @@
     "visible_response_tok": 5814,
     "visible_transcript_tok": 6269,
     "estimated_context_material_tok": 25342,
-    "total_agent_spend_tok": 31156,
+    "legacy_peak_context_plus_response_tok": 31156,
     "assistant_turns": 13,
     "tool_calls": 40,
     "reconstructed_result_tok": 19072,
@@ -281,7 +281,7 @@
     "visible_response_tok": 6752,
     "visible_transcript_tok": 7177,
     "estimated_context_material_tok": 11884,
-    "total_agent_spend_tok": 18636,
+    "legacy_peak_context_plus_response_tok": 18636,
     "assistant_turns": 12,
     "tool_calls": 30,
     "reconstructed_result_tok": 4706,
@@ -303,7 +303,7 @@
     "visible_response_tok": 3398,
     "visible_transcript_tok": 3821,
     "estimated_context_material_tok": 40733,
-    "total_agent_spend_tok": 44131,
+    "legacy_peak_context_plus_response_tok": 44131,
     "assistant_turns": 23,
     "tool_calls": 55,
     "reconstructed_result_tok": 36911,
@@ -325,7 +325,7 @@
     "visible_response_tok": 4587,
     "visible_transcript_tok": 5015,
     "estimated_context_material_tok": 44254,
-    "total_agent_spend_tok": 48841,
+    "legacy_peak_context_plus_response_tok": 48841,
     "assistant_turns": 24,
     "tool_calls": 59,
     "reconstructed_result_tok": 39239,
@@ -347,7 +347,7 @@
     "visible_response_tok": 6984,
     "visible_transcript_tok": 7420,
     "estimated_context_material_tok": 26035,
-    "total_agent_spend_tok": 33019,
+    "legacy_peak_context_plus_response_tok": 33019,
     "assistant_turns": 19,
     "tool_calls": 36,
     "reconstructed_result_tok": 18614,
@@ -369,7 +369,7 @@
     "visible_response_tok": 6448,
     "visible_transcript_tok": 7187,
     "estimated_context_material_tok": 10904,
-    "total_agent_spend_tok": 17352,
+    "legacy_peak_context_plus_response_tok": 17352,
     "assistant_turns": 12,
     "tool_calls": 27,
     "reconstructed_result_tok": 3717,
@@ -391,7 +391,7 @@
     "visible_response_tok": 3774,
     "visible_transcript_tok": 4207,
     "estimated_context_material_tok": 20375,
-    "total_agent_spend_tok": 24149,
+    "legacy_peak_context_plus_response_tok": 24149,
     "assistant_turns": 17,
     "tool_calls": 33,
     "reconstructed_result_tok": 16168,
@@ -413,7 +413,7 @@
     "visible_response_tok": 3532,
     "visible_transcript_tok": 3960,
     "estimated_context_material_tok": 22137,
-    "total_agent_spend_tok": 25669,
+    "legacy_peak_context_plus_response_tok": 25669,
     "assistant_turns": 18,
     "tool_calls": 38,
     "reconstructed_result_tok": 18177,
@@ -435,7 +435,7 @@
     "visible_response_tok": 6964,
     "visible_transcript_tok": 7384,
     "estimated_context_material_tok": 18074,
-    "total_agent_spend_tok": 25038,
+    "legacy_peak_context_plus_response_tok": 25038,
     "assistant_turns": 18,
     "tool_calls": 36,
     "reconstructed_result_tok": 10690,
@@ -457,7 +457,7 @@
     "visible_response_tok": 9800,
     "visible_transcript_tok": 10240,
     "estimated_context_material_tok": 26298,
-    "total_agent_spend_tok": 36098,
+    "legacy_peak_context_plus_response_tok": 36098,
     "assistant_turns": 28,
     "tool_calls": 69,
     "reconstructed_result_tok": 16058,

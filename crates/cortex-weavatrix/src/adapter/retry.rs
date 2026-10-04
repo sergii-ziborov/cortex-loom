@@ -204,7 +204,6 @@ fn retry_search_arguments(query: &str, token_budget: u32) -> serde_json::Value {
         "before": 2,
         "after": 2,
         "max_results": 40,
-        "glob": "{src,apps,crates,ui,config}/**/*",
         "token_budget": token_budget,
     })
 }
@@ -259,9 +258,9 @@ mod tests {
     use super::retry_search_arguments;
 
     #[test]
-    fn recovery_search_stays_inside_source_and_config_trees() {
+    fn recovery_search_respects_repository_ignore_rules() {
         let arguments = retry_search_arguments("ArchiveOptions", 1_400);
 
-        assert_eq!(arguments["glob"], "{src,apps,crates,ui,config}/**/*");
+        assert!(arguments.get("glob").is_none());
     }
 }

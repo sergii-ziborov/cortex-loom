@@ -32,6 +32,9 @@ pub struct AgentPrepare {
     pub max_tokens: Option<u32>,
     /// Loopback classifier alias for this call only: composer, sonnet-5, opus-5, haiku.
     pub classifier_model: Option<String>,
+    /// `plain` keeps source code unescaped in one MCP text block. `json`
+    /// retains the machine-readable response for existing clients.
+    pub response_format: Option<String>,
 }
 
 /// Disk-restored packet so CLI expand can run in a new process.
@@ -79,6 +82,12 @@ pub(crate) fn register(
                         "type": "string",
                         "enum": ["composer", "sonnet-5", "opus-5", "haiku"],
                         "description": "Loopback classifier via the cursor-agent proxy. Overrides CORTEX_CLASSIFIER_MODEL for this prepare only."
+                    },
+                    "responseFormat": {
+                        "type": "string",
+                        "enum": ["json", "plain"],
+                        "default": "json",
+                        "description": "Use plain for coding agents: metadata stays JSON, but exact source appears as readable text without JSON escaping."
                     }
                 },
                 "required": ["repository", "task"],
@@ -88,7 +97,12 @@ pub(crate) fn register(
                 if context.is_cancelled() {
                     return ToolReply::error("cancelled");
                 }
-                match prepare_packet(&prepare_state, arguments) {
+                let plain = arguments.response_format.as_deref() == Some("plain");
+                match prepare_packet(&prepare_state, &arguments) {
+                    Ok(value) if plain => match super::agent_reply::plain_packet(&value) {
+                        Ok(text) => ToolReply::literal_text(text),
+                        Err(error) => ToolReply::error(error),
+                    },
                     Ok(value) => ToolReply::text(value),
                     Err(error) => ToolReply::error(error),
                 }
@@ -121,14 +135,20 @@ pub(crate) fn register(
         )
 }
 
-pub fn prepare_packet(state: &CortexMcpState, arguments: AgentPrepare) -> Result<Value, String> {
+pub fn prepare_packet(state: &CortexMcpState, arguments: &AgentPrepare) -> Result<Value, String> {
     let started = Instant::now();
+    if !matches!(
+        arguments.response_format.as_deref(),
+        None | Some("json" | "plain")
+    ) {
+        return Err("responseFormat must be json or plain".to_owned());
+    }
     // Admission must precede classifier inference: task text can itself be private.
     state.workspaces.check(&arguments.repository)?;
     if arguments.task.trim().is_empty() || arguments.task.chars().count() > 16_384 {
         return Err("task must contain 1..=16384 characters".to_owned());
     }
-    let (pin, max_tokens) = prepare_budget(&arguments)?;
+    let (pin, max_tokens) = prepare_budget(arguments)?;
     let symbols = extract_identifiers(&arguments.task);
     let request = RoutingRequest::new(arguments.task.clone());
     let routed = route_prepare(state, &request, arguments.classifier_model.as_deref());
@@ -140,7 +160,7 @@ pub fn prepare_packet(state: &CortexMcpState, arguments: AgentPrepare) -> Result
         &CompileArgs {
             repository: arguments.repository.clone(),
             task: arguments.task.clone(),
-            symbol: compile_symbol(&symbols),
+            symbol: compile_symbol(&symbols, &arguments.task),
             max_tokens,
             run_id: arguments.run_id.clone(),
             skill_id: None,
@@ -170,24 +190,19 @@ pub fn prepare_packet(state: &CortexMcpState, arguments: AgentPrepare) -> Result
         .map(|report| report.missing_evidence.clone())
         .unwrap_or_default();
     let snapshot = compiled.context.snapshot_id.clone();
-    state.packets.insert(StoredPacket {
-        id: id.clone(),
-        repository: arguments.repository.clone(),
-        task: arguments.task.clone(),
-        task_hash: task_digest.clone(),
-        run_id: arguments.run_id,
-        symbols: symbols.clone(),
-        snapshot_id: snapshot.clone(),
-        certificate_hash: compiled
-            .sufficiency
-            .as_ref()
-            .map(|report| certificate_hash(&report.certificate)),
+    state.packets.insert(super::agent_store::stored_packet(
+        arguments,
+        &compiled,
+        &id,
+        &task_digest,
+        &symbols,
         max_tokens,
-    });
+    ));
     let handles: Vec<_> = missing
         .iter()
         .map(|facet| json!({ "facet": facet_name(facet) }))
         .collect();
+    let warnings = combined_warnings(&compiled.warnings, routed.warning.as_deref());
     Ok(json!({
         "packetId": id,
         "repository": arguments.repository,
@@ -214,13 +229,20 @@ pub fn prepare_packet(state: &CortexMcpState, arguments: AgentPrepare) -> Result
         "maxTokens": max_tokens,
         "context": compiled.context,
         "coverage": compiled.sufficiency,
-        "certificate": compiled.sufficiency.as_ref().map(|report| &report.certificate),
         "missingFacets": missing,
         "expansionHandles": handles,
-        "warnings": compiled.warnings,
+        "warnings": warnings,
         "internalModel": routed.internal_model_json(),
         "prepareLatencyMs": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
     }))
+}
+
+fn combined_warnings(compiled: &[String], routing: Option<&str>) -> Vec<String> {
+    let mut warnings = compiled.to_vec();
+    if let Some(warning) = routing {
+        warnings.push(format!("routing classifier: {warning}"));
+    }
+    warnings
 }
 
 fn prepare_budget(arguments: &AgentPrepare) -> Result<(BudgetPin, u32), String> {
@@ -240,6 +262,7 @@ fn workflow_hint(task: &str) -> Option<Value> {
         .map(|candidate| {
             json!({
                 "sequenceId": candidate.template_id,
+                "active": false,
                 "matchedHints": candidate.matched_hints,
             })
         })
@@ -319,7 +342,7 @@ pub fn expand_packet(
         &CompileArgs {
             repository: stored.repository.clone(),
             task,
-            symbol: compile_symbol(&stored.symbols),
+            symbol: compile_symbol(&stored.symbols, &stored.task),
             max_tokens: stored.max_tokens,
             run_id: stored.run_id.clone(),
             skill_id: None,
@@ -350,7 +373,6 @@ pub fn expand_packet(
                 "facet": facet,
                 "context": packet.context,
                 "coverage": packet.sufficiency,
-                "certificate": packet.sufficiency.as_ref().map(|report| &report.certificate),
                 "warnings": packet.warnings,
             }))
         }
@@ -374,7 +396,10 @@ fn facet_name(missing: &str) -> &str {
     }
 }
 
-fn compile_symbol(symbols: &[String]) -> Option<String> {
+fn compile_symbol(symbols: &[String], task: &str) -> Option<String> {
+    if cortex_weavatrix::plan::is_new_feature_without_owner(task) {
+        return None;
+    }
     graph_seed(symbols).map(str::to_owned)
 }
 
@@ -429,5 +454,27 @@ fn facet_request(task: &str, symbols: &[String], facet: &str) -> (String, PlanHi
             },
         ),
         _ => (task.to_owned(), PlanHints::default()),
+    }
+}
+
+#[cfg(test)]
+mod creation_tests {
+    use super::compile_symbol;
+
+    #[test]
+    fn a_new_feature_does_not_demand_a_tool_label_definition() {
+        let labels = vec!["context_compile".to_owned()];
+        assert_eq!(
+            compile_symbol(
+                &labels,
+                "Add Elevated priority and update MCP context_compile schema"
+            ),
+            None
+        );
+        let owner = vec!["EvidencePriority".to_owned()];
+        assert_eq!(
+            compile_symbol(&owner, "Add Elevated to EvidencePriority"),
+            Some("EvidencePriority".to_owned())
+        );
     }
 }

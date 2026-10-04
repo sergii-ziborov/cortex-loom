@@ -1,0 +1,80 @@
+[
+  {
+    "path": "/tmp/cortex-code-ab-control-fair.jsonl",
+    "completedTurns": 1,
+    "inputTokens": 540277,
+    "cachedInputTokens": 508416,
+    "outputTokens": 4464,
+    "grossTokens": 544741,
+    "uncachedInputPlusOutputTokens": 36325,
+    "shellCalls": 18,
+    "mcpCalls": 0,
+    "shellResultCharacters": 76443,
+    "mcpResultCharacters": 0
+  },
+  {
+    "path": "/tmp/cortex-code-ab-packet.jsonl",
+    "completedTurns": 1,
+    "inputTokens": 394568,
+    "cachedInputTokens": 364800,
+    "outputTokens": 4187,
+    "grossTokens": 398755,
+    "uncachedInputPlusOutputTokens": 33955,
+    "shellCalls": 15,
+    "mcpCalls": 1,
+    "shellResultCharacters": 26516,
+    "mcpResultCharacters": 27106
+  },
+  {
+    "path": "/tmp/cortex-code-ab-scaffold.jsonl",
+    "completedTurns": 1,
+    "inputTokens": 518470,
+    "cachedInputTokens": 490112,
+    "outputTokens": 4391,
+    "grossTokens": 522861,
+    "uncachedInputPlusOutputTokens": 32749,
+    "shellCalls": 18,
+    "mcpCalls": 1,
+    "shellResultCharacters": 25918,
+    "mcpResultCharacters": 30050
+  },
+  {
+    "path": "/tmp/cortex-code-ab-compact.jsonl",
+    "completedTurns": 1,
+    "inputTokens": 719930,
+    "cachedInputTokens": 682112,
+    "outputTokens": 5964,
+    "grossTokens": 725894,
+    "uncachedInputPlusOutputTokens": 43782,
+    "shellCalls": 30,
+    "mcpCalls": 1,
+    "shellResultCharacters": 24068,
+    "mcpResultCharacters": 21485
+  },
+  {
+    "path": "/tmp/cortex-packetstore-control.jsonl",
+    "completedTurns": 1,
+    "inputTokens": 354979,
+    "cachedInputTokens": 328192,
+    "outputTokens": 3035,
+    "grossTokens": 358014,
+    "uncachedInputPlusOutputTokens": 29822,
+    "shellCalls": 13,
+    "mcpCalls": 0,
+    "shellResultCharacters": 27726,
+    "mcpResultCharacters": 0
+  },
+  {
+    "path": "/tmp/cortex-packetstore-loom.jsonl",
+    "completedTurns": 1,
+    "inputTokens": 220471,
+    "cachedInputTokens": 193024,
+    "outputTokens": 2405,
+    "grossTokens": 222876,
+    "uncachedInputPlusOutputTokens": 29852,
+    "shellCalls": 9,
+    "mcpCalls": 1,
+    "shellResultCharacters": 10488,
+    "mcpResultCharacters": 19057
+  }
+]

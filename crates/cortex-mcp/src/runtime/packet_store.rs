@@ -4,7 +4,7 @@
 //! hash of repository+task. Two prepares of the same question on different
 //! trees must not share an identity or overwrite each other.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -29,7 +29,13 @@ pub(crate) struct StoredPacket {
 
 #[derive(Default)]
 pub(crate) struct PacketStore {
-    inner: Mutex<HashMap<String, StoredPacket>>,
+    inner: Mutex<PacketEntries>,
+}
+
+#[derive(Default)]
+struct PacketEntries {
+    packets: HashMap<String, StoredPacket>,
+    insertion_order: VecDeque<String>,
 }
 
 impl PacketStore {
@@ -37,16 +43,19 @@ impl PacketStore {
         let Ok(mut guard) = self.inner.lock() else {
             return;
         };
-        if guard.len() >= MAX_PACKETS
-            && let Some(oldest) = guard.keys().next().cloned()
+        if guard.packets.contains_key(&packet.id) {
+            guard.insertion_order.retain(|id| id != &packet.id);
+        } else if guard.packets.len() >= MAX_PACKETS
+            && let Some(oldest) = guard.insertion_order.pop_front()
         {
-            guard.remove(&oldest);
+            guard.packets.remove(&oldest);
         }
-        guard.insert(packet.id.clone(), packet);
+        guard.insertion_order.push_back(packet.id.clone());
+        guard.packets.insert(packet.id.clone(), packet);
     }
 
     pub(crate) fn get(&self, id: &str) -> Option<StoredPacket> {
-        self.inner.lock().ok()?.get(id).cloned()
+        self.inner.lock().ok()?.packets.get(id).cloned()
     }
 }
 
@@ -101,6 +110,48 @@ mod tests {
             store.get("pk_bbb").and_then(|packet| packet.snapshot_id),
             Some("git:b+dirty:0".to_owned())
         );
+    }
+
+    #[test]
+    fn evicts_packets_in_insertion_order() {
+        let store = PacketStore::default();
+        for index in 0..MAX_PACKETS {
+            store.insert(sample(&format!("pk_{index}"), "git:a+dirty:0"));
+        }
+        assert!(store.get("pk_0").is_some());
+
+        store.insert(sample("pk_extra", "git:b+dirty:0"));
+        assert!(store.get("pk_0").is_none());
+        assert!(store.get("pk_1").is_some());
+
+        store.insert(sample("pk_another", "git:c+dirty:0"));
+        assert!(store.get("pk_1").is_none());
+        assert!(store.get("pk_2").is_some());
+        assert!(store.get("pk_extra").is_some());
+        assert_eq!(store.inner.lock().unwrap().packets.len(), MAX_PACKETS);
+    }
+
+    #[test]
+    fn replacing_packet_updates_recency_without_growing_store() {
+        let store = PacketStore::default();
+        for index in 0..MAX_PACKETS {
+            store.insert(sample(&format!("pk_{index}"), "git:a+dirty:0"));
+        }
+
+        store.insert(sample("pk_0", "git:b+dirty:0"));
+        let guard = store.inner.lock().unwrap();
+        assert_eq!(guard.packets.len(), MAX_PACKETS);
+        assert_eq!(guard.insertion_order.len(), MAX_PACKETS);
+        drop(guard);
+        assert_eq!(
+            store.get("pk_0").and_then(|packet| packet.snapshot_id),
+            Some("git:b+dirty:0".to_owned())
+        );
+
+        store.insert(sample("pk_extra", "git:c+dirty:0"));
+        assert!(store.get("pk_1").is_none());
+        assert!(store.get("pk_0").is_some());
+        assert_eq!(store.inner.lock().unwrap().packets.len(), MAX_PACKETS);
     }
 
     #[test]

@@ -54,7 +54,7 @@ pub fn detect(task: &str) -> TaskIntent {
     if stack_trace_cue(&lower) {
         return TaskIntent::StackTrace;
     }
-    if test_selection_cue(&lower) {
+    if test_selection_cue(&lower) && (direct_test_question(&lower) || !is_coding_change(task)) {
         return TaskIntent::TestSelection;
     }
     if git_history_cue(&lower) {
@@ -67,7 +67,7 @@ pub fn detect(task: &str) -> TaskIntent {
     if api_contract_cue(&lower) {
         return TaskIntent::ApiContract;
     }
-    if blast_radius_cue(&lower) {
+    if blast_radius_cue(&lower) || asks_for_caller_impact(task) {
         return TaskIntent::BlastRadius;
     }
     if module_topology_cue(&lower) {
@@ -77,6 +77,111 @@ pub fn detect(task: &str) -> TaskIntent {
         return TaskIntent::RuntimeConfig;
     }
     TaskIntent::IdentifierChange
+}
+
+/// A change-impact question can name callers without using the usual
+/// "who calls" wording. Keep this independent of the selected intent so a
+/// task asking about callers and endpoints can require both evidence classes.
+#[must_use]
+pub fn asks_for_caller_impact(task: &str) -> bool {
+    let lower = crate::fold::fold_text(task);
+    [
+        "who calls",
+        "what calls",
+        "call chain",
+        "call graph",
+        "callers of",
+        "who depends",
+        "what depends",
+        "dependents of",
+    ]
+    .iter()
+    .any(|cue| lower.contains(cue))
+        || ((lower.contains("caller") || lower.contains("call site"))
+            && ["chang", "affect", "impact", "break"]
+                .iter()
+                .any(|cue| lower.contains(cue)))
+}
+
+/// Whether the question explicitly includes transport entry points in its
+/// change impact, even when caller impact is the primary intent.
+#[must_use]
+pub fn asks_for_endpoint_impact(task: &str) -> bool {
+    let lower = crate::fold::fold_text(task);
+    (lower.contains("endpoint") || lower.contains("entry point") || lower.contains("transport"))
+        && (lower.contains("mcp") || lower.contains("http") || lower.contains("api"))
+}
+
+#[must_use]
+pub fn asks_for_ui(task: &str) -> bool {
+    crate::fold::fold_text(task)
+        .split(|character: char| !character.is_alphanumeric())
+        .any(|word| matches!(word, "ui" | "frontend" | "react" | "tsx" | "css"))
+}
+
+/// Coding verbs take precedence over incidental instructions to run tests.
+#[must_use]
+pub fn is_coding_change(task: &str) -> bool {
+    const VERBS: &[&str] = &[
+        "add",
+        "implement",
+        "fix",
+        "change",
+        "update",
+        "remove",
+        "refactor",
+        "rename",
+        "split",
+        "migrate",
+        "modify",
+        "extend",
+        "patch",
+        "create",
+        "добавь",
+        "добавить",
+        "исправь",
+        "исправить",
+        "измени",
+        "изменить",
+        "обнови",
+        "удали",
+        "реализуй",
+        "додай",
+        "виправ",
+        "зміни",
+    ];
+    crate::fold::fold_text(task)
+        .split(|character: char| !character.is_alphabetic())
+        .any(|word| VERBS.contains(&word))
+}
+
+/// Coding work that explicitly asks for tests needs the owning suite as
+/// editable context, even when "run tests" makes test selection incidental.
+#[must_use]
+pub fn asks_for_test_source(task: &str) -> bool {
+    if !is_coding_change(task) {
+        return false;
+    }
+    crate::fold::fold_text(task)
+        .split(|character: char| !character.is_alphanumeric())
+        .any(|word| matches!(word, "test" | "tests" | "regression"))
+}
+
+fn direct_test_question(lower: &str) -> bool {
+    let start = lower.trim_start_matches("please ").trim_start();
+    [
+        "which tests",
+        "what tests",
+        "what should i test",
+        "what should we test",
+        "tests to run",
+        "tests should",
+        "select tests",
+        "какие тесты",
+        "які тести",
+    ]
+    .iter()
+    .any(|cue| start.starts_with(cue))
 }
 
 /// Whether the question is about a previous attempt, not a first look.
@@ -383,105 +488,5 @@ fn runtime_config_cue(lower: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        TaskIntent, asks_for_dead_production, asks_for_duplicate_share, detect, is_broad,
-        is_creation,
-    };
-
-    #[test]
-    fn enumerating_questions_are_broad_and_pointed_ones_are_not() {
-        assert!(is_broad(
-            "A regex matches a file on disk but returns nothing inside a .tar.gz. \
-             List every mechanism in this crate that can silently cause that."
-        ));
-        assert!(is_broad("What can cause the collector to drop matches?"));
-        assert!(!is_broad("Rename `read_limited` in containers.rs"));
-        assert!(!is_broad(
-            "Who depends on `route` if its signature changes?"
-        ));
-    }
-
-    #[test]
-    fn creation_cues_are_limited_to_the_task_opening() {
-        assert!(is_creation("Implement `ArchiveOptions::disabled()`"));
-        assert!(is_creation("Please add `ArchiveOptions::disabled()`"));
-        assert!(!is_creation(
-            "Who calls `ArchiveOptions::disabled()` after the change?"
-        ));
-    }
-
-    #[test]
-    fn blast_contract_and_topology_cues_are_recognised() {
-        assert_eq!(
-            detect("Who depends on compile_context if its signature changes?"),
-            TaskIntent::BlastRadius
-        );
-        assert_eq!(
-            detect("What breaks if the POST /api/skills/compile HTTP contract changes?"),
-            TaskIntent::ApiContract
-        );
-        assert_eq!(
-            detect("Which services read the Streamable HTTP MCP transport at `/mcp`?"),
-            TaskIntent::ApiContract
-        );
-        assert_eq!(
-            detect("Which module owns compile_context, and where does the crate layout put it?"),
-            TaskIntent::ModuleTopology
-        );
-        assert_eq!(
-            detect("Rename RetryLimitTooLarge in retry.rs"),
-            TaskIntent::IdentifierChange
-        );
-        assert_eq!(
-            detect("How does CORTEX_LLM read config/llm-profiles.json?"),
-            TaskIntent::RuntimeConfig
-        );
-        assert_eq!(
-            detect("Which env flag enables ShadowHandle?"),
-            TaskIntent::RuntimeConfig
-        );
-        assert_eq!(
-            detect("Who changed `compile_context` last?"),
-            TaskIntent::GitHistory
-        );
-        assert_eq!(
-            detect("Which tests should I run after changing compile_context?"),
-            TaskIntent::TestSelection
-        );
-        assert_eq!(
-            detect("thread 'main' panicked at src/retry.rs:12:1:\nstack backtrace:"),
-            TaskIntent::StackTrace
-        );
-        assert_eq!(
-            detect("Fix the failing unit test in the graph store"),
-            TaskIntent::IdentifierChange
-        );
-        assert_eq!(
-            detect("Still failing compile_context after the last attempt"),
-            TaskIntent::PriorAttempt
-        );
-        assert_eq!(
-            detect("какие тесты запустить после compile_context"),
-            TaskIntent::TestSelection
-        );
-        assert_eq!(
-            detect("кто вызывает `route` и что сломается"),
-            TaskIntent::BlastRadius
-        );
-        assert!(is_broad("Перечисли все механизмы молчаливого пропуска"));
-        assert_eq!(
-            detect("предыдущая попытка не собрала formatGroupedResult"),
-            TaskIntent::PriorAttempt
-        );
-        assert!(asks_for_dead_production(
-            "Find and fix one real bug or dead production path in crates/sweeploom-cli."
-        ));
-        assert!(asks_for_duplicate_share(
-            "Find, verify, and eliminate duplicate classifier logic in crates/sweeploom-ai."
-        ));
-        assert!(!asks_for_duplicate_share(
-            "Find and fix one real bug or dead production path."
-        ));
-    }
-}
+#[path = "intent_tests.rs"]
+mod tests;

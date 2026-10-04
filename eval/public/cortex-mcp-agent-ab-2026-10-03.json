@@ -1,0 +1,357 @@
+{
+  "kind": "discarded exploratory pilot",
+  "validForCodingTaskSavingsClaim": false,
+  "disqualification": "The requested benchmark measures complete agent cost for substantive code changes. Half of these cells were read-only investigations. The only code-change task was a narrow enum edit for which Cortex's own agent guidance says to skip prepare. The MCP lane was forced to call prepare with user configuration ignored, internal Qwen was explicitly disabled, and the model set omitted Sonnet and Opus. These results cannot estimate Cortex Loom's token savings for the user's coding workflow or contradict the user's reported savings.",
+  "correction": "Cortex Loom is the MCP product under test. benchmarks/coding-agents/README.md is a separate historical Cortex Loom coding-agent experiment whose target repository is SweepLoom; its cells must not be conflated with this pilot or with the user's separately reported runs. The raw pilot cells below remain only for diagnosing this experiment's setup.",
+  "date": "2026-10-03",
+  "repository": "cortex-loom",
+  "sourceCommit": "d025afab5b8d85ef7689d05c2df65436e416f991",
+  "codexCli": "0.158.0-alpha.2.1",
+  "models": [
+    "gpt-6-sol",
+    "gpt-6-luna"
+  ],
+  "reasoningEffort": "medium",
+  "isolation": "One clean local clone per cell; user config ignored; automatic approval in a workspace-write sandbox; Cortex models-off with a fresh DB per cell. The only task instruction difference is to call cortex_prepare before source inspection and expand relevant facets in the MCP lane.",
+  "tasks": {
+    "trace": "Investigate the call chain from compile_evidence_bundle through the Cortex MCP agent profile and HTTP transport; identify direct and transitive effects of added compile_context rejections, with source citations. Read only, no tests.",
+    "priority": "Implement Elevated between High and Normal in EvidencePriority; preserve snake_case and fail-closed behavior; add budget regression coverage; run cargo test -p cortex-context --lib; keep source files below 500 lines."
+  },
+  "measurement": "Codex CLI turn.completed usage. grossTokens=input_tokens+output_tokens. uncachedPlusOutputTokens=input_tokens-cached_input_tokens+output_tokens; this is not a billed cost because cached tokens may still be charged. One run per cell; no statistical confidence.",
+  "qualityReview": "Manual review of answers and diffs, plus independent cargo test and cargo fmt on coding cells, source line counts, and MCP schema inspection. Scores are not automated or hidden-test results.",
+  "excludedAttempts": "Initial pilots were discarded after an MCP approval-policy block and a prompt mismatch that induced unnecessary tests in a read-only task.",
+  "cells": [
+    {
+      "task": "trace",
+      "model": "gpt-6-sol",
+      "lane": "control",
+      "sourceCommit": "d025afab5b8d85ef7689d05c2df65436e416f991",
+      "exitCode": 0,
+      "elapsedSeconds": 78.08,
+      "usage": {
+        "input_tokens": 321215,
+        "cached_input_tokens": 289408,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 2253,
+        "reasoning_output_tokens": 270,
+        "grossTokens": 323468,
+        "uncachedPlusOutputTokens": 34060
+      },
+      "mcpCalls": [],
+      "review": {
+        "status": "complete",
+        "issues": []
+      },
+      "finalAnswer": "If `compile_context` rejects a packet, **that invocation fails**; other calls are affected only if their own packets are rejected.\n\n- **Direct path:** `compile_evidence_bundle` calls `compile_context` and propagates its `ContextError` with `?`. Its direct production callers are `compile_certified_bundle` and the non-retry branch of MCP’s `compile_weavatrix`. The certified path also calls the separate layered compiler, which reaches `compile_context` through the same internal function. [context.rs](trace-sol-off/crates/cortex-weavatrix/src/compile/context.rs:34) [context.rs](trace-sol-off/crates/cortex-weavatrix/src/compile/context.rs:152) [certified.rs](trace-sol-off/crates/cortex-weavatrix/src/compile/certified.rs:35) [compile_session.rs](trace-sol-off/crates/cortex-mcp/src/runtime/compile_session.rs:47)\n- **User-facing effects through that path:** `weavatrix_context_compile`, `cortex_prepare`, and `cortex_expand` fail when their compile is rejected. The latter two are the default **Agent** profile’s tools; the Weavatrix tool is exposed by the **Context** and **Full** profiles. [context_tools.rs](trace-sol-off/crates/cortex-mcp/src/tools/context_tools.rs:88) [agent_tools.rs](trace-sol-off/crates/cortex-mcp/src/tools/agent_tools.rs:138) [agent_tools.rs](trace-sol-off/crates/cortex-mcp/src/tools/agent_tools.rs:317) [lib.rs](trace-sol-off/crates/cortex-mcp/src/lib.rs:328)\n- **Separate direct effect:** `context_compile` calls `compile_context` directly, so it can fail too, but **not through** `compile_evidence_bundle`. Compile errors become strings and then `ToolReply::error`; no evidence packet is returned on that path. [context_tools.rs](trace-sol-off/crates/cortex-mcp/src/tools/context_tools.rs:56) [compile_session.rs](trace-sol-off/crates/cortex-mcp/src/runtime/compile_session.rs:58) [agent_tools.rs](trace-sol-off/crates/cortex-mcp/src/tools/agent_tools.rs:87)\n- **HTTP:** The HTTP transport uses the same tool registry and forwards the MCP reply as JSON with **HTTP 200**. A compiler rejection is therefore surfaced as a tool error in the response body, not as an HTTP error status. [http.rs](trace-sol-off/crates/cortex-mcp/src/runtime/http.rs:47) [http.rs](trace-sol-off/crates/cortex-mcp/src/runtime/http.rs:180)"
+    },
+    {
+      "task": "trace",
+      "model": "gpt-6-sol",
+      "lane": "cortex_mcp",
+      "sourceCommit": "d025afab5b8d85ef7689d05c2df65436e416f991",
+      "exitCode": 0,
+      "elapsedSeconds": 94.33,
+      "usage": {
+        "input_tokens": 368438,
+        "cached_input_tokens": 323200,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 2667,
+        "reasoning_output_tokens": 378,
+        "grossTokens": 371105,
+        "uncachedPlusOutputTokens": 47905
+      },
+      "mcpCalls": [
+        {
+          "tool": "cortex_prepare",
+          "packetId": "pk_5f8b3f2b996e",
+          "selectedEstimatedTokens": 2763,
+          "wireChars": 11005,
+          "certificateSufficient": true,
+          "requiredFacets": [
+            "target.complete_definition"
+          ],
+          "missingFacets": []
+        }
+      ],
+      "review": {
+        "status": "complete",
+        "issues": []
+      },
+      "finalAnswer": "**Packet:** `pk_5f8b3f2b996e` supplied the `compile_evidence_bundle` definition. Its coverage certificate reported no missing facets, so it offered nothing to expand. It did not cover the caller chain or HTTP error path; I checked those in source. I found no wrong packet evidence.\n\n`compile_evidence_bundle` calls `compile_layered`, which calls `compile_context` and propagates its error with `?`. Its **direct production callers** are `compile_certified_bundle` and the plain branch of `compile_weavatrix`; the certified path can also fail during a later layered compile. [context.rs](trace-sol-on/crates/cortex-weavatrix/src/compile/context.rs:34), [context.rs](trace-sol-on/crates/cortex-weavatrix/src/compile/context.rs:152), [certified.rs](trace-sol-on/crates/cortex-weavatrix/src/compile/certified.rs:35), [compile_session.rs](trace-sol-on/crates/cortex-mcp/src/runtime/compile_session.rs:47).\n\nIf the affected packets are newly rejected, **`weavatrix_context_compile` fails through `compile_weavatrix`; `cortex_prepare` and `cortex_expand` fail transitively through that same function.** The separate `context_compile` tool calls `compile_context` directly, so it is affected independently. Each handler turns the error string into `ToolReply::error`; a failed prepare or expansion does not return its packet. [context_tools.rs](trace-sol-on/crates/cortex-mcp/src/tools/context_tools.rs:56), [context_tools.rs](trace-sol-on/crates/cortex-mcp/src/tools/context_tools.rs:88), [agent_tools.rs](trace-sol-on/crates/cortex-mcp/src/tools/agent_tools.rs:87), [agent_tools.rs](trace-sol-on/crates/cortex-mcp/src/tools/agent_tools.rs:112), [agent_tools.rs](trace-sol-on/crates/cortex-mcp/src/tools/agent_tools.rs:317).\n\nThe default **agent profile** exposes only `cortex_prepare` and `cortex_expand`; the context profile exposes the two context tools, and full exposes both sets. HTTP `/mcp` uses the selected profile and passes the tool’s JSON-RPC reply through as an HTTP 200 response. A compiler rejection therefore surfaces as a tool error in that reply, not as an HTTP transport status error. [lib.rs](trace-sol-on/crates/cortex-mcp/src/lib.rs:292), [lib.rs](trace-sol-on/crates/cortex-mcp/src/lib.rs:328), [http.rs](trace-sol-on/crates/cortex-mcp/src/runtime/http.rs:48), [http.rs](trace-sol-on/crates/cortex-mcp/src/runtime/http.rs:180)."
+    },
+    {
+      "task": "trace",
+      "model": "gpt-6-luna",
+      "lane": "control",
+      "sourceCommit": "d025afab5b8d85ef7689d05c2df65436e416f991",
+      "exitCode": 0,
+      "elapsedSeconds": 58.03,
+      "usage": {
+        "input_tokens": 208025,
+        "cached_input_tokens": 175360,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 2321,
+        "reasoning_output_tokens": 395,
+        "grossTokens": 210346,
+        "uncachedPlusOutputTokens": 34986
+      },
+      "mcpCalls": [],
+      "review": {
+        "status": "complete",
+        "issues": []
+      },
+      "finalAnswer": "The **direct caller** of `compile_context` on the Weavatrix path is `compile_evidence_bundle`, which propagates its `ContextError` with `?` ([context.rs](trace-luna-off/crates/cortex-weavatrix/src/compile/context.rs:34), [context.rs](trace-luna-off/crates/cortex-weavatrix/src/compile/context.rs:152)). In the MCP runtime, `compile_weavatrix` calls that function on its ordinary path, and calls `compile_certified_bundle` when gathering returns a retry report; it converts either compile error to a string ([compile_session.rs](trace-luna-off/crates/cortex-mcp/src/runtime/compile_session.rs:47), [compile_session.rs](trace-luna-off/crates/cortex-mcp/src/runtime/compile_session.rs:60)). The certified path also calls `compile_evidence_bundle` directly, then layered variants that ultimately call `compile_context` ([certified.rs](trace-luna-off/crates/cortex-weavatrix/src/compile/certified.rs:35), [context.rs](trace-luna-off/crates/cortex-weavatrix/src/compile/context.rs:46)).\n\nOn the **agent profile**, `cortex_prepare` and `cortex_expand` both reach `compile_weavatrix` with `targeted: true`; so a new rejection can fail either user-facing call. `cortex_prepare` does so via `prepare_packet` ([agent_tools.rs](trace-luna-off/crates/cortex-mcp/src/tools/agent_tools.rs:124), [agent_tools.rs](trace-luna-off/crates/cortex-mcp/src/tools/agent_tools.rs:138)); `cortex_expand` does so via `expand_packet` ([agent_tools.rs](trace-luna-off/crates/cortex-mcp/src/tools/agent_tools.rs:302), [agent_tools.rs](trace-luna-off/crates/cortex-mcp/src/tools/agent_tools.rs:317)). The profile exposes those two tools ([lib.rs](trace-luna-off/crates/cortex-mcp/src/lib.rs:293), [lib.rs](trace-luna-off/crates/cortex-mcp/src/lib.rs:334)). The error reaches each handler as a string and is returned as `ToolReply::error` ([agent_tools.rs](trace-luna-off/crates/cortex-mcp/src/tools/agent_tools.rs:91), [agent_tools.rs](trace-luna-off/crates/cortex-mcp/src/tools/agent_tools.rs:112)).\n\n**HTTP is transitive transport**, not another compiler caller: it builds the selected profile’s same server ([http.rs](trace-luna-off/crates/cortex-mcp/src/runtime/http.rs:47), [http.rs](trace-luna-off/crates/cortex-mcp/src/runtime/http.rs:56)) and returns its JSON-RPC reply in an HTTP 200 JSON response ([http.rs](trace-luna-off/crates/cortex-mcp/src/runtime/http.rs:180)). Thus the compile failure is surfaced as a tool error in the MCP reply, not as an HTTP error status.\n\nSeparately, the full/context profiles expose `weavatrix_context_compile`, which is another **transitive** `compile_weavatrix` path; and `context_compile` directly calls `compile_context` on caller-supplied items ([context_tools.rs](trace-luna-off/crates/cortex-mcp/src/tools/context_tools.rs:14), [context_tools.rs](trace-luna-off/crates/cortex-mcp/src/tools/context_tools.rs:61), [context_tools.rs](trace-luna-off/crates/cortex-mcp/src/tools/context_tools.rs:68)). A rejection affects those calls when they encounter the rejected packets; `context_compile` is not on the agent profile path."
+    },
+    {
+      "task": "trace",
+      "model": "gpt-6-luna",
+      "lane": "cortex_mcp",
+      "sourceCommit": "d025afab5b8d85ef7689d05c2df65436e416f991",
+      "exitCode": 0,
+      "elapsedSeconds": 92.61,
+      "usage": {
+        "input_tokens": 285040,
+        "cached_input_tokens": 243456,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 2621,
+        "reasoning_output_tokens": 856,
+        "grossTokens": 287661,
+        "uncachedPlusOutputTokens": 44205
+      },
+      "mcpCalls": [
+        {
+          "tool": "cortex_prepare",
+          "packetId": "pk_6fc4a8bfa3f9",
+          "selectedEstimatedTokens": 2765,
+          "wireChars": 11008,
+          "certificateSufficient": true,
+          "requiredFacets": [
+            "target.complete_definition"
+          ],
+          "missingFacets": []
+        }
+      ],
+      "review": {
+        "status": "partial",
+        "issues": [
+          "Omitted compile_certified_bundle and the plain compile_weavatrix branch as direct callers of compile_evidence_bundle."
+        ]
+      },
+      "finalAnswer": "`compile_evidence_bundle` builds evidence items and passes them to `compile_context`; a rejection propagates as `ContextError` at [compile/context.rs:148-156](trace-luna-on/crates/cortex-weavatrix/src/compile/context.rs:148). `compile_context` returns validation or budget errors, including `TooManyItems` and `CriticalItemExceedsBudget` ([context/lib.rs:103-125](trace-luna-on/crates/cortex-context/src/lib.rs:103), [context/lib.rs:181-239](trace-luna-on/crates/cortex-context/src/lib.rs:181)).\n\n**User-facing effects**\n\n- **Direct callers of `compile_context`:** `compile_evidence_bundle` and the `context_compile` tool ([context_tools.rs:56-64](trace-luna-on/crates/cortex-mcp/src/tools/context_tools.rs:56)). The tool is exposed in the Context and Full profiles; it is not exposed in Agent ([lib.rs:328-346](trace-luna-on/crates/cortex-mcp/src/lib.rs:328)).\n- **Transitive effects through `compile_evidence_bundle`:** Agent-profile `cortex_prepare` calls `compile_weavatrix` ([agent_tools.rs:124-150](trace-luna-on/crates/cortex-mcp/src/tools/agent_tools.rs:124)); `cortex_expand` also calls it when compiling the requested facet ([agent_tools.rs:302-329](trace-luna-on/crates/cortex-mcp/src/tools/agent_tools.rs:302)). The legacy `weavatrix_context_compile` tool shares this path ([context_tools.rs:88-107](trace-luna-on/crates/cortex-mcp/src/tools/context_tools.rs:88)).\n- **Error surface:** These handlers convert failures to `ToolReply::error`; MCP clients receive a tool-level error ([agent_tools.rs:87-94](trace-luna-on/crates/cortex-mcp/src/tools/agent_tools.rs:87), [context_tools.rs:56-64](trace-luna-on/crates/cortex-mcp/src/tools/context_tools.rs:56)). Over HTTP, the transport relays the JSON-RPC reply in an HTTP 200 response; transport/session failures have separate HTTP statuses ([http.rs:180-198](trace-luna-on/crates/cortex-mcp/src/runtime/http.rs:180)).\n\n**Packet:** `pk_6fc4a8bfa3f9`. Its certificate was sufficient and not stale. It helped identify the `compile_evidence_bundle` definition and the `compile_context` search match, but it did not establish the callers, profile exposure, or HTTP error path. The packet omitted two evidence items (441 estimated tokens); it offered no missing facets to expand. No wrong evidence was apparent."
+    },
+    {
+      "task": "priority",
+      "model": "gpt-6-sol",
+      "lane": "control",
+      "sourceCommit": "d025afab5b8d85ef7689d05c2df65436e416f991",
+      "exitCode": 0,
+      "elapsedSeconds": 145.74,
+      "usage": {
+        "input_tokens": 552916,
+        "cached_input_tokens": 510592,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 4145,
+        "reasoning_output_tokens": 1178,
+        "grossTokens": 557061,
+        "uncachedPlusOutputTokens": 46469
+      },
+      "mcpCalls": [],
+      "review": {
+        "status": "complete",
+        "issues": []
+      },
+      "finalAnswer": "Added `Elevated` between `High` and `Normal` in the context compiler and MCP input schema. Regression tests cover snake_case serialization, selection under one and two item budgets, and the `Critical` budget error.\n\n`cargo test -p cortex-context --lib` passed all 32 tests. Formatting and diff checks passed. All modified source files remain below 500 lines. No commit was made.",
+      "verification": {
+        "cargoTestCortexContextPassed": true,
+        "cargoFmtCheckPassed": true,
+        "overLimitSourceFiles": [],
+        "mcpSchemaHasElevated": true,
+        "changedPaths": [
+          " M crates/cortex-context/src/evidence.rs",
+          " M crates/cortex-context/src/lib.rs",
+          " M crates/cortex-mcp/src/tools/context_tools.rs",
+          "?? crates/cortex-context/src/priority_tests.rs"
+        ],
+        "diffSha256": "db593a616c5f9df348d8c241795c1f260ccb088970fc190a07cd839508bb811e",
+        "untrackedFiles": {
+          "crates/cortex-context/src/priority_tests.rs": "use super::*;\n\nfn priority_item(id: &str, priority: EvidencePriority) -> EvidenceItem {\n    EvidenceItem::new(\n        id,\n        \"src/x.rs:1\",\n        \"equal length evidence\",\n        priority,\n        EvidenceState::Verified,\n    )\n}\n\n#[test]\nfn elevated_serializes_as_snake_case() {\n    let encoded = blazingly_json::to_string(&EvidencePriority::Elevated).unwrap();\n    assert_eq!(encoded, \"\\\"elevated\\\"\");\n    assert_eq!(\n        blazingly_json::from_str::<EvidencePriority>(&encoded).unwrap(),\n        EvidencePriority::Elevated\n    );\n}\n\n#[test]\nfn high_then_elevated_then_normal_under_tight_budgets() {\n    let items = vec![\n        priority_item(\"normal__\", EvidencePriority::Normal),\n        priority_item(\"elevated\", EvidencePriority::Elevated),\n        priority_item(\"high____\", EvidencePriority::High),\n    ];\n    let one_item_tokens = compile_context_with(\n        &ContextRequest {\n            items: vec![items[0].clone()],\n            max_tokens: 1_000,\n            deduplicate: false,\n        },\n        &CharDiv4Counter,\n    )\n    .unwrap()\n    .selected_estimated_tokens;\n\n    for (slots, included, omitted) in [\n        (1, vec![\"high____\"], vec![\"elevated\", \"normal__\"]),\n        (2, vec![\"high____\", \"elevated\"], vec![\"normal__\"]),\n    ] {\n        let packet = compile_context_with(\n            &ContextRequest {\n                items: items.clone(),\n                max_tokens: one_item_tokens * slots,\n                deduplicate: false,\n            },\n            &CharDiv4Counter,\n        )\n        .unwrap();\n        assert_eq!(packet.included_ids, included);\n        assert_eq!(packet.omitted_ids, omitted);\n    }\n}\n\n#[test]\nfn critical_still_errors_when_elevated_is_present() {\n    let request = ContextRequest {\n        items: vec![\n            priority_item(\"elevated\", EvidencePriority::Elevated),\n            priority_item(\"critical\", EvidencePriority::Critical),\n        ],\n        max_tokens: 1,\n        deduplicate: false,\n    };\n    assert!(matches!(\n        compile_context_with(&request, &CharDiv4Counter),\n        Err(ContextError::CriticalItemExceedsBudget { id, .. }) if id == \"critical\"\n    ));\n}\n"
+        },
+        "trackedPatch": "diff --git a/crates/cortex-context/src/evidence.rs b/crates/cortex-context/src/evidence.rs\nindex da3e410..cfc7bc7 100644\n--- a/crates/cortex-context/src/evidence.rs\n+++ b/crates/cortex-context/src/evidence.rs\n@@ -8,6 +8,7 @@ use sha2::{Digest, Sha256};\n pub enum EvidencePriority {\n     Critical,\n     High,\n+    Elevated,\n     Normal,\n     Low,\n }\n@@ -18,8 +19,9 @@ impl EvidencePriority {\n         match self {\n             Self::Critical => 0,\n             Self::High => 1,\n-            Self::Normal => 2,\n-            Self::Low => 3,\n+            Self::Elevated => 2,\n+            Self::Normal => 3,\n+            Self::Low => 4,\n         }\n     }\n }\ndiff --git a/crates/cortex-context/src/lib.rs b/crates/cortex-context/src/lib.rs\nindex ee120e4..5b5ebbd 100644\n--- a/crates/cortex-context/src/lib.rs\n+++ b/crates/cortex-context/src/lib.rs\n@@ -427,3 +427,7 @@ fn record_substantial_lines(item: &EvidenceItem, seen: &mut HashMap<DedupKey, St\n #[cfg(test)]\n #[path = \"tests.rs\"]\n mod tests;\n+\n+#[cfg(test)]\n+#[path = \"priority_tests.rs\"]\n+mod priority_tests;\ndiff --git a/crates/cortex-mcp/src/tools/context_tools.rs b/crates/cortex-mcp/src/tools/context_tools.rs\nindex 568b8ac..a8aaa90 100644\n--- a/crates/cortex-mcp/src/tools/context_tools.rs\n+++ b/crates/cortex-mcp/src/tools/context_tools.rs\n@@ -25,7 +25,7 @@ pub(crate) fn register(\n                             \"id\": {\"type\": \"string\", \"description\": \"Stable citation ID; keep it in derived output.\"},\n                             \"source\": {\"type\": \"string\", \"description\": \"Where the evidence came from, e.g. src/lib.rs:120.\"},\n                             \"content\": {\"type\": \"string\"},\n-                            \"priority\": {\"type\": \"string\", \"enum\": [\"critical\", \"high\", \"normal\", \"low\"]},\n+                            \"priority\": {\"type\": \"string\", \"enum\": [\"critical\", \"high\", \"elevated\", \"normal\", \"low\"]},\n                             \"state\": {\"type\": \"string\", \"enum\": [\"verified\", \"unverified\", \"contradictory\"]},\n                             \"relevance\": {\"type\": \"number\", \"description\": \"Optional score; reorders only within a priority band.\"},\n                             \"derivation\": {\"type\": \"string\", \"enum\": [\"exact_source\", \"plan\", \"graph\", \"search\", \"memory\", \"inferred\"]},\n"
+      }
+    },
+    {
+      "task": "priority",
+      "model": "gpt-6-sol",
+      "lane": "cortex_mcp",
+      "sourceCommit": "d025afab5b8d85ef7689d05c2df65436e416f991",
+      "exitCode": 0,
+      "elapsedSeconds": 169.95,
+      "usage": {
+        "input_tokens": 569706,
+        "cached_input_tokens": 538368,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 4563,
+        "reasoning_output_tokens": 1603,
+        "grossTokens": 574269,
+        "uncachedPlusOutputTokens": 35901
+      },
+      "mcpCalls": [
+        {
+          "tool": "cortex_prepare",
+          "packetId": "pk_8f91fc8c3695",
+          "selectedEstimatedTokens": 2773,
+          "wireChars": 11555,
+          "certificateSufficient": true,
+          "requiredFacets": [
+            "target.complete_definition"
+          ],
+          "missingFacets": []
+        },
+        {
+          "tool": "cortex_expand",
+          "packetId": "pk_daf4af65eaa2",
+          "selectedEstimatedTokens": 2773,
+          "wireChars": 10537,
+          "certificateSufficient": true,
+          "requiredFacets": [
+            "target.complete_definition"
+          ],
+          "missingFacets": []
+        }
+      ],
+      "review": {
+        "status": "partial",
+        "issues": [
+          "MCP context_compile schema still excludes elevated."
+        ]
+      },
+      "finalAnswer": "Added `EvidencePriority::Elevated` between High and Normal, with the corresponding rank. The existing `snake_case` serialization rule remains in place. New tight-budget tests confirm High > Elevated > Normal and that oversized Critical evidence still returns an error.\n\n`cargo test -p cortex-context --lib` passed (31 tests), and `cargo fmt --all -- --check` passed. Changed source files remain below 500 lines. No commit was made.\n\nCortex Loom packet `pk_8f91fc8c3695` helped locate the enum and rank implementation. Its formal certificate was satisfied, but broader coverage was missing evidence for the fail-closed error and token estimator; the offered source expansion did not resolve that gap, so I verified those paths in the checkout.",
+      "verification": {
+        "cargoTestCortexContextPassed": true,
+        "cargoFmtCheckPassed": true,
+        "overLimitSourceFiles": [],
+        "mcpSchemaHasElevated": false,
+        "changedPaths": [
+          " M crates/cortex-context/src/evidence.rs",
+          " M crates/cortex-context/src/tests.rs",
+          "?? crates/cortex-context/src/tests/"
+        ],
+        "diffSha256": "984a85ffcf728870099cefecbb2a07bfcc7eaff94502ba41b1f3ab9b172d4844",
+        "untrackedFiles": {
+          "crates/cortex-context/src/tests/priority_tests.rs": "use super::*;\n\n#[test]\nfn elevated_sits_between_high_and_normal_under_a_tight_budget() {\n    let normal = item(\"normal\", &\"n\".repeat(80), EvidencePriority::Normal);\n    let elevated = item(\"elevated\", &\"e\".repeat(80), EvidencePriority::Elevated);\n    let high = item(\"high\", &\"h\".repeat(80), EvidencePriority::High);\n    let cost = |item: &EvidenceItem| CharDiv4Counter.count(&render_item(item, &item.content));\n    let request = ContextRequest {\n        items: vec![normal.clone(), elevated.clone(), high.clone()],\n        max_tokens: cost(&high) + cost(&elevated),\n        deduplicate: false,\n    };\n    let packet = compile_context_with(&request, &CharDiv4Counter).unwrap();\n    assert_eq!(packet.included_ids, [\"high\", \"elevated\"]);\n    assert_eq!(packet.omitted_ids, [\"normal\"]);\n\n    let request = ContextRequest {\n        items: vec![normal, elevated.clone()],\n        max_tokens: cost(&elevated),\n        deduplicate: false,\n    };\n    let packet = compile_context_with(&request, &CharDiv4Counter).unwrap();\n    assert_eq!(packet.included_ids, [\"elevated\"]);\n    assert_eq!(packet.omitted_ids, [\"normal\"]);\n}\n\n#[test]\nfn critical_still_fails_closed_with_elevated_evidence_present() {\n    let elevated = item(\"elevated\", \"short\", EvidencePriority::Elevated);\n    let critical = item(\"critical\", &\"c\".repeat(200), EvidencePriority::Critical);\n    let budget = CharDiv4Counter.count(&render_item(&elevated, &elevated.content));\n    let request = ContextRequest {\n        items: vec![elevated, critical],\n        max_tokens: budget,\n        deduplicate: false,\n    };\n    assert!(matches!(\n        compile_context_with(&request, &CharDiv4Counter),\n        Err(ContextError::CriticalItemExceedsBudget { id, budget: b, .. })\n            if id == \"critical\" && b == budget\n    ));\n}\n"
+        },
+        "trackedPatch": "diff --git a/crates/cortex-context/src/evidence.rs b/crates/cortex-context/src/evidence.rs\nindex da3e410..cfc7bc7 100644\n--- a/crates/cortex-context/src/evidence.rs\n+++ b/crates/cortex-context/src/evidence.rs\n@@ -8,6 +8,7 @@ use sha2::{Digest, Sha256};\n pub enum EvidencePriority {\n     Critical,\n     High,\n+    Elevated,\n     Normal,\n     Low,\n }\n@@ -18,8 +19,9 @@ impl EvidencePriority {\n         match self {\n             Self::Critical => 0,\n             Self::High => 1,\n-            Self::Normal => 2,\n-            Self::Low => 3,\n+            Self::Elevated => 2,\n+            Self::Normal => 3,\n+            Self::Low => 4,\n         }\n     }\n }\ndiff --git a/crates/cortex-context/src/tests.rs b/crates/cortex-context/src/tests.rs\nindex 590309f..399e9b2 100644\n--- a/crates/cortex-context/src/tests.rs\n+++ b/crates/cortex-context/src/tests.rs\n@@ -1,5 +1,8 @@\n use super::*;\n \n+#[path = \"tests/priority_tests.rs\"]\n+mod priority_tests;\n+\n fn item(id: &str, content: &str, priority: EvidencePriority) -> EvidenceItem {\n     let mut item = EvidenceItem::new(\n         id,\n"
+      }
+    },
+    {
+      "task": "priority",
+      "model": "gpt-6-luna",
+      "lane": "control",
+      "sourceCommit": "d025afab5b8d85ef7689d05c2df65436e416f991",
+      "exitCode": 0,
+      "elapsedSeconds": 59.16,
+      "usage": {
+        "input_tokens": 233733,
+        "cached_input_tokens": 215296,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 1942,
+        "reasoning_output_tokens": 316,
+        "grossTokens": 235675,
+        "uncachedPlusOutputTokens": 20379
+      },
+      "mcpCalls": [],
+      "review": {
+        "status": "partial",
+        "issues": [
+          "tests.rs is 508 lines, exceeding the repository limit.",
+          "cargo fmt --all -- --check fails."
+        ]
+      },
+      "finalAnswer": "Added `EvidencePriority::Elevated` between High and Normal, assigned its rank, and added `elevated` to the context tool schema. Regression coverage checks ordering under a tight budget and snake_case serialization; the existing Critical overflow test still passes.\n\n`cargo test -p cortex-context --lib` passed: 30 tests. No benchmark fixtures or reports were inspected, and nothing was committed.",
+      "verification": {
+        "cargoTestCortexContextPassed": true,
+        "cargoFmtCheckPassed": false,
+        "overLimitSourceFiles": [
+          {
+            "path": "crates/cortex-context/src/tests.rs",
+            "lines": 508
+          }
+        ],
+        "mcpSchemaHasElevated": true,
+        "changedPaths": [
+          " M crates/cortex-context/src/evidence.rs",
+          " M crates/cortex-context/src/tests.rs",
+          " M crates/cortex-mcp/src/tools/context_tools.rs"
+        ],
+        "diffSha256": "e5d0947955568bd58935849f6537f881983993210b2e601b93c92e01c16a012f",
+        "untrackedFiles": {},
+        "trackedPatch": "diff --git a/crates/cortex-context/src/evidence.rs b/crates/cortex-context/src/evidence.rs\nindex da3e410..cfc7bc7 100644\n--- a/crates/cortex-context/src/evidence.rs\n+++ b/crates/cortex-context/src/evidence.rs\n@@ -8,6 +8,7 @@ use sha2::{Digest, Sha256};\n pub enum EvidencePriority {\n     Critical,\n     High,\n+    Elevated,\n     Normal,\n     Low,\n }\n@@ -18,8 +19,9 @@ impl EvidencePriority {\n         match self {\n             Self::Critical => 0,\n             Self::High => 1,\n-            Self::Normal => 2,\n-            Self::Low => 3,\n+            Self::Elevated => 2,\n+            Self::Normal => 3,\n+            Self::Low => 4,\n         }\n     }\n }\ndiff --git a/crates/cortex-context/src/tests.rs b/crates/cortex-context/src/tests.rs\nindex 590309f..fa65c75 100644\n--- a/crates/cortex-context/src/tests.rs\n+++ b/crates/cortex-context/src/tests.rs\n@@ -63,6 +63,25 @@ fn critical_evidence_never_disappears_silently() {\n     ));\n }\n \n+#[test]\n+fn elevated_priority_sits_between_high_and_normal_under_budget() {\n+    let request = ContextRequest {\n+        items: vec![\n+            item(\"normal\", &\"n\".repeat(80), EvidencePriority::Normal),\n+            item(\"elevated\", &\"e\".repeat(80), EvidencePriority::Elevated),\n+            item(\"high\", &\"h\".repeat(80), EvidencePriority::High),\n+        ],\n+        max_tokens: 50,\n+        deduplicate: true,\n+    };\n+    let packet = compile_context_with(&request, &CharDiv4Counter).unwrap();\n+    assert_eq!(packet.included_ids, [\"high\"]);\n+    assert_eq!(packet.omitted_ids, [\"elevated\", \"normal\"]);\n+    assert_eq!(EvidencePriority::Elevated.rank(), EvidencePriority::High.rank() + 1);\n+    assert_eq!(EvidencePriority::Normal.rank(), EvidencePriority::Elevated.rank() + 1);\n+    assert_eq!(blazingly_json::to_string(&EvidencePriority::Elevated).unwrap(), \"\\\"elevated\\\"\");\n+}\n+\n #[test]\n fn relevance_reorders_only_within_a_priority_band() {\n     // Two Normal items under a budget that fits one: the scored,\ndiff --git a/crates/cortex-mcp/src/tools/context_tools.rs b/crates/cortex-mcp/src/tools/context_tools.rs\nindex 568b8ac..a8aaa90 100644\n--- a/crates/cortex-mcp/src/tools/context_tools.rs\n+++ b/crates/cortex-mcp/src/tools/context_tools.rs\n@@ -25,7 +25,7 @@ pub(crate) fn register(\n                             \"id\": {\"type\": \"string\", \"description\": \"Stable citation ID; keep it in derived output.\"},\n                             \"source\": {\"type\": \"string\", \"description\": \"Where the evidence came from, e.g. src/lib.rs:120.\"},\n                             \"content\": {\"type\": \"string\"},\n-                            \"priority\": {\"type\": \"string\", \"enum\": [\"critical\", \"high\", \"normal\", \"low\"]},\n+                            \"priority\": {\"type\": \"string\", \"enum\": [\"critical\", \"high\", \"elevated\", \"normal\", \"low\"]},\n                             \"state\": {\"type\": \"string\", \"enum\": [\"verified\", \"unverified\", \"contradictory\"]},\n                             \"relevance\": {\"type\": \"number\", \"description\": \"Optional score; reorders only within a priority band.\"},\n                             \"derivation\": {\"type\": \"string\", \"enum\": [\"exact_source\", \"plan\", \"graph\", \"search\", \"memory\", \"inferred\"]},\n"
+      }
+    },
+    {
+      "task": "priority",
+      "model": "gpt-6-luna",
+      "lane": "cortex_mcp",
+      "sourceCommit": "d025afab5b8d85ef7689d05c2df65436e416f991",
+      "exitCode": 0,
+      "elapsedSeconds": 79.74,
+      "usage": {
+        "input_tokens": 263057,
+        "cached_input_tokens": 238848,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 1979,
+        "reasoning_output_tokens": 457,
+        "grossTokens": 265036,
+        "uncachedPlusOutputTokens": 26188
+      },
+      "mcpCalls": [
+        {
+          "tool": "cortex_prepare",
+          "packetId": "pk_eb97fb268dd6",
+          "selectedEstimatedTokens": 2785,
+          "wireChars": 10727,
+          "certificateSufficient": false,
+          "requiredFacets": [
+            "target.complete_definition"
+          ],
+          "missingFacets": [
+            "target.complete_definition"
+          ]
+        },
+        {
+          "tool": "cortex_expand",
+          "packetId": "pk_9dcbfa20fac1",
+          "selectedEstimatedTokens": 2797,
+          "wireChars": 9687,
+          "certificateSufficient": false,
+          "requiredFacets": [
+            "target.complete_definition"
+          ],
+          "missingFacets": [
+            "target.complete_definition"
+          ]
+        }
+      ],
+      "review": {
+        "status": "partial",
+        "issues": [
+          "MCP context_compile schema still excludes elevated."
+        ]
+      },
+      "finalAnswer": "Implemented `EvidencePriority::Elevated` between High and Normal, with rank 2. The existing `snake_case` serde rule remains in place, and Critical evidence still fails closed when it exceeds budget.\n\nThe tight-budget regression confirms High and Elevated are included while Normal and Low are omitted. The existing Critical budget error test also passed.\n\n`cargo test -p cortex-context --lib` passed: 29 tests. Modified [evidence.rs](priority-luna-on/crates/cortex-context/src/evidence.rs) and [tests.rs](priority-luna-on/crates/cortex-context/src/tests.rs); both are below 500 lines. No commit was made.\n\nCortex packet: `pk_eb97fb268dd6`. It helped locate the enum, rank mapping, and critical failure path. Its certificate remained insufficient after the offered expansion: `target.complete_definition` was still missing, along with `definition:elevated`, `source_term:identifier:Elevated`, and `source_term:token_estimator`. The packet also had no definition evidence for the new variant.",
+      "verification": {
+        "cargoTestCortexContextPassed": true,
+        "cargoFmtCheckPassed": true,
+        "overLimitSourceFiles": [],
+        "mcpSchemaHasElevated": false,
+        "changedPaths": [
+          " M crates/cortex-context/src/evidence.rs",
+          " M crates/cortex-context/src/tests.rs"
+        ],
+        "diffSha256": "d83560a8681dc2f6cc425f02ec1c6abe2b78328dcfd13782ababc2594300e546",
+        "untrackedFiles": {},
+        "trackedPatch": "diff --git a/crates/cortex-context/src/evidence.rs b/crates/cortex-context/src/evidence.rs\nindex da3e410..cfc7bc7 100644\n--- a/crates/cortex-context/src/evidence.rs\n+++ b/crates/cortex-context/src/evidence.rs\n@@ -8,6 +8,7 @@ use sha2::{Digest, Sha256};\n pub enum EvidencePriority {\n     Critical,\n     High,\n+    Elevated,\n     Normal,\n     Low,\n }\n@@ -18,8 +19,9 @@ impl EvidencePriority {\n         match self {\n             Self::Critical => 0,\n             Self::High => 1,\n-            Self::Normal => 2,\n-            Self::Low => 3,\n+            Self::Elevated => 2,\n+            Self::Normal => 3,\n+            Self::Low => 4,\n         }\n     }\n }\ndiff --git a/crates/cortex-context/src/tests.rs b/crates/cortex-context/src/tests.rs\nindex 590309f..cc69f8d 100644\n--- a/crates/cortex-context/src/tests.rs\n+++ b/crates/cortex-context/src/tests.rs\n@@ -17,14 +17,16 @@ fn selects_priority_order_and_reports_token_savings() {\n     let request = ContextRequest {\n         items: vec![\n             item(\"low\", &\"x\".repeat(80), EvidencePriority::Low),\n-            item(\"high\", \"important\", EvidencePriority::High),\n+            item(\"normal\", &\"n\".repeat(80), EvidencePriority::Normal),\n+            item(\"elevated\", &\"e\".repeat(80), EvidencePriority::Elevated),\n+            item(\"high\", &\"h\".repeat(80), EvidencePriority::High),\n         ],\n-        max_tokens: 30,\n+        max_tokens: 90,\n         deduplicate: true,\n     };\n     let packet = compile_context_with(&request, &CharDiv4Counter).unwrap();\n-    assert_eq!(packet.included_ids, [\"high\"]);\n-    assert_eq!(packet.omitted_ids, [\"low\"]);\n+    assert_eq!(packet.included_ids, [\"high\", \"elevated\"]);\n+    assert_eq!(packet.omitted_ids, [\"normal\", \"low\"]);\n     assert!(packet.omitted_estimated_tokens > 0);\n     assert!(!packet.requires_upstream);\n }\n"
+      }
+    }
+  ]
+}

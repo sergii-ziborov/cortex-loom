@@ -5,7 +5,7 @@
 Cortex Loom prepares a compact evidence packet for the task your coding
 agent is working on. It asks
 [Weavatrix](https://github.com/sergii-ziborov/weavatrix) (`weavatrix-rust`
-2.17.4) for typed repository facts, keeps their provenance, and reports
+2.17.5) for typed repository facts, keeps their provenance, and reports
 which declared requirements are covered, missing, contradictory, or stale.
 
 It is local-first. No account, model download, or hosted Cortex service
@@ -141,8 +141,11 @@ the best T3 close.
 
 Claude Code spend is usage `input + output + cache_create`. Cursor
 spend is estimated context material plus visible response (chars÷4).
-Do not pool them. Cortex often cuts spend (Grok T1 809,468 → 40,403)
-without raising close class, because those packets were module maps.
+Do not pool them. The older Grok T1 figures (809,468 Without and 40,403
+models-off) also use different estimators: 40,403 is peak context plus
+response, not full-task spend. They do not establish a token savings ratio.
+The models-off packet was mostly a module map and its close
+score was 8.2 versus 9.4 Without.
 Classifier tokens (209–247) did not buy apply-class.
 
 How to use the result: pick **Sonnet Without** when T1 quality is the

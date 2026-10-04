@@ -48,23 +48,26 @@ pub(super) fn search_pattern_op(
     id: &'static str,
     query: &str,
     search_budget: u32,
-    policy: PlanPolicy,
+    _policy: PlanPolicy,
     glob: &str,
 ) -> PlannedOperation {
+    let mut arguments = json!({
+        "query": query,
+        "is_regex": true,
+        "before": 1,
+        "after": 1,
+        "max_results": 40,
+        "token_budget": search_budget,
+    });
+    if !glob.is_empty() {
+        arguments["glob"] = json!(glob);
+    }
     PlannedOperation {
         id,
         tool: "search_code",
         kind: EvidenceKind::SearchHits,
-        arguments: json!({
-            "query": query,
-            "is_regex": true,
-            "before": 1,
-            "after": 1,
-            "max_results": 40,
-            "glob": glob,
-            "token_budget": search_budget,
-        }),
-        expected_tokens: policy.search_tokens.max(search_budget),
+        arguments,
+        expected_tokens: search_budget,
         bounded: true,
     }
 }

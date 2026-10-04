@@ -16,9 +16,8 @@ use serde_json::{Value, json};
 
 use crate::composer_llm;
 use cortex_router::{
-    Classification, ModelTier, RoutingDecision, RoutingRequest, TaskClass, classify,
-    detector_disagreement, mixed_script, parse_model_tier, policy_tier, route_with_classification,
-    tier_rank,
+    Classification, ModelTier, RoutingDecision, RoutingRequest, classify, parse_model_tier,
+    policy_tier, route_with_classification, tier_rank,
 };
 
 /// Instruction aligned with the calibrated eval prompt: closed tiers, hard
@@ -132,10 +131,13 @@ impl RoutedWork {
         let total = self.usage.map(TokenUsage::total);
         json!({
             "mode": self.backend.as_str(),
+            "role": "routing_classifier",
+            "affectsEvidence": false,
             "called": self.attempted,
             "succeeded": self.succeeded,
             "fallbackUsed": self.attempted && !self.succeeded,
-            "usageKind": if self.usage.is_some() { "provider_reported" } else { "unknown" },
+            "usageKind": if self.usage.is_some() { "provider_reported" } else if self.attempted { "unknown" } else { "not_called" },
+            "skipReason": if !self.attempted && self.backend != LlmBackend::Off { Some("lexical_floor_upstream_strong") } else { None },
             "profile": self.classifier_profile,
             "classifierModel": self.classifier_model,
             "agentModel": self.agent_model,
@@ -216,22 +218,22 @@ impl LlmRouter {
     }
 
     /// Lexical floor first; model may only escalate. Failures keep lexical.
-    /// The classifier is skipped when the lexical floor is already
-    /// `upstream_strong` and the request is not mixed-script or ambiguous.
+    /// The classifier is skipped whenever the lexical floor has reached
+    /// `upstream_strong`: escalation cannot change the route at that ceiling.
     #[must_use]
     pub fn decide(&self, request: &RoutingRequest) -> RoutedWork {
         let lexical = classify(&request.task);
-        if !classifier_worth_calling(&request.task, lexical) {
+        if !classifier_worth_calling(request, lexical) {
             return self.skipped(request, lexical);
         }
         self.finish(request, lexical, self.ask_tier(&request.task))
     }
 
-    /// Always call the classifier so prepare can report Composer/local tokens.
+    /// Prepare follows the same routing policy. Calling a model only to
+    /// produce usage telemetry wastes tokens without changing the decision.
     #[must_use]
     pub fn decide_prepare(&self, request: &RoutingRequest) -> RoutedWork {
-        let lexical = classify(&request.task);
-        self.finish(request, lexical, self.ask_tier(&request.task))
+        self.decide(request)
     }
 
     fn skipped(&self, request: &RoutingRequest, lexical: Classification) -> RoutedWork {
@@ -328,20 +330,11 @@ fn load_registry(path: &Path) -> Result<ProfileRegistry, String> {
     serde_json::from_str(&text).map_err(|error| format!("invalid {}: {error}", path.display()))
 }
 
-/// When the lexical policy is already at the ceiling, an 8B classifier
-/// cannot save tokens — it can only add latency.
+/// When the lexical policy is already at the ceiling, a classifier cannot
+/// change the route; calling it can only add token cost and latency.
 #[must_use]
-pub fn classifier_worth_calling(task: &str, lexical: Classification) -> bool {
-    if matches!(lexical.class, TaskClass::Ambiguous) {
-        return true;
-    }
-    if mixed_script(task) {
-        return true;
-    }
-    if detector_disagreement(task) {
-        return true;
-    }
-    policy_tier(lexical.class) != ModelTier::UpstreamStrong
+pub fn classifier_worth_calling(request: &RoutingRequest, lexical: Classification) -> bool {
+    route_with_classification(request, lexical).model_tier != ModelTier::UpstreamStrong
 }
 
 /// Pure merge used by tests and documentation of the under-call floor.
@@ -392,22 +385,42 @@ mod tests {
 
     #[test]
     fn obvious_upstream_does_not_call_the_classifier() {
-        let lexical = classify("Tag the version bump for the milestone");
+        let release = cortex_router::RoutingRequest::new("Tag the version bump for the milestone");
+        let lexical = classify(&release.task);
+        assert!(!super::classifier_worth_calling(&release, lexical));
+        let mixed = cortex_router::RoutingRequest::new("Переименуй ArchiveOptions и bump the tag");
         assert!(!super::classifier_worth_calling(
-            "Tag the version bump for the milestone",
-            lexical
-        ));
-        let mixed = classify("Переименуй ArchiveOptions и bump the tag");
-        assert!(super::classifier_worth_calling(
-            "Переименуй ArchiveOptions и bump the tag",
-            mixed
+            &mixed,
+            classify(&mixed.task)
         ));
         let mixed_detectors = "summarize the repository graph and extract fields";
         assert!(cortex_router::detector_disagreement(mixed_detectors));
+        let analysis = cortex_router::RoutingRequest::new(mixed_detectors);
         assert!(super::classifier_worth_calling(
-            mixed_detectors,
-            classify(mixed_detectors)
+            &analysis,
+            classify(&analysis.task)
         ));
+        let mutation =
+            cortex_router::RoutingRequest::new("Analyze repository graph and fix the code");
+        assert!(!super::classifier_worth_calling(
+            &mutation,
+            classify(&mutation.task)
+        ));
+    }
+
+    #[test]
+    fn prepare_skips_a_paid_classifier_when_coding_already_routes_upstream() {
+        let router = crate::composer_llm::router(|_| None).unwrap();
+        let request = cortex_router::RoutingRequest::new(
+            "Fix the repository graph code and update its tests",
+        );
+        let prepared = router.decide_prepare(&request);
+        assert!(!prepared.attempted);
+        assert_eq!(prepared.decision, cortex_router::route(&request));
+        let model = prepared.internal_model_json();
+        assert_eq!(model["mode"], "composer");
+        assert_eq!(model["usageKind"], "not_called");
+        assert_eq!(model["skipReason"], "lexical_floor_upstream_strong");
     }
 
     #[test]

@@ -1,8 +1,25 @@
 # Coding-agent benchmark
 
-This benchmark compares four lanes, not a single without/with pair:
+## Current Cortex Loom code edits (2026-10-03)
+
+The target repository in the current paired study is **Cortex Loom itself**.
+Two independent Sol medium tasks changed code from the same clean base in
+matched control and Cortex MCP worktrees. Both lanes passed their focused
+quality gates. Cortex saved 1.37× and 1.61× gross input plus output tokens;
+uncached input plus output saved 1.07× and 1.00×. Thus the requested 2–3×
+complete-task saving has not been demonstrated. See
+`eval/public/cortex-token-loss-audit-2026-10-03.md` and the paired JSON there
+for receipts, scope, and limitations.
+
+## Historical SweepLoom matrix
+
+This benchmark compares four configured lanes, not a single without/with pair:
 without Cortex; Cortex with models off; Cortex with Composer as its
-internal classifier; and Cortex with a local classifier. SweepLoom is the
+internal classifier; and Cortex with a local classifier. For code changes,
+the classifier is now skipped whenever the lexical route is already
+`upstream_strong`: `modelUsed: false` means the configured model did not
+participate. Use `--allow-policy-skip` to capture such a lane without
+mislabeling it as model-assisted. SweepLoom is the
 target repository, not a product under test, and is not part of the
 comparison.
 
@@ -42,7 +59,8 @@ the two-tool `agent` profile. It explicitly disables semantic ordering and
 shadow mode, uses a fresh temporary database, initializes MCP, calls
 `cortex_prepare`, and calls `cortex_expand` only for returned handles.
 It checks the reported backend and classifier success before labeling a
-model lane. The fresh database contains no prior run memory, and this client
+model-used lane. A policy-skipped classifier is accepted only with
+`--allow-policy-skip` and an upstream routing ceiling. The fresh database contains no prior run memory, and this client
 does not exercise workflow commands or warm cache.
 
 Every coding agent must execute the client before ordinary repository
@@ -79,22 +97,31 @@ pooled.
 
 The live 2026-09-15 check is recorded in `model-preflight.json`: Ollama is
 reachable but has no installed model tags, and OVMS ports 8000-8002 are closed.
-The model-enabled lane is therefore blocked on this machine rather than being
-silently downgraded to deterministic behavior.
+The model-enabled lane is therefore blocked on that machine rather than being
+silently downgraded to deterministic behavior. The client rejects a local run
+unless `internalModel.called` and `succeeded` are true and the returned model
+is the configured Qwen3-8B routing classifier.
 
 ## Measurements
 
 - Cortex packet tokens are the compiler's conservative token estimate.
 - Visible request and response tokens are estimated from transcript characters
   divided by four (`collect_context.py`). Reconstructed tool-result material is
-  reported separately. Cortex **Total agent spend tok** is estimated context
-  material plus visible response. That is not the locked without-Cortex
-  host-reference total, and it is not a billed provider number.
+  reported separately. The historical `context-results.json` field is now
+  `legacy_peak_context_plus_response_tok`. It **did not**
+  sum repeated input across the task and must not be called full-task spend.
+  The collector now reports both `estimated_peak_context_tok` and
+  `estimated_full_task_tok` (sum of estimated input before every assistant
+  turn plus output). The latter remains an estimate because Cursor omits tool
+  results and provider usage, and context truncation is not observable here.
+  Neither can be divided by the locked Without host-reference total to claim
+  a measured savings ratio. Raw historical transcripts are needed to
+  recompute the new field for those cells.
 - Cycles are `assistant_turns` in the same JSONL. They are the agent loop,
   not tool-call count.
-- The current `cortex_prepare` lane uses lexical routing. Internal model tokens
-  are zero unless an attested semantic embedding profile is explicitly enabled;
-  no such profile was live for these runs.
+- These historical `cortex_prepare` runs used lexical routing with the local
+  classifier off and no semantic embedding profile. They cannot measure a
+  Qwen-enabled lane.
 - Status and correctness are verified from the isolated Git diff and required
   test command, not accepted from self-report alone.
 - No 70,000-token stop was enforced, so no row may claim that failure cause.
@@ -170,13 +197,22 @@ Composer-classifier closed after the leftover rerun (`99dc62d`,
 isolated 16/16). Leftover Opus CLI lanes stayed `is_error`. Those
 are not scores.
 
+The two Sonnet T1 Claude usage values are comparable within that model and
+show 194,593 → 76,815 (2.53× fewer reported non-cache-read tokens), but the
+task-close score also fell from 10.0 to 7.2. They do not establish savings
+without a quality trade-off. The Opus T1 columns cross Cursor and Claude
+measurement paths, so their quotient is not a provider-spend result.
+
 ## How to use the filled cells
 
 - **T1 quality:** Sonnet Without (dead `apply_cleanup`).
 - **T2 quality:** Grok models-off (shared naive classifier, five kinds).
 - **T3 quality:** Opus Without or Grok × Opus-classifier (18-line facade).
 - **T3 cheap:** Haiku models-off.
-- **Spend cut without a better close:** Grok T1 809,468 → 40,403 at 8.2.
+- **Grok T1:** the stored 809,468 Without figure and 40,403 models-off
+  peak-context-plus-response figure use different estimators and cannot
+  establish a full-task savings ratio. The models-off
+  close score was 8.2 versus 9.4 Without.
 
 Cortex packets in this matrix were often module maps. Classifier
 tokens (209–247) did not buy apply-class. Planner fixes for named-file

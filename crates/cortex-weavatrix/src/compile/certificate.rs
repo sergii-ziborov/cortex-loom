@@ -16,6 +16,7 @@ pub(crate) struct TrackedFragment<'a> {
     pub kind: EvidenceKind,
     pub facet: cortex_context::EvidenceFacet,
     pub content: &'a str,
+    pub path: Option<&'a str>,
     pub declared_complete: Option<bool>,
     pub resolved_frames: usize,
 }
@@ -40,8 +41,17 @@ pub(crate) fn required_facets(
         | TaskIntent::BlastRadius
         | TaskIntent::PriorAttempt => {}
     }
+    if symbol.is_some() && crate::plan_intent::asks_for_caller_impact(task) {
+        required.push(FACET_CALLERS.to_owned());
+    }
+    if crate::plan_intent::asks_for_endpoint_impact(task) {
+        required.push(FACET_PUBLIC_API.to_owned());
+    }
     if hints.has_prior_attempts {
         required.push(FACET_MEMORY.to_owned());
+    }
+    if crate::plan_intent::asks_for_test_source(task) {
+        required.push(FACET_TESTS.to_owned());
     }
     if source_followup && symbol.is_some_and(crate::fold::is_graph_symbol) {
         required.push(FACET_DEFINITION.to_owned());
@@ -109,6 +119,7 @@ pub(crate) fn tracked(fragment: &EvidenceFragment) -> TrackedFragment<'_> {
         kind: fragment.kind,
         facet: fragment.facet,
         content: fragment.content.as_str(),
+        path: fragment.locator.path.as_deref(),
         declared_complete: fragment.declared_complete,
         resolved_frames: fragment.resolved_frames,
     }
@@ -189,6 +200,18 @@ fn facets_closed_by(
             });
         }
         EvidenceKind::SourceReads | EvidenceKind::TypeExpansion => {
+            if fragment.kind == EvidenceKind::SourceReads
+                && names_target(fragment.content, symbol)
+                && fragment.path.is_some_and(|path| {
+                    (is_test_path(path) || lower.contains("#[cfg(test)]"))
+                        && has_test_definition(fragment.content, path)
+                })
+            {
+                closed.push(Close {
+                    facet: FACET_TESTS.to_owned(),
+                    validator: "test_definition_source/v1",
+                });
+            }
             if lower.contains("default") || lower.contains("enabled:") {
                 closed.push(Close {
                     facet: FACET_DEFAULTS.to_owned(),
@@ -211,6 +234,22 @@ fn facets_closed_by(
         _ => {}
     }
     closed
+}
+
+fn is_test_path(path: &str) -> bool {
+    let lower = path.replace('\\', "/").to_ascii_lowercase();
+    lower.ends_with("tests.rs")
+        || lower.contains("/tests/")
+        || lower.contains(".test.")
+        || lower.ends_with("_test.py")
+        || lower.ends_with("_test.go")
+}
+
+fn has_test_definition(content: &str, path: &str) -> bool {
+    content.contains("#[test]")
+        || content.contains("#[tokio::test]")
+        || content.contains("#[async_std::test]")
+        || (is_test_path(path) && (content.contains("test(") || content.contains("it(")))
 }
 
 fn names_target(content: &str, symbol: Option<&str>) -> bool {
@@ -378,5 +417,42 @@ mod tests {
         assert!(!certificate_from(&[tracked(&mapped)], required.clone(), false, None).sufficient);
         mapped.resolved_frames = 1;
         assert!(certificate_from(&[tracked(&mapped)], required, false, None).sufficient);
+    }
+
+    #[test]
+    fn a_test_file_reference_without_a_test_body_does_not_close_coverage() {
+        let mut reference = EvidenceFragment::new(
+            "ev_ref",
+            EvidenceKind::SourceReads,
+            "weavatrix:read_source",
+            "packets: Arc::new(PacketStore::default()),",
+        );
+        reference.locator.path = Some("crates/cortex-mcp/src/lib_tests.rs".to_owned());
+        let certificate = certificate_from(
+            &[tracked(&reference)],
+            vec![FACET_TESTS.to_owned()],
+            false,
+            Some("PacketStore"),
+        );
+        assert!(!certificate.sufficient);
+    }
+
+    #[test]
+    fn an_embedded_test_body_closes_named_owner_coverage() {
+        let mut source = EvidenceFragment::new(
+            "ev_owner",
+            EvidenceKind::SourceReads,
+            "weavatrix:read_source",
+            "pub struct PacketStore {}\n#[cfg(test)]\nmod tests {\n#[test]\nfn evicts_oldest() {}\n}",
+        );
+        source.locator.path = Some("crates/cortex-mcp/src/runtime/packet_store.rs".to_owned());
+        let certificate = certificate_from(
+            &[tracked(&source)],
+            vec![FACET_TESTS.to_owned()],
+            false,
+            Some("PacketStore"),
+        );
+        assert!(certificate.sufficient);
+        assert_eq!(certificate.claims[0].validator, "test_definition_source/v1");
     }
 }

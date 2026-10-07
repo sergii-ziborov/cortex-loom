@@ -57,6 +57,14 @@ with runtime `ollama` uses the native loopback `/api/chat` endpoint for coding
 drafts and `/v1` compatibility for classification. Cortex
 does not silently substitute models or connect to remote model hosts.
 
+For Codex MCP, put backend settings under `[mcp_servers.cortex-loom.env]`
+in `~/.codex/config.toml` (see [installation](install.md#codex)). A shell
+environment assignment on `codex exec` is not proof that its MCP child
+received it. In a coding task, check `codingDraft.called: true` and a
+reported `codingDraft.totalTokens` before labeling a run “local Qwen” or
+“Composer.” Use a fresh `CORTEX_LOOM_DB` per benchmark lane so packets and
+memory do not cross the comparison boundary.
+
 For Composer, configure a loopback OpenAI-compatible proxy:
 
 ```sh

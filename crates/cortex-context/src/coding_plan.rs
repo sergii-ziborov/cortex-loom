@@ -90,7 +90,7 @@ pub fn build_change_plan(
     let strongest = candidates.first().map_or(0, |candidate| candidate.0);
     let eligible: Vec<_> = candidates
         .into_iter()
-        .filter(|(score, target, _)| strongest < 60 || *score >= 20 || is_test_path(&target.path))
+        .filter(|(score, target, _)| strongest < 60 || *score >= 40 || is_test_path(&target.path))
         .collect();
     let mut source_targets = Vec::new();
     let mut test_targets = Vec::new();
@@ -325,6 +325,46 @@ mod tests {
         assert_eq!(map.source_targets[0].evidence_id, "ev_owner");
         assert_eq!(map.test_targets.len(), 1);
         assert_eq!(map.test_targets[0].evidence_id, "ev_owner");
+    }
+
+    #[test]
+    fn named_constant_excludes_other_crates_inline_tests() {
+        let mut owner = source(
+            "ev_owner",
+            "crates/cortex-mcp/src/runtime/packet_store.rs",
+            EvidenceDerivation::ExactSource,
+        );
+        owner.facet = Some(EvidenceFacet::Definition);
+        owner.content = "const MAX_PACKETS: usize = 32;".to_owned();
+        let mut tests = source(
+            "ev_tests",
+            "crates/cortex-mcp/src/runtime/packet_store.rs",
+            EvidenceDerivation::ExactSource,
+        );
+        tests.content = "#[test]\nfn evicts_packets() { let _ = MAX_PACKETS; }".to_owned();
+        let mut noise = source(
+            "ev_noise",
+            "apps/cortex-server/src/library.rs",
+            EvidenceDerivation::ExactSource,
+        );
+        noise.content = "#[test]\nfn hidden_directories() {}".to_owned();
+        let certificate = CoverageCertificate {
+            sufficient: true,
+            ..CoverageCertificate::default()
+        };
+        let map = build_change_plan(
+            "Rename MAX_PACKETS in crates/cortex-mcp/src/runtime/packet_store.rs and update tests",
+            &[owner, tests, noise],
+            Some(&certificate),
+            true,
+        );
+        assert_eq!(map.source_targets.len(), 1);
+        assert_eq!(
+            map.source_targets[0].path,
+            "crates/cortex-mcp/src/runtime/packet_store.rs"
+        );
+        assert_eq!(map.test_targets.len(), 1);
+        assert_eq!(map.test_targets[0].evidence_id, "ev_tests");
     }
 
     #[test]

@@ -124,6 +124,24 @@ command = "cortex-mcp"
 args = ["--profile", "agent"]
 ```
 
+The default backend is `off`. To enable a local coding draft, set the
+**server's** environment in the same config file:
+
+```toml
+[mcp_servers.cortex-loom.env]
+CORTEX_LLM_BACKEND = "local"
+CORTEX_LLM_PROFILES = "/absolute/path/to/local-llm-profiles.json"
+```
+
+Codex does not necessarily pass a shell prefix such as
+`CORTEX_LLM_BACKEND=local codex exec …` to its MCP child. Verify an actual
+model call with `cortex_prepare.codingDraft.called` and
+`codingDraft.totalTokens`; `codingDraft.mode: "off"` means no Qwen call.
+For an isolated benchmark, also set `CORTEX_LOOM_DB` to a fresh path in
+this server environment. Composer uses the same server environment block
+with `CORTEX_LLM_BACKEND = "composer"` and the loopback proxy settings in
+[LLM backends](llm-backends.md).
+
 Do not paste workflow bodies into `AGENTS.md`. Point Codex at the
 `cortex-context` skill. The agent profile has `cortex_prepare` and
 `cortex_expand` only; `skill_read` is a full-profile tool, not part of

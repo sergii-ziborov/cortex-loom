@@ -26,7 +26,7 @@ pub fn definition_complete(
     symbol: &str,
     locator: Option<&EvidenceLocator>,
 ) -> Option<bool> {
-    definition_head_index(text, symbol)?;
+    let head = definition_head_index(text, symbol)?;
     if let Some(locator) = locator
         && span_covers_definition(text, locator)
     {
@@ -34,6 +34,11 @@ pub fn definition_complete(
     }
     if let Some(true) = definition_is_complete(text, symbol) {
         return Some(true);
+    }
+    // An unfinished multiline initializer is not a Python-style indented
+    // body. A constant or static is complete only at its outer semicolon.
+    if text[head..].starts_with("const ") || text[head..].starts_with("static ") {
+        return definition_is_complete(text, symbol);
     }
     if indent_block_complete(text, symbol) {
         return Some(true);
@@ -110,6 +115,19 @@ mod tests {
         let with_json_tail = format!("{text}{{\"path\":\"retry.py\"}}\n");
         assert_eq!(
             definition_complete(&with_json_tail, "schedule_py_retry", None),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn truncated_rust_constant_does_not_pass_indent_fallback() {
+        let truncated = "const MAX_PACKETS: usize =\n    32";
+        assert_eq!(
+            definition_complete(truncated, "MAX_PACKETS", None),
+            Some(false)
+        );
+        assert_eq!(
+            definition_complete(&format!("{truncated};"), "MAX_PACKETS", None),
             Some(true)
         );
     }

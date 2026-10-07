@@ -55,4 +55,22 @@ mod tests {
         assert_eq!(owner_budget(6_000), 1_500);
         assert_eq!(owner_budget(400), 200);
     }
+
+    #[test]
+    fn named_constant_edit_opens_the_owner_for_inline_tests() {
+        let mut source = EvidenceFragment::new(
+            "definition",
+            EvidenceKind::SourceReads,
+            "weavatrix:read_source",
+            "const MAX_PACKETS: usize = 32;",
+        );
+        source.facet = EvidenceFacet::Definition;
+        source.locator.path = Some("crates/cortex-mcp/src/runtime/packet_store.rs".to_owned());
+        let hit = coding_owner_hit(
+            &[source],
+            "Rename MAX_PACKETS and update inline tests in packet_store.rs",
+        )
+        .expect("the named constant owner");
+        assert_eq!(hit.path, "crates/cortex-mcp/src/runtime/packet_store.rs");
+    }
 }

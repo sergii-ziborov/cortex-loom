@@ -10,120 +10,13 @@ use serde_json::{Value, json};
 use crate::plan::PlanPolicy;
 
 mod coding;
+mod definition;
 mod owner;
 mod window;
+pub use definition::{definition_head_index, definition_is_complete};
 pub(crate) use owner::{coding_owner_hit, owner_budget};
 use window::schema_key_mentioned;
 pub use window::{SOURCE_BEFORE, SourceWindow};
-
-/// Where a symbol's definition head sits in a text, if it is there at all.
-///
-/// Matches a language-agnostic definition head (`fn`, `class`, `def`,
-/// `func`, …) with a word boundary after the name. Brace balance remains
-/// a last-resort completeness check; prefer Weavatrix span metadata when
-/// the graph already knows the exact extent.
-#[must_use]
-pub fn definition_head_index(text: &str, symbol: &str) -> Option<usize> {
-    // Source is almost always ASCII; ascii-lowercase keeps byte indices so
-    // completeness can slice the original text. Do not NFKC-fold the haystack.
-    let lower = text.to_ascii_lowercase();
-    let symbol = symbol.to_ascii_lowercase();
-    for keyword in [
-        "fn ",
-        "struct ",
-        "enum ",
-        "trait ",
-        "type ",
-        "class ",
-        "interface ",
-        "function ",
-        "def ",
-        "func ",
-        "record ",
-    ] {
-        let mut from = 0;
-        while let Some(relative) = lower[from..].find(keyword) {
-            let head = from + relative;
-            let name_start = head + keyword.len();
-            let after_name = name_start + symbol.len();
-            if lower[name_start..].starts_with(symbol.as_str())
-                && !lower[after_name..]
-                    .chars()
-                    .next()
-                    .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
-            {
-                return Some(head);
-            }
-            from = name_start;
-        }
-    }
-    None
-}
-
-/// Whether a text carries the symbol's **complete** definition.
-///
-/// `None` when the definition head is absent. `Some(true)` when, from the
-/// head, the braces balance back to zero (or a `;` ends a bodiless item)
-/// before the text runs out. The measured failure this guards against: a
-/// window cut a six-field struct after four fields, the packet passed
-/// sufficiency, and the model faithfully implemented the four fields it was
-/// shown.
-#[must_use]
-pub fn definition_is_complete(text: &str, symbol: &str) -> Option<bool> {
-    let head = definition_head_index(text, symbol)?;
-    let mut depth = 0_i32;
-    let mut opened = false;
-    let mut mode = BraceMode::Code;
-    let mut previous = '\0';
-    for character in text[head..].chars() {
-        mode = advance_brace_mode(mode, previous, character);
-        if mode == BraceMode::Code {
-            match character {
-                '{' => {
-                    depth += 1;
-                    opened = true;
-                }
-                '}' => {
-                    depth -= 1;
-                    if opened && depth == 0 {
-                        return Some(true);
-                    }
-                }
-                ';' if !opened => return Some(true),
-                _ => {}
-            }
-        }
-        previous = character;
-    }
-    Some(false)
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BraceMode {
-    Code,
-    LineComment,
-    BlockComment,
-    String,
-    Char,
-}
-
-fn advance_brace_mode(mode: BraceMode, previous: char, character: char) -> BraceMode {
-    match mode {
-        BraceMode::LineComment if character == '\n' => BraceMode::Code,
-        BraceMode::LineComment => BraceMode::LineComment,
-        BraceMode::BlockComment if previous == '*' && character == '/' => BraceMode::Code,
-        BraceMode::BlockComment => BraceMode::BlockComment,
-        BraceMode::String if previous != '\\' && character == '"' => BraceMode::Code,
-        BraceMode::String => BraceMode::String,
-        BraceMode::Char if previous != '\\' && character == '\'' => BraceMode::Code,
-        BraceMode::Char => BraceMode::Char,
-        BraceMode::Code if previous == '/' && character == '/' => BraceMode::LineComment,
-        BraceMode::Code if previous == '/' && character == '*' => BraceMode::BlockComment,
-        BraceMode::Code if character == '"' => BraceMode::String,
-        BraceMode::Code if character == '\'' => BraceMode::Char,
-        BraceMode::Code => BraceMode::Code,
-    }
-}
 
 /// One search match that can be turned into a `read_source` call.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -2,10 +2,16 @@
 
 import unittest
 
-from cortex_mcp_client import assert_effective_lane
+from cortex_mcp_client import assert_effective_lane, is_qwen3_8b, model_tokens
 
 
 class LaneTests(unittest.TestCase):
+    def test_local_model_identity_accepts_native_and_ovms_qwen_names(self) -> None:
+        self.assertTrue(is_qwen3_8b("qwen3:8b"))
+        self.assertTrue(is_qwen3_8b("qwen3-8b"))
+        self.assertTrue(is_qwen3_8b("qwen3-8b-ovms-npu"))
+        self.assertFalse(is_qwen3_8b("llama3:8b"))
+
     def test_fallback_is_not_scored_as_a_successful_model_lane(self) -> None:
         for internal in (
             {"mode": "off", "called": False},
@@ -48,6 +54,25 @@ class LaneTests(unittest.TestCase):
         skipped["routing"]["modelTier"] = "local_medium"
         with self.assertRaises(RuntimeError):
             assert_effective_lane(skipped, "local", "composer", allow_policy_skip=True)
+
+    def test_coding_lane_counts_attempted_draft_even_when_validator_rejects_it(self) -> None:
+        prepared = {
+            "mutationLikely": True,
+            "internalModel": {"mode": "local", "called": False},
+            "codingDraft": {
+                "mode": "local", "called": True, "accepted": True,
+                "model": "qwen3-8b", "totalTokens": 200,
+            },
+        }
+        assert_effective_lane(prepared, "local", "composer")
+        self.assertEqual(model_tokens(prepared), 200)
+        prepared["codingDraft"]["accepted"] = False
+        assert_effective_lane(prepared, "local", "composer", allow_policy_skip=True)
+        prepared["codingDraft"]["totalTokens"] = None
+        self.assertIsNone(model_tokens(prepared))
+        prepared["codingDraft"]["called"] = False
+        with self.assertRaises(RuntimeError):
+            assert_effective_lane(prepared, "local", "composer", allow_policy_skip=True)
 
 
 if __name__ == "__main__":

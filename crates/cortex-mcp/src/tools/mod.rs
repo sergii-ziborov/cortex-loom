@@ -1,6 +1,8 @@
 mod agent_reply;
+mod agent_route;
 mod agent_store;
 pub mod agent_tools;
+mod coding_advice;
 pub mod context_tools;
 pub mod graph_skill_tools;
 pub mod route_metric_tools;

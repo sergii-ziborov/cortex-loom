@@ -136,6 +136,17 @@ pub(super) fn append_source_reads(
             }
         }
     }
+    if let Some(owner) = owner {
+        super::inline_tests::append(
+            engine,
+            root,
+            evidence,
+            warnings,
+            &owner.path,
+            plan.task,
+            budget,
+        );
+    }
 }
 
 /// Read the named symbol's defining item in full.

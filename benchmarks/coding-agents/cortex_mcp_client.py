@@ -15,6 +15,11 @@ from typing import Any, TextIO
 PROTOCOL_VERSION = "2025-11-25"
 
 
+def is_qwen3_8b(model: Any) -> bool:
+    """Accept native Ollama and configured OVMS spellings of Qwen3 8B."""
+    return isinstance(model, str) and model.lower().startswith("qwen3") and "8b" in model.lower()
+
+
 def send(stream: TextIO, message: dict[str, Any]) -> None:
     stream.write(json.dumps(message, ensure_ascii=False, separators=(",", ":")) + "\n")
     stream.flush()
@@ -68,12 +73,21 @@ def assert_effective_lane(
     prepared: dict[str, Any], backend: str, model: str, *, allow_policy_skip: bool = False,
 ) -> None:
     internal = prepared.get("internalModel") or {}
+    draft = prepared.get("codingDraft") or {}
     effective = internal.get("mode")
     if effective != backend:
         raise RuntimeError(f"requested {backend} lane, Cortex reported {effective!r}")
     if backend == "off":
-        if internal.get("called"):
-            raise RuntimeError("models-off lane invoked a classifier")
+        if internal.get("called") or draft.get("called"):
+            raise RuntimeError("models-off lane invoked a model")
+        return
+    if prepared.get("mutationLikely"):
+        if draft.get("mode") != backend or not draft.get("called"):
+            raise RuntimeError(
+                f"{backend} coding model did not run: {draft.get('reason') or draft.get('status')}"
+            )
+        if backend == "local" and not is_qwen3_8b(draft.get("model")):
+            raise RuntimeError("local coding lane did not use the configured Qwen3-8B")
         return
     if not internal.get("called") and allow_policy_skip:
         if (
@@ -88,11 +102,25 @@ def assert_effective_lane(
         )
     if backend == "local" and (
         internal.get("role") != "routing_classifier"
-        or internal.get("agentModel") != "qwen3-8b"
+        or not is_qwen3_8b(internal.get("agentModel"))
     ):
         raise RuntimeError("local benchmark did not report the configured Qwen3-8B classifier")
     if backend == "composer" and internal.get("classifierModel") != model:
         raise RuntimeError("composer classifier alias differed from the requested model")
+
+
+def model_tokens(prepared: dict[str, Any]) -> int | None:
+    """Sum internal usage only when every invoked model reported it."""
+    total = 0
+    for field in ("internalModel", "codingDraft"):
+        result = prepared.get(field) or {}
+        if not result.get("called"):
+            continue
+        usage = result.get("totalTokens")
+        if not isinstance(usage, int):
+            return None
+        total += usage
+    return total
 
 
 def main() -> int:
@@ -124,7 +152,7 @@ def main() -> int:
         "--llm-backend",
         choices=("off", "local", "composer"),
         default="off",
-        help="Cortex internal classifier: off, OVMS local, or loopback proxy.",
+        help="Cortex internal model: off, local Qwen, or a Composer loopback proxy.",
     )
     parser.add_argument(
         "--classifier-model",
@@ -135,7 +163,7 @@ def main() -> int:
     parser.add_argument(
         "--allow-policy-skip",
         action="store_true",
-        help="Allow a configured model that was correctly skipped for an upstream coding task; report modelUsed=false.",
+        help="Allow classifier policy skip for non-coding tasks; coding lanes still require an actual model call.",
     )
     arguments = parser.parse_args()
 
@@ -264,7 +292,12 @@ def main() -> int:
                 {
                     "mode": f"cortex_{arguments.llm_backend}",
                     "effectiveBackend": prepared["internalModel"]["mode"],
-                    "modelUsed": bool(prepared["internalModel"]["called"]),
+                    "modelUsed": bool(
+                        prepared["internalModel"]["called"]
+                        or prepared.get("codingDraft", {}).get("called")
+                    ),
+                    "draftAccepted": bool(prepared.get("codingDraft", {}).get("accepted")),
+                    "modelTokens": model_tokens(prepared),
                     "semanticEnabled": False,
                     "shadowEnabled": False,
                     "priorRunMemoryAvailable": False,

@@ -10,7 +10,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use cortex_llm::{
-    ClassifyRequest, LlmProvider, OpenAiProvider, ProfileRegistry, Role, Runtime, TokenUsage,
+    ClassifyRequest, CodingDraftRequest, LlmProvider, OpenAiProvider, ProfileRegistry, Role,
+    Runtime, TokenUsage,
 };
 use serde_json::{Value, json};
 
@@ -162,7 +163,51 @@ pub struct LlmRouter {
     lock: Mutex<()>,
 }
 
+pub struct CodingModelResponse {
+    pub content: String,
+    pub usage: Option<TokenUsage>,
+    pub latency_ms: u64,
+    pub profile: String,
+    pub model: Option<String>,
+}
+
 impl LlmRouter {
+    /// The model drafts source-anchored suggestions; it never changes the
+    /// upstream execution route or obtains mutation authority.
+    pub fn draft_coding(
+        &self,
+        request: &CodingDraftRequest,
+    ) -> Result<CodingModelResponse, String> {
+        let _shared = if self.backend == LlmBackend::Composer {
+            Some(
+                COMPOSER_LOCK
+                    .lock()
+                    .map_err(|_| "composer draft lock poisoned".to_owned())?,
+            )
+        } else {
+            None
+        };
+        let _guard = self
+            .lock
+            .lock()
+            .map_err(|_| "coding draft lock poisoned".to_owned())?;
+        let (content, latency_ms, usage) = if self.provider.profile().runtime == Runtime::Ollama {
+            super::ollama_coding::draft(self.provider.profile(), request)?
+        } else {
+            let result = self
+                .provider
+                .coding_draft(request)
+                .map_err(|error| error.to_string())?;
+            (result.value, result.latency_ms, result.usage)
+        };
+        Ok(CodingModelResponse {
+            content,
+            usage,
+            latency_ms,
+            profile: self.profile_id.clone(),
+            model: self.agent_model.clone(),
+        })
+    }
     /// Build when explicitly configured; `Ok(None)` when inactive.
     ///
     /// # Errors
@@ -201,13 +246,12 @@ impl LlmRouter {
             .select(Role::Classification)
             .map_err(|error| error.to_string())?
             .clone();
-        if !matches!(profile.runtime, Runtime::OpenAiCompatible) {
-            return Err(format!(
-                "classification profile {} uses {:?}; only open_ai_compatible is wired",
-                profile.id, profile.runtime
-            ));
-        }
-        let provider = OpenAiProvider::new(profile.clone()).map_err(|error| error.to_string())?;
+        let prefix = match profile.runtime {
+            Runtime::OpenAiCompatible => cortex_llm::openai::DEFAULT_PATH_PREFIX,
+            Runtime::Ollama => "/v1",
+        };
+        let provider = OpenAiProvider::with_prefix(profile.clone(), prefix)
+            .map_err(|error| error.to_string())?;
         Ok(Self::new(
             provider,
             profile.id,

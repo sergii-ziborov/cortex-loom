@@ -38,7 +38,7 @@ fn print_help() {
         "cortex-loom {} - local prepare/expand over the same compiler as cortex-mcp\n\n\
          Commands:\n  \
          doctor [--repo <path>]\n  \
-         prepare --repo <path> (--task <text> | --task-file <file> | --task-stdin) [--max-tokens 6000 | --budget-class normal] [--format json]\n  \
+         prepare --repo <path> (--task <text> | --task-file <file> | --task-stdin) [--max-tokens 6000 | --budget-class normal] [--draft-model haiku] [--format json]\n  \
          expand --packet <id> --facet <facet> [--repo <path>]\n  \
          setup --agent claude-code|codex|copilot [--dry-run]\n  \
          report --last\n\n\
@@ -99,6 +99,7 @@ fn prepare(arguments: &[String]) -> Result<(), String> {
             "format",
             "run-id",
             "classifier-model",
+            "draft-model",
         ],
         &["task-stdin"],
     )?;
@@ -137,6 +138,7 @@ fn prepare(arguments: &[String]) -> Result<(), String> {
             budget_class,
             max_tokens,
             classifier_model: flags.optional("classifier-model"),
+            draft_model: flags.optional("draft-model"),
             response_format: None,
         },
     )?;

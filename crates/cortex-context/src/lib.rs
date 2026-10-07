@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 mod certificate;
+mod coding_plan;
 mod evidence;
 pub mod ranking;
 mod tokens;
@@ -10,6 +11,9 @@ pub use certificate::{
     FACET_DEFINITION, FACET_ERRORS, FACET_EXPANSION_ORDER, FACET_GIT, FACET_GUARDS, FACET_MEMORY,
     FACET_PUBLIC_API, FACET_SIGNATURES, FACET_TESTS, FacetClaim, is_critical_facet,
     render_decision_map, render_expansions,
+};
+pub use coding_plan::{
+    ChangePlan, ChangePlanStatus, SourceTarget, build_change_plan, safe_relative_path,
 };
 pub use evidence::{
     EvidenceDerivation, EvidenceFacet, EvidenceItem, EvidenceLocator, EvidencePriority,

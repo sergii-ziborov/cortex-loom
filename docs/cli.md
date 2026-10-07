@@ -60,10 +60,11 @@ host budget.
 
 Prepare follows `CORTEX_LLM_BACKEND`: `off` (default), `local`
 (Qwen3-8B on OVMS `:8000`), or `composer`. There is no
-`--llm-backend` flag. `--classifier-model` only picks a loopback
-alias. A down endpoint keeps the lexical packet and sets
-`internalModel.warning`. An explicit `--classifier-model` cannot override
-an operator backend set to `off` or `local`.
+`--llm-backend` flag. `--classifier-model` picks a loopback classifier
+alias; `--draft-model` picks a Composer coding-preview alias. A down
+endpoint keeps the deterministic `changePlan` and packet, with a reason
+in `codingDraft.reason` for an attempted draft. An explicit alias cannot
+override an operator backend set to `off` or `local`.
 
 ## Output
 

@@ -17,6 +17,9 @@ pub(super) fn coverage_requirements(
     let lower = task.to_ascii_lowercase();
     let mut requirements = Vec::new();
     let mut identifiers = extract_identifiers(task);
+    if let Some(future_name) = rename_destination(task) {
+        identifiers.retain(|identifier| identifier != &future_name);
+    }
     if let Some(symbol) = symbol
         && !identifiers.iter().any(|identifier| identifier == symbol)
     {
@@ -67,6 +70,22 @@ pub(super) fn coverage_requirements(
         });
     }
     requirements
+}
+
+/// A rename's destination is proposed code, so requiring it in current
+/// source would make every correctly scoped rename packet look incomplete.
+fn rename_destination(task: &str) -> Option<String> {
+    let lower = task.to_ascii_lowercase();
+    let start = lower.find("rename ")? + "rename ".len();
+    let tail = &task[start..];
+    let to = tail.to_ascii_lowercase().find(" to ")?;
+    let old = &tail[..to];
+    if extract_identifiers(old).is_empty() {
+        return None;
+    }
+    extract_identifiers(&tail[to + " to ".len()..])
+        .into_iter()
+        .next()
 }
 
 /// Labels that are implied by core-task wording, not by probe prompts.

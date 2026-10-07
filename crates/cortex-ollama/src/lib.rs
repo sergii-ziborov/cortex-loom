@@ -11,7 +11,7 @@ pub use quality::assess_local_draft;
 pub use types::{
     ChatMessage, ChatRole, DevicePlacement, DraftAssessment, DraftRequest, EmbedRequest,
     LocalDraft, ModelInfo, ModelProfile, OllamaConfig, QualityFailure, RunningModel,
-    StructuredChatRequest, VersionInfo,
+    StructuredChatRequest, StructuredChatResponse, VersionInfo,
 };
 
 pub const MAX_EMBED_INPUTS: usize = 64;

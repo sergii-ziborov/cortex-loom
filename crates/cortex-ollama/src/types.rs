@@ -150,6 +150,13 @@ pub struct StructuredChatRequest {
     pub requested_output_tokens: u32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StructuredChatResponse {
+    pub content: String,
+    pub prompt_tokens: Option<u32>,
+    pub completion_tokens: Option<u32>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LocalDraft {

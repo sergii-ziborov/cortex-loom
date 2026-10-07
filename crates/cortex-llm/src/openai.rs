@@ -29,8 +29,8 @@ use crate::device::{Device, Placement};
 use crate::endpoint::LoopbackUrl;
 use crate::profile::LlmProfile;
 use crate::{
-    ClassifyRequest, EmbedRequest, LlmProvider, MicroExtractOutput, MicroExtractRequest,
-    ProviderError, ProviderResponse, TokenUsage, resolve_label,
+    ClassifyRequest, CodingDraftRequest, EmbedRequest, LlmProvider, MicroExtractOutput,
+    MicroExtractRequest, ProviderError, ProviderResponse, TokenUsage, resolve_label,
 };
 
 /// Largest reply a classification is allowed to produce.
@@ -104,6 +104,60 @@ impl OpenAiProvider {
             || Placement::declared(self.profile.device),
             |observed| Placement::observed(self.profile.device, observed),
         )
+    }
+
+    /// Generate a JSON edit preview from bounded, verified source. This is
+    /// advisory output; validation and all mutation stay with the caller.
+    ///
+    /// # Errors
+    ///
+    /// Returns a transport or schema error when the local runtime fails.
+    pub fn coding_draft(
+        &self,
+        request: &CodingDraftRequest,
+    ) -> Result<ProviderResponse<String>, ProviderError> {
+        if request.task.trim().is_empty()
+            || request.verified_source.trim().is_empty()
+            || request.max_output_tokens == 0
+            || request.max_output_tokens > 1_024
+        {
+            return Err(ProviderError::Schema(
+                "invalid coding draft bounds".to_owned(),
+            ));
+        }
+        let prompt = request.prompt();
+        let mut body = serde_json::json!({
+            "model": self.profile.model,
+            "max_tokens": request.max_output_tokens,
+            "temperature": 0,
+            "chat_template_kwargs": {"enable_thinking": false},
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "coding_draft",
+                    "strict": true,
+                    "schema": crate::coding_draft_schema()
+                }
+            },
+            "messages": [{"role": "user", "content": prompt}],
+        });
+        if self.profile.runtime == crate::profile::Runtime::Ollama {
+            body["think"] = serde_json::json!(false);
+        }
+        let (response, latency_ms): (ChatResponse, u64) = self.post("/chat/completions", &body)?;
+        let content = response
+            .choices
+            .first()
+            .ok_or_else(|| ProviderError::Schema("no choices in the reply".to_owned()))?
+            .message
+            .content
+            .clone();
+        Ok(ProviderResponse {
+            value: content,
+            placement: self.placement(),
+            latency_ms,
+            usage: token_usage(response.usage),
+        })
     }
 
     fn post<T: for<'de> Deserialize<'de>>(

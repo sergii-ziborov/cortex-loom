@@ -15,11 +15,12 @@ for receipts, scope, and limitations.
 
 This benchmark compares four configured lanes, not a single without/with pair:
 without Cortex; Cortex with models off; Cortex with Composer as its
-internal classifier; and Cortex with a local classifier. For code changes,
-the classifier is now skipped whenever the lexical route is already
-`upstream_strong`: `modelUsed: false` means the configured model did not
-participate. Use `--allow-policy-skip` to capture such a lane without
-mislabeling it as model-assisted. SweepLoom is the
+internal coding draft model; and Cortex with a local Qwen coding draft model.
+For code changes, the classifier is skipped whenever the lexical route is
+already `upstream_strong`; `codingDraft.called` records actual model use and
+`codingDraft.accepted` records whether source validation accepted its draft.
+Rejected drafts still count their model tokens and remain in full-task comparisons.
+`modelUsed: false` means no model participated. SweepLoom is the
 target repository, not a product under test, and is not part of the
 comparison.
 
@@ -58,9 +59,10 @@ artifacts.
 the two-tool `agent` profile. It explicitly disables semantic ordering and
 shadow mode, uses a fresh temporary database, initializes MCP, calls
 `cortex_prepare`, and calls `cortex_expand` only for returned handles.
-It checks the reported backend and classifier success before labeling a
-model-used lane. A policy-skipped classifier is accepted only with
-`--allow-policy-skip` and an upstream routing ceiling. The fresh database contains no prior run memory, and this client
+It checks the reported backend and an actual model call before labeling a
+model-used coding lane. A policy-skipped classifier on non-coding tasks is
+accepted only with `--allow-policy-skip` and an upstream routing ceiling.
+The fresh database contains no prior run memory, and this client
 does not exercise workflow commands or warm cache.
 
 Every coding agent must execute the client before ordinary repository
@@ -95,12 +97,12 @@ profile and the exact runtime, endpoint, and model are installed. That is a
 separate variant from the deterministic `agent` profile; results must not be
 pooled.
 
-The live 2026-09-15 check is recorded in `model-preflight.json`: Ollama is
-reachable but has no installed model tags, and OVMS ports 8000-8002 are closed.
-The model-enabled lane is therefore blocked on that machine rather than being
-silently downgraded to deterministic behavior. The client rejects a local run
-unless `internalModel.called` and `succeeded` are true and the returned model
-is the configured Qwen3-8B routing classifier.
+The 2026-09-15 check in `model-preflight.json` found no installed Ollama model
+on that machine and closed OVMS ports. Recheck the runtime before each new
+matrix. On coding tasks the client requires `codingDraft.called: true` and a
+Qwen3-8B model identity; it records accepted and rejected drafts separately.
+The 2026-10-04 local Ollama probe exercised Qwen3:8b on a real code-change
+request, but its reported model tokens are only a component of task spend.
 
 ## Measurements
 

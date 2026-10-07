@@ -95,6 +95,16 @@ impl OllamaClient {
         &self,
         request: &crate::StructuredChatRequest,
     ) -> Result<String, OllamaError> {
+        self.structured_chat_with_usage(request)
+            .map(|response| response.content)
+    }
+
+    /// Native Ollama chat with reported prompt and completion counts.
+    /// Missing counts remain unknown rather than becoming zero.
+    pub fn structured_chat_with_usage(
+        &self,
+        request: &crate::StructuredChatRequest,
+    ) -> Result<crate::StructuredChatResponse, OllamaError> {
         let profile = self
             .config
             .profiles
@@ -105,7 +115,7 @@ impl OllamaClient {
             request.requested_output_tokens,
             profile,
         )?;
-        self.chat_content(
+        self.chat_result(
             &profile.model,
             &request.messages,
             request.schema.clone(),
@@ -173,6 +183,18 @@ impl OllamaClient {
         num_predict: u32,
         num_ctx: u32,
     ) -> Result<String, OllamaError> {
+        self.chat_result(model, messages, format, num_predict, num_ctx)
+            .map(|response| response.content)
+    }
+
+    fn chat_result(
+        &self,
+        model: &str,
+        messages: &[crate::ChatMessage],
+        format: serde_json::Value,
+        num_predict: u32,
+        num_ctx: u32,
+    ) -> Result<crate::StructuredChatResponse, OllamaError> {
         let body = ChatApiRequest {
             model,
             messages,
@@ -196,7 +218,11 @@ impl OllamaClient {
             });
         }
         let response: ChatApiResponse = self.post_json("/api/chat", &serialized)?;
-        Ok(response.message.content)
+        Ok(crate::StructuredChatResponse {
+            content: response.message.content,
+            prompt_tokens: response.prompt_eval_count,
+            completion_tokens: response.eval_count,
+        })
     }
 
     fn get_json<T: DeserializeOwned>(&self, path: &str) -> Result<T, OllamaError> {
@@ -282,6 +308,10 @@ struct ChatOptions {
 #[derive(Deserialize)]
 struct ChatApiResponse {
     message: ChatApiMessage,
+    #[serde(default)]
+    prompt_eval_count: Option<u32>,
+    #[serde(default)]
+    eval_count: Option<u32>,
 }
 
 #[derive(Serialize)]

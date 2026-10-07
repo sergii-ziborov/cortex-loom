@@ -101,6 +101,60 @@ fn unnamed_code_change_keeps_editable_source_ahead_of_search_rows() {
 }
 
 #[test]
+fn requested_inline_test_source_survives_generic_search_noise() {
+    let mut inline = fragment(
+        "WX-INLINE-TEST",
+        EvidenceKind::SourceReads,
+        "#[cfg(test)]\nmod tests {\n#[test]\nfn packet_store_eviction() { PacketStore::default(); }\n}",
+    );
+    inline.source = "weavatrix:read_source inline_tests".to_owned();
+    let bundle = EvidenceBundle {
+        repository: "repo".to_owned(),
+        evidence: vec![
+            fragment(
+                "WX-SEARCH",
+                EvidenceKind::SearchHits,
+                &"noise ".repeat(2_000),
+            ),
+            inline,
+        ],
+        ..EvidenceBundle::default()
+    };
+    let compiled = compile_evidence_bundle(
+        bundle,
+        "Fix PacketStore eviction and update tests",
+        250,
+        None,
+    )
+    .unwrap();
+    assert!(
+        compiled
+            .context
+            .included_ids
+            .contains(&"WX-INLINE-TEST".to_owned())
+    );
+    assert!(
+        !compiled
+            .context
+            .included_ids
+            .contains(&"WX-SEARCH".to_owned())
+    );
+}
+
+#[test]
+fn named_constant_source_is_detected_without_treating_fixture_text_as_declaration() {
+    let identifiers = vec!["PacketStore".to_owned(), "MAX_PACKETS".to_owned()];
+    assert!(source_declares_named_constant(
+        "pub(crate) const MAX_PACKETS: usize = 32;",
+        &identifiers
+    ));
+    assert!(!source_declares_named_constant(
+        "let fixture = \"const MAX_PACKETS: usize = 32;\";",
+        &identifiers
+    ));
+}
+
+#[test]
 fn a_broad_packet_labels_only_mechanisms_already_present() {
     let task = "List every mechanism that can silently cause an archive miss.";
     let bundle = EvidenceBundle {
@@ -201,7 +255,7 @@ fn compiles_typed_weavatrix_evidence_in_fail_closed_order() {
     let compiled = compile_evidence_bundle(bundle, "change the symbol", 1_000, None).unwrap();
     assert_eq!(
         compiled.context.included_ids,
-        ["TASK", "WX-SYMBOL", "WX-MODULES", "WX-VERIFY", "WX-GRAPH"]
+        ["TASK", "WX-SYMBOL", "WX-VERIFY", "WX-MODULES", "WX-GRAPH"]
     );
     assert!(compiled.context.requires_upstream);
     assert_eq!(compiled.evidence_count, 4);

@@ -1,6 +1,7 @@
 mod evidence;
 mod expand;
 mod gather;
+mod inline_tests;
 mod locator;
 mod render;
 mod retry;

@@ -9,6 +9,7 @@ __pycache__/
 *.db
 *.db-shm
 *.db-wal
+.DS_Store
 .env
 /private/
 *open-local-paid-online-plan*.md

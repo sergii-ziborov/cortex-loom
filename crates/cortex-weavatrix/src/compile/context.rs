@@ -6,7 +6,7 @@ use cortex_context::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{EvidenceBundle, EvidenceKind, EvidenceSufficiency};
+use crate::{EvidenceBundle, EvidenceFragment, EvidenceKind, EvidenceSufficiency};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -24,6 +24,11 @@ pub struct CompiledEvidenceBundle {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sufficiency: Option<EvidenceSufficiency>,
     pub context: ContextPacket,
+    /// Selected typed items for host-side plans and draft validation. The
+    /// rendered context is already on the wire, so serializing these again
+    /// would duplicate every source window.
+    #[serde(skip)]
+    pub selected_evidence: Vec<EvidenceItem>,
 }
 
 /// Compile typed Weavatrix evidence into one bounded packet. `relevance`
@@ -82,6 +87,8 @@ fn compile_layered(
     } = bundle;
     let evidence_count = evidence.len();
     let unnamed_coding_change = crate::plan::is_new_feature_without_owner(task);
+    let coding_change = crate::plan_intent::is_coding_change(task);
+    let task_identifiers = crate::plan::extract_identifiers(task);
     let mut items = Vec::with_capacity(evidence_count + 1);
     items.push({
         let mut task_item = EvidenceItem::new(
@@ -98,24 +105,13 @@ fn compile_layered(
         task_item
     });
     items.extend(evidence.into_iter().map(|fragment| {
-        let (mut priority, state) = evidence_policy(fragment.kind, fragment.head, fragment.facet);
-        // On a new coding feature, the editable source windows carry more
-        // value than the search rows that found them. Keep all requested
-        // surfaces before spending the remaining packet on duplicate hits.
-        if unnamed_coding_change {
-            match fragment.kind {
-                EvidenceKind::SourceReads => priority = EvidencePriority::High,
-                EvidenceKind::SearchHits => priority = EvidencePriority::Normal,
-                _ => {}
-            }
-        }
-        // Suite head answers "which tests?". Later slices of the same file
-        // stay Normal so a tight compile drops them first, not `tests.rs:1`.
-        if crate::plan_intent::detect(task) == crate::plan_intent::TaskIntent::TestSelection
-            && matches!(fragment.kind, EvidenceKind::SourceReads)
-        {
-            priority = EvidencePriority::High;
-        }
+        let (priority, state) = task_evidence_policy(
+            &fragment,
+            task,
+            unnamed_coding_change,
+            coding_change,
+            &task_identifiers,
+        );
         let score = relevance.and_then(|scores| scores.get(&fragment.id).copied());
         let mut item = EvidenceItem::new(
             fragment.id,
@@ -160,11 +156,17 @@ fn compile_layered(
     // Fragments come from several Weavatrix operations that budget
     // independently, so the same source lines arrive more than once. Only
     // this layer can see that.
-    let mut context = compile_context(&ContextRequest {
+    let request = ContextRequest {
         items,
         max_tokens,
         deduplicate: true,
-    })?;
+    };
+    let mut context = compile_context(&request)?;
+    let selected_evidence = request
+        .items
+        .into_iter()
+        .filter(|item| context.included_ids.contains(&item.id))
+        .collect();
     if context.snapshot_id.is_none() {
         context.snapshot_id = snapshot_for_packet;
     }
@@ -176,6 +178,67 @@ fn compile_layered(
         semantic_ranking: None,
         sufficiency: None,
         context,
+        selected_evidence,
+    })
+}
+
+fn task_evidence_policy(
+    fragment: &EvidenceFragment,
+    task: &str,
+    unnamed_coding_change: bool,
+    coding_change: bool,
+    task_identifiers: &[String],
+) -> (EvidencePriority, EvidenceState) {
+    let (mut priority, state) = evidence_policy(fragment.kind, fragment.head, fragment.facet);
+    // Editable source outranks search rows on new coding features.
+    if unnamed_coding_change {
+        match fragment.kind {
+            EvidenceKind::SourceReads => priority = EvidencePriority::High,
+            EvidenceKind::SearchHits => priority = EvidencePriority::Normal,
+            _ => {}
+        }
+    }
+    if coding_change {
+        match fragment.kind {
+            EvidenceKind::SearchHits | EvidenceKind::ModuleMap => {
+                priority = EvidencePriority::Normal;
+            }
+            EvidenceKind::SourceReads
+                if source_declares_named_constant(&fragment.content, task_identifiers) =>
+            {
+                priority = EvidencePriority::High;
+            }
+            _ => {}
+        }
+    }
+    if crate::plan_intent::detect(task) == crate::plan_intent::TaskIntent::TestSelection
+        && fragment.kind == EvidenceKind::SourceReads
+    {
+        priority = EvidencePriority::High;
+    }
+    // The exact inline suite answers a required coding facet.
+    if crate::plan_intent::asks_for_test_source(task)
+        && fragment.kind == EvidenceKind::SourceReads
+        && fragment.source == "weavatrix:read_source inline_tests"
+        && fragment.content.contains("#[cfg(test)]")
+        && fragment.content.contains("#[test]")
+    {
+        priority = EvidencePriority::Critical;
+    }
+    (priority, state)
+}
+
+fn source_declares_named_constant(content: &str, identifiers: &[String]) -> bool {
+    content.lines().any(|line| {
+        let line = line.trim_start();
+        ["const ", "pub const ", "pub(crate) const ", "static "]
+            .iter()
+            .find_map(|prefix| line.strip_prefix(prefix))
+            .and_then(|tail| {
+                tail.split(|character: char| !character.is_alphanumeric() && character != '_')
+                    .next()
+            })
+            .is_some_and(|name| identifiers.iter().any(|identifier| identifier == name))
     })
 }
 

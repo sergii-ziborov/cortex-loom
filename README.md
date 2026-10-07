@@ -102,9 +102,10 @@ The `cortex-context` skill says when to call those tools. It does not
 ask for Cortex on every file read and it does not use `skill_read`.
 
 Adapters: [docs/install.md](docs/install.md#wire-a-coding-agent).
-Optional classifier backends (`off` / `local` / `composer`) are an
-environment switch, `CORTEX_LLM_BACKEND`. The CLI has no
-`--llm-backend` flag. Details:
+Optional model backends (`off` / `local` / `composer`) use
+`CORTEX_LLM_BACKEND`. Coding prepares always return a deterministic
+`changePlan`; eligible local and Composer modes also attempt a validated
+advisory `codingDraft`. The CLI has no `--llm-backend` flag. Details:
 [docs/llm-backends.md](docs/llm-backends.md).
 
 ## Measured work

@@ -112,7 +112,7 @@ fn chat_is_structured_bounded_and_uses_the_exact_model() {
 
 #[test]
 fn structured_chat_forwards_the_caller_schema_and_stays_bounded() {
-    let response = r#"{"message":{"content":"{\"tier\":\"upstream_strong\"}"}}"#;
+    let response = r#"{"message":{"content":"{\"tier\":\"upstream_strong\"}"},"prompt_eval_count":64,"eval_count":9}"#;
     let (base_url, server) = mock_server(vec![response]);
     let client = OllamaClient::new(config(base_url)).unwrap();
     let schema = serde_json::json!({
@@ -128,8 +128,10 @@ fn structured_chat_forwards_the_caller_schema_and_stays_bounded() {
         estimated_input_tokens: 64,
         requested_output_tokens: 100,
     };
-    let content = client.structured_chat(&request).unwrap();
-    assert_eq!(content, r#"{"tier":"upstream_strong"}"#);
+    let result = client.structured_chat_with_usage(&request).unwrap();
+    assert_eq!(result.content, r#"{"tier":"upstream_strong"}"#);
+    assert_eq!(result.prompt_tokens, Some(64));
+    assert_eq!(result.completion_tokens, Some(9));
 
     let captured = server.join().unwrap().pop().unwrap();
     let body = captured.split("\r\n\r\n").nth(1).unwrap();
@@ -137,6 +139,7 @@ fn structured_chat_forwards_the_caller_schema_and_stays_bounded() {
     assert_eq!(json["model"], "exact-model:9b");
     assert_eq!(json["format"], schema);
     assert_eq!(json["options"]["temperature"], 0);
+    assert_eq!(json["think"], false);
 
     let over_budget = StructuredChatRequest {
         estimated_input_tokens: 513,

@@ -4,9 +4,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
-use crate::llm_route::{LlmBackend, LlmRouteConfig, RoutedWork};
-use cortex_context::packet_id as context_packet_id;
-use cortex_router::{RoutingRequest, classify, route};
+use cortex_context::{build_change_plan, packet_id as context_packet_id};
+use cortex_router::{RoutingRequest, classify};
 use cortex_sequences::candidate_templates;
 use cortex_weavatrix::{
     BudgetPin, IntentHint, PlanHints, adaptive_budget, graph_seed, is_graph_symbol,
@@ -32,6 +31,9 @@ pub struct AgentPrepare {
     pub max_tokens: Option<u32>,
     /// Loopback classifier alias for this call only: composer, sonnet-5, opus-5, haiku.
     pub classifier_model: Option<String>,
+    /// Optional Composer alias for the advisory coding draft. Defaults to
+    /// classifierModel, then the operator's configured model.
+    pub draft_model: Option<String>,
     /// `plain` keeps source code unescaped in one MCP text block. `json`
     /// retains the machine-readable response for existing clients.
     pub response_format: Option<String>,
@@ -82,6 +84,11 @@ pub(crate) fn register(
                         "type": "string",
                         "enum": ["composer", "sonnet-5", "opus-5", "haiku"],
                         "description": "Loopback classifier via the cursor-agent proxy. Overrides CORTEX_CLASSIFIER_MODEL for this prepare only."
+                    },
+                    "draftModel": {
+                        "type": "string",
+                        "enum": ["composer", "sonnet-5", "opus-5", "haiku"],
+                        "description": "Composer model for a source-anchored advisory coding draft. The operator backend must be composer."
                     },
                     "responseFormat": {
                         "type": "string",
@@ -135,6 +142,7 @@ pub(crate) fn register(
         )
 }
 
+#[allow(clippy::too_many_lines)] // One admission/compile/store transaction owns the final packet.
 pub fn prepare_packet(state: &CortexMcpState, arguments: &AgentPrepare) -> Result<Value, String> {
     let started = Instant::now();
     if !matches!(
@@ -151,7 +159,8 @@ pub fn prepare_packet(state: &CortexMcpState, arguments: &AgentPrepare) -> Resul
     let (pin, max_tokens) = prepare_budget(arguments)?;
     let symbols = extract_identifiers(&arguments.task);
     let request = RoutingRequest::new(arguments.task.clone());
-    let routed = route_prepare(state, &request, arguments.classifier_model.as_deref());
+    let routed =
+        super::agent_route::route_prepare(state, &request, arguments.classifier_model.as_deref());
     let routing = routed.decision.clone();
     let classification = classify(&arguments.task);
     let workflow = workflow_hint(&arguments.task);
@@ -190,6 +199,20 @@ pub fn prepare_packet(state: &CortexMcpState, arguments: &AgentPrepare) -> Resul
         .map(|report| report.missing_evidence.clone())
         .unwrap_or_default();
     let snapshot = compiled.context.snapshot_id.clone();
+    let change_plan = build_change_plan(
+        &arguments.task,
+        &compiled.selected_evidence,
+        compiled
+            .sufficiency
+            .as_ref()
+            .map(|report| &report.certificate),
+        compiled
+            .sufficiency
+            .as_ref()
+            .is_some_and(|report| report.sufficient),
+    );
+    let coding_draft =
+        super::coding_advice::draft_for_prepare(state, arguments, &routed, &compiled, &change_plan);
     state.packets.insert(super::agent_store::stored_packet(
         arguments,
         &compiled,
@@ -202,7 +225,8 @@ pub fn prepare_packet(state: &CortexMcpState, arguments: &AgentPrepare) -> Resul
         .iter()
         .map(|facet| json!({ "facet": facet_name(facet) }))
         .collect();
-    let warnings = combined_warnings(&compiled.warnings, routed.warning.as_deref());
+    let warnings =
+        super::agent_route::combined_warnings(&compiled.warnings, routed.warning.as_deref());
     Ok(json!({
         "packetId": id,
         "repository": arguments.repository,
@@ -229,20 +253,14 @@ pub fn prepare_packet(state: &CortexMcpState, arguments: &AgentPrepare) -> Resul
         "maxTokens": max_tokens,
         "context": compiled.context,
         "coverage": compiled.sufficiency,
+        "changePlan": change_plan,
+        "codingDraft": coding_draft,
         "missingFacets": missing,
         "expansionHandles": handles,
         "warnings": warnings,
         "internalModel": routed.internal_model_json(),
         "prepareLatencyMs": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
     }))
-}
-
-fn combined_warnings(compiled: &[String], routing: Option<&str>) -> Vec<String> {
-    let mut warnings = compiled.to_vec();
-    if let Some(warning) = routing {
-        warnings.push(format!("routing classifier: {warning}"));
-    }
-    warnings
 }
 
 fn prepare_budget(arguments: &AgentPrepare) -> Result<(BudgetPin, u32), String> {
@@ -266,40 +284,6 @@ fn workflow_hint(task: &str) -> Option<Value> {
                 "matchedHints": candidate.matched_hints,
             })
         })
-}
-
-fn route_prepare(
-    state: &CortexMcpState,
-    request: &RoutingRequest,
-    alias: Option<&str>,
-) -> RoutedWork {
-    match alias {
-        Some(alias)
-            if !matches!(
-                LlmRouteConfig::from_env().resolve_backend(),
-                Ok(LlmBackend::Composer)
-            ) =>
-        {
-            let mut work = RoutedWork::lexical(route(request));
-            work.classifier_model = Some(alias.to_owned());
-            work.warning = Some("classifierModel blocked by operator backend policy".to_owned());
-            work
-        }
-        Some(alias) => match crate::composer_llm::router_for_alias(alias) {
-            Ok(router) => router.decide_prepare(request),
-            Err(error) => {
-                let mut work = RoutedWork::lexical(route(request));
-                work.attempted = true;
-                work.warning = Some(error);
-                work.classifier_model = Some(alias.to_owned());
-                work
-            }
-        },
-        None => state.llm_router.as_ref().map_or_else(
-            || RoutedWork::lexical(route(request)),
-            |router| router.decide_prepare(request),
-        ),
-    }
 }
 
 pub fn expand_saved(

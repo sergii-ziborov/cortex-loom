@@ -92,6 +92,26 @@ fn new_feature_tool_label_does_not_require_an_existing_definition() {
 }
 
 #[test]
+fn rename_requires_existing_name_but_not_future_name_in_current_source() {
+    let task = "In PacketStore, rename MAX_PACKETS to MAX_STORED_PACKETS and update tests";
+    let requirements = super::coverage_requirements(
+        task,
+        Some("PacketStore"),
+        crate::plan_intent::TaskIntent::IdentifierChange,
+    );
+    assert!(
+        requirements
+            .iter()
+            .any(|item| item.label == "identifier:MAX_PACKETS")
+    );
+    assert!(
+        !requirements
+            .iter()
+            .any(|item| item.label == "identifier:MAX_STORED_PACKETS")
+    );
+}
+
+#[test]
 fn named_identifiers_may_close_from_search_hits() {
     let bundle = EvidenceBundle {
         repository: "repo".to_owned(),

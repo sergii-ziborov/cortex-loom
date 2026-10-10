@@ -294,6 +294,7 @@ const fn derivation_for(kind: EvidenceKind, state: EvidenceState) -> EvidenceDer
         (
             EvidenceKind::GraphStats
             | EvidenceKind::ModuleMap
+            | EvidenceKind::SymbolContext
             | EvidenceKind::Dependents
             | EvidenceKind::Endpoints
             | EvidenceKind::GitHistory

@@ -49,6 +49,12 @@ delivery. Refactor support stays preview-only. Weavatrix Quality is a
 sibling product: if it wrote `.weavatrix/coverage/lcov.info`, Cortex can
 ingest it through `coverage_map`. Cortex does not run Quality or tests.
 
+Definition follow-ups read the named symbol's own source span. A complete
+definition of another target does not satisfy that request. Symbol inspection
+bundles remain graph evidence; only direct source reads are labelled exact
+source. This preserves provenance when a graph bundle includes related code
+from a different file.
+
 ## Install
 
 Product binaries are **not on crates.io** (`publish = false`). From this

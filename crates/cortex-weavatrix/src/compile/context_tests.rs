@@ -263,6 +263,12 @@ fn compiles_typed_weavatrix_evidence_in_fail_closed_order() {
     assert!(
         compiled
             .context
+            .content
+            .contains("<evidence id=\"WX-SYMBOL\" trust=\"GRAPH\"")
+    );
+    assert!(
+        compiled
+            .context
             .packet_id
             .as_deref()
             .is_some_and(|id| id.starts_with("pk_"))

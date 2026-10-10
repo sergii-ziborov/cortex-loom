@@ -1,3 +1,4 @@
+mod definition_anchor;
 mod evidence;
 mod expand;
 mod gather;

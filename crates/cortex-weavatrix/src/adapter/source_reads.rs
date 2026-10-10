@@ -5,6 +5,7 @@ use weavatrix_rust::Weavatrix;
 
 use cortex_context::EvidenceFacet;
 
+use super::definition_anchor::{belongs_to_definition, definition_span};
 use super::evidence::{EvidenceFragment, EvidenceKind, budget_overrun, fragments, native_call};
 use super::locator::{lines_range, range_covers};
 
@@ -198,13 +199,15 @@ pub(super) fn append_definition_read_as(
 ) -> bool {
     if evidence.iter().any(|fragment| {
         fragment.facet == EvidenceFacet::Definition
+            && fragment.kind == EvidenceKind::SourceReads
+            && belongs_to_definition(fragment, symbol)
             && (fragment.declared_complete == Some(true)
                 || crate::definition::definition_complete(&fragment.content, symbol, None)
                     == Some(true))
     }) {
         return true;
     }
-    let graph_span = definition_span(evidence);
+    let graph_span = definition_span(evidence, symbol);
     let definition_hit = graph_span
         .as_ref()
         .and_then(|locator| {
@@ -269,7 +272,10 @@ pub(super) fn append_definition_read_as(
                 let text = super::render::extract_text(&value);
                 let complete = definition_complete(&value, &text, symbol, graph_span.as_ref());
                 if complete || attempt == 2 {
-                    evidence.retain(|fragment| fragment.facet != EvidenceFacet::Definition);
+                    evidence.retain(|fragment| {
+                        fragment.facet != EvidenceFacet::Definition
+                            || !belongs_to_definition(fragment, symbol)
+                    });
                     let mut added = fragments(
                         id,
                         kind,
@@ -305,18 +311,6 @@ pub(super) fn append_definition_read_as(
         }
     }
     false
-}
-
-fn definition_span(evidence: &[EvidenceFragment]) -> Option<cortex_context::EvidenceLocator> {
-    evidence.iter().find_map(|fragment| {
-        let locator = &fragment.locator;
-        let usable = locator.path.is_some()
-            && locator.start_line.is_some()
-            && locator.end_line.is_some()
-            && (fragment.facet == EvidenceFacet::Definition
-                || fragment.kind == EvidenceKind::SymbolContext);
-        usable.then(|| locator.clone())
-    })
 }
 
 fn definition_complete(

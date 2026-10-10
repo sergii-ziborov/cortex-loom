@@ -48,6 +48,10 @@ pub fn definition_head_index(text: &str, symbol: &str) -> Option<usize> {
 pub fn definition_is_complete(text: &str, symbol: &str) -> Option<bool> {
     let head = definition_head_index(text, symbol)?;
     let rest = &text[head..];
+    let rust_lifetimes = ["fn ", "struct ", "enum ", "trait "]
+        .iter()
+        .any(|head| rest.starts_with(head))
+        || rest.contains("&'");
     let semicolon_item = rest.starts_with("const ") || rest.starts_with("static ");
     let mut braces = 0_i32;
     let mut brackets = 0_i32;
@@ -56,7 +60,11 @@ pub fn definition_is_complete(text: &str, symbol: &str) -> Option<bool> {
     let mut mode = BraceMode::Code;
     let mut previous = '\0';
     for (offset, character) in rest.char_indices() {
-        if character == '\'' && mode == BraceMode::Code && is_lifetime(&rest[offset + 1..]) {
+        if character == '\''
+            && rust_lifetimes
+            && mode == BraceMode::Code
+            && is_lifetime(&rest[offset + 1..])
+        {
             previous = character;
             continue;
         }

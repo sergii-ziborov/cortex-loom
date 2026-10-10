@@ -128,3 +128,43 @@ fn typescript_identifier_is_found_without_a_rust_only_first_pass() {
         compiled.context.included_ids
     );
 }
+
+#[test]
+fn typescript_definition_after_a_long_preamble_is_complete() {
+    let root = std::env::temp_dir().join(format!("cortex-late-definition-{}", std::process::id()));
+    std::fs::create_dir_all(&root).expect("fixture directory");
+    let source = format!(
+        "{}\nexport async function renderProjectContext() {{\n  return 'complete-marker';\n}}\n",
+        "// unrelated preamble\n".repeat(140)
+    );
+    std::fs::write(root.join("project.ts"), source).expect("source");
+    let adapter = WeavatrixAdapter::new(WeavatrixConfig::discover().expect("config"));
+    let task = "Inspect the complete definition of renderProjectContext in project.ts";
+    let (bundle, _) = adapter
+        .prepare_verified_targeted_context(
+            &root,
+            task,
+            Some("renderProjectContext"),
+            5000,
+            PlanPolicy::default(),
+            PlanHints::default(),
+        )
+        .expect("context");
+    let definition = bundle
+        .evidence
+        .iter()
+        .find(|fragment| {
+            fragment.facet == cortex_context::EvidenceFacet::Definition
+                && fragment.kind == crate::EvidenceKind::SourceReads
+                && fragment.content.contains("function renderProjectContext")
+        })
+        .expect("source definition");
+    let found = definition.content.contains("complete-marker");
+    std::fs::remove_dir_all(&root).expect("fixture cleanup");
+    assert!(
+        found,
+        "definition read must reach its body: {}",
+        definition.content
+    );
+    assert_eq!(definition.declared_complete, Some(true));
+}

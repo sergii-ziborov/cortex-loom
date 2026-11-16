@@ -407,7 +407,7 @@ fn plan_all(
             operations.push(modules_op(policy));
         }
         TaskIntent::GitHistory => {
-            operations.push(git_history_op(policy));
+            operations.push(git_history_op(policy, &identifiers));
         }
         TaskIntent::StackTrace => {
             operations.push(stacktrace_op(task, policy));

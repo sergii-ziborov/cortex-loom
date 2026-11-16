@@ -152,15 +152,16 @@ pub(super) fn modules_op(policy: PlanPolicy) -> PlannedOperation {
 
 /// Occurrence list for one symbol. `get_dependents` can answer with
 /// `related` neighbours that never name the function. `find_references`
-/// (weavatrix-rust 2.17) lists the definition and each incoming site.
+/// (weavatrix-rust 2.17) lists the definition and each incoming site. 2.17.9
+/// hides test and classified sites by default; a test caller is blast radius
+/// and the renderer already ranks those rows last, so Cortex opts in.
 pub(super) fn references_op(symbol: &str, policy: PlanPolicy) -> PlannedOperation {
     PlannedOperation {
         id: "WX-REFS",
         tool: "find_references",
         kind: EvidenceKind::Dependents,
         arguments: json!({
-            "label": symbol,
-            "max_results": 40,
+            "label": symbol, "max_results": 40, "include_tests": true, "include_classified": true,
         }),
         expected_tokens: policy.dependents_tokens.min(1_200),
         bounded: false,
@@ -185,13 +186,13 @@ pub(super) fn dependents_op(symbol: &str, policy: PlanPolicy) -> PlannedOperatio
 /// without calling it — surface only through `get_neighbors`. A blast-radius
 /// question about a struct answered from call edges alone scored 0/2 on the
 /// reference ground truth while this call carried both misses in ~1.8 k
-/// tokens.
+/// tokens. Test and classified rows are opted in as in [`references_op`].
 pub(super) fn neighbors_op(symbol: &str, policy: PlanPolicy) -> PlannedOperation {
     PlannedOperation {
         id: "WX-NEIGHBORS",
         tool: "get_neighbors",
         kind: EvidenceKind::Dependents,
-        arguments: json!({ "label": symbol }),
+        arguments: json!({"label": symbol, "include_tests": true, "include_classified": true}),
         expected_tokens: policy.dependents_tokens.min(2_000),
         bounded: false,
     }
@@ -208,21 +209,26 @@ pub(super) fn endpoints_op(policy: PlanPolicy) -> PlannedOperation {
     }
 }
 
-pub(super) fn git_history_op(policy: PlanPolicy) -> PlannedOperation {
+/// One named file narrows the walk to commits that touch it (2.17.6 `path`);
+/// repository history would list recent commits that never changed it.
+pub(super) fn git_history_op(policy: PlanPolicy, identifiers: &[String]) -> PlannedOperation {
+    let mut arguments = json!({
+        "max_commits": 24,
+        "months": 36,
+        "first_parent": true,
+        // Analytics (cochange / hotspots) serializes first and, under the
+        // 800-token cap, drops the commit summaries a history question asks for.
+        "include_analytics": false,
+        "token_budget": policy.git_history_tokens,
+    });
+    if let [path] = crate::fold::named_source_files(identifiers).as_slice() {
+        arguments["path"] = json!(path);
+    }
     PlannedOperation {
         id: "WX-GIT",
         tool: "git_history",
         kind: EvidenceKind::GitHistory,
-        arguments: json!({
-            "max_commits": 24,
-            "months": 36,
-            "first_parent": true,
-            // Analytics (cochange / hotspots) serializes first and, under
-            // the 800-token cap, drops the commit summaries a history
-            // question is asking for.
-            "include_analytics": false,
-            "token_budget": policy.git_history_tokens,
-        }),
+        arguments,
         expected_tokens: policy.git_history_tokens,
         bounded: true,
     }

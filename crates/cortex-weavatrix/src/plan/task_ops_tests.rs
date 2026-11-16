@@ -1,4 +1,7 @@
-use super::{CLASSIFIER_SEARCH, named_git_revision, task_specific_ops};
+use super::{
+    CLASSIFIER_SEARCH, git_history_op, named_git_revision, neighbors_op, references_op,
+    task_specific_ops,
+};
 use crate::plan::{PlanPolicy, plan};
 
 #[test]
@@ -120,4 +123,42 @@ fn a_coverage_ask_plans_ingest_only_coverage_map() {
         .find(|operation| operation.tool == "coverage_map")
         .expect("named lcov still plans coverage_map");
     assert_eq!(report.arguments.get("path"), None);
+}
+
+#[test]
+fn caller_lookups_keep_test_and_classified_sites() {
+    for operation in [
+        references_op("compile_context", PlanPolicy::default()),
+        neighbors_op("compile_context", PlanPolicy::default()),
+    ] {
+        assert_eq!(operation.arguments["include_tests"], true, "{operation:?}");
+        assert_eq!(
+            operation.arguments["include_classified"], true,
+            "{operation:?}"
+        );
+    }
+}
+
+#[test]
+fn one_named_file_narrows_git_history_to_that_path() {
+    let one = [
+        "crates/sweeploom-cli/src/api.rs".to_owned(),
+        "route".to_owned(),
+    ];
+    let history = git_history_op(PlanPolicy::default(), &one);
+    assert_eq!(history.arguments["path"], "crates/sweeploom-cli/src/api.rs");
+    assert_eq!(history.arguments["months"], 36);
+    let two = [one[0].clone(), "crates/sweeploom-cli/src/lib.rs".to_owned()];
+    assert!(
+        git_history_op(PlanPolicy::default(), &two)
+            .arguments
+            .get("path")
+            .is_none()
+    );
+    assert!(
+        git_history_op(PlanPolicy::default(), &[])
+            .arguments
+            .get("path")
+            .is_none()
+    );
 }

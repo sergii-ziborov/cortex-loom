@@ -2,7 +2,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use weavatrix_rust::{Weavatrix, operations};
+use weavatrix_rust::Weavatrix;
 
 use cortex_context::{EvidenceFacet, EvidenceLocator, evidence_id};
 
@@ -436,7 +436,7 @@ pub(super) fn native_call(
     mut arguments: Value,
 ) -> Result<Value, WeavatrixError> {
     bind_expected_repository(&mut arguments, root);
-    operations::call(engine, name, arguments).map_err(WeavatrixError::Engine)
+    super::native_calls::call(engine, name, arguments).map_err(WeavatrixError::Engine)
 }
 
 #[cfg(test)]

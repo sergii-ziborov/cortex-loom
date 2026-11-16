@@ -41,12 +41,12 @@ jobs:
       - name: Wait for domain in crates.io index
         run: |
           for attempt in $(seq 1 30); do
-            if cargo info cortex-domain@0.1.0 --registry crates-io >/dev/null 2>&1; then
+            if cargo info cortex-domain@0.1.1 --registry crates-io >/dev/null 2>&1; then
               exit 0
             fi
             sleep 10
           done
-          echo 'cortex-domain 0.1.0 did not reach the crates.io index' >&2
+          echo 'cortex-domain 0.1.1 did not reach the crates.io index' >&2
           exit 1
       - name: Publish dependent crates
         env:

@@ -13,12 +13,19 @@ upstream material must retain the [MIT notice](https://raw.githubusercontent.com
 
 ## Weavatrix refactor boundary
 
-The backend uses first-party Rust crates only: `weavatrix-rust` 2.17.5 for read-only repository evidence, `weavatrix-refactor-plan` 0.1.1 for bounded parsing/validation/fingerprints, and `weavatrix-edit` 0.1.7 for exact in-memory rendering. 2.16.1+ is taken for session `Arc` sharing, cached `graph_stats`, `expected_repository` drift checks, `git_read_blob`, and graph `inspect_symbol`. 2.16.2 keeps n8n/Dify/Agent/Mermaid/Web3 out of this planner. 2.16.3 is taken so `coverage_map` is documented as ingest-only (Quality may publish `.weavatrix/coverage/lcov.info`; a missing report is unmeasured, not 0%). 2.17.4 is taken for `context_bundle` caller/callee quotas and for `find_references` on blast-radius questions. `ci_restrictions` is not planned: a workflow file is not a code fact. Weavatrix Quality (`@weavatrix/wvq` / `wvq-*` 0.1.0-alpha.5) stays a sibling PROVE product: Cortex does not depend on it, execute its runners, or copy `quality_run` / obligation proof. Workflow/Web3/Agent/diagram operations from 2.11–2.17 are not planned here. These crates do not provide a native semantic rename/signature/move planner, so Cortex does not claim one. A strong upstream coding agent authors the plan from cited evidence; Cortex validates and previews it and never applies it.
+The backend uses first-party Rust crates only: `weavatrix-rust` 2.17.17 for read-only repository evidence, `weavatrix-refactor-plan` 0.1.1 for bounded parsing/validation/fingerprints, and `weavatrix-edit` 0.1.7 for exact in-memory rendering. 2.16.1+ is taken for session `Arc` sharing, cached `graph_stats`, `expected_repository` drift checks, `git_read_blob`, and graph `inspect_symbol`. 2.16.2 keeps n8n/Dify/Agent/Mermaid/Web3 out of this planner. 2.16.3 is taken so `coverage_map` is documented as ingest-only (Quality may publish `.weavatrix/coverage/lcov.info`; a missing report is unmeasured, not 0%). 2.17.4 is taken for `context_bundle` caller/callee quotas and for `find_references` on blast-radius questions. 2.17.17 is taken for the graph and evidence fixes listed in [CHANGELOG.md](../CHANGELOG.md); of its new arguments only the `git_history` `path` is planned, for a history question that names one file. `ci_restrictions` is not planned: a workflow file is not a code fact. Weavatrix Quality (`@weavatrix/wvq` / `wvq-*` 0.1.0-alpha.5) stays a sibling PROVE product: Cortex does not depend on it, execute its runners, or copy `quality_run` / obligation proof. Workflow/Web3/Agent/diagram operations from 2.11–2.17 are not planned here. These crates do not provide a native semantic rename/signature/move planner, so Cortex does not claim one. `weavatrix-rust-refactor` 0.1.11 (and its MCP host `weavatrix-refactor` 1.0.16) now produces such plans, but it pins `weavatrix-rust = 2.17.12`, which cannot share a build with 2.17.17, and it also owns transactional apply and rollback; Cortex keeps the preview-only path. A strong upstream coding agent authors the plan from cited evidence; Cortex validates and previews it and never applies it.
 
 Version 2.17.5 clips long budgeted `search_code` lines around their matches,
 so one generated line cannot erase later short hits. Cortex also searches
 without a broad positive glob when possible, preserving repository ignore
 rules before the native result limit is applied.
+
+From 2.17.6 `search_code` reads one resident content index per process,
+stored under `~/.weavatrix/search` (or `WEAVATRIX_SEARCH_HOME`) with a file
+watcher. From 2.17.9 a glob filters that index, and its matcher has no
+`{a,b}` alternation: Cortex's multi-language glob matched nothing. Cortex
+asks each alternative separately; the index answers in path order, so the
+merged, re-budgeted prefix is the one a brace-aware call would keep.
 
 ## MCP
 

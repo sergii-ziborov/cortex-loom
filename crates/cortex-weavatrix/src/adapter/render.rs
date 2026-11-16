@@ -102,7 +102,8 @@ fn symbol_inspection(value: &Value) -> Option<String> {
         out.push_str(&node_line("symbol", node));
     }
     if let Some(relationships) = inspection.get("relationships") {
-        out.push_str(&neighbor_lines(relationships));
+        let seed = relationships.get("node").or_else(|| inspection.get("node"));
+        out.push_str(&neighbor_lines(relationships, seed));
     }
     // Any source the bundle carried is code, and code is the point.
     if let Some(sources) = value.get("related_source").and_then(Value::as_array) {
@@ -162,19 +163,19 @@ fn reference_hits(value: &Value) -> Option<String> {
 /// `get_neighbors` returns the same relationship block without the wrapper.
 fn graph_neighbors(value: &Value) -> Option<String> {
     if value.get("neighbors").and_then(Value::as_array).is_some() {
-        let rendered = neighbor_lines(value);
+        let rendered = neighbor_lines(value, value.get("node"));
         return (!rendered.is_empty()).then_some(rendered);
     }
     // weavatrix-rust 2.6 names the array `dependents`.
     if value.get("dependents").and_then(Value::as_array).is_some() {
         let wrapped = json!({ "neighbors": value.get("dependents") });
-        let rendered = neighbor_lines(&wrapped);
+        let rendered = neighbor_lines(&wrapped, None);
         return (!rendered.is_empty()).then_some(rendered);
     }
     None
 }
 
-fn neighbor_lines(relationships: &Value) -> String {
+fn neighbor_lines(relationships: &Value, seed: Option<&Value>) -> String {
     let Some(neighbors) = relationships.get("neighbors").and_then(Value::as_array) else {
         return String::new();
     };
@@ -199,14 +200,11 @@ fn neighbor_lines(relationships: &Value) -> String {
         let mut line = format!("  {arrow} {relation} {label} ({kind}) {at}");
         // The provenance span is where the relationship is written down —
         // the call site or the type mention the reader actually wants.
-        if let Some(site) = neighbor
-            .get("provenance")
-            .and_then(|provenance| provenance.get("span"))
+        if let Some(evidence) = relationship_site(neighbor, seed)
+            && !evidence.is_empty()
+            && evidence != at
         {
-            let evidence = span_location(Some(site));
-            if !evidence.is_empty() && evidence != at {
-                let _ = write!(line, " via {evidence}");
-            }
+            let _ = write!(line, " via {evidence}");
         }
         rows.push((neighbor_rank(&at, &line), at.clone(), line));
     }
@@ -224,6 +222,42 @@ fn neighbor_lines(relationships: &Value) -> String {
         out.push('\n');
     }
     out
+}
+
+/// Where the relationship is written. A full row carries the provenance span.
+/// A compact row (weavatrix-rust 2.17.10+) keeps only its line: the file is
+/// the edge source's, except a `method` edge, whose site is the method's own
+/// file. Measured on 4,259 edges of two repositories, that rule named the
+/// provenance file every time.
+fn relationship_site(neighbor: &Value, seed: Option<&Value>) -> Option<String> {
+    if let Some(span) = neighbor
+        .get("provenance")
+        .and_then(|provenance| provenance.get("span"))
+    {
+        return Some(span_location(Some(span)));
+    }
+    let line = neighbor.get("line")?.as_u64()?;
+    let incoming = neighbor.get("direction").and_then(Value::as_str) == Some("incoming");
+    let method = neighbor.get("relation").and_then(Value::as_str) == Some("method");
+    let owner = if incoming == method {
+        seed
+    } else {
+        neighbor.get("node")
+    };
+    Some(format!("{}:{line}", node_file(owner?)?))
+}
+
+fn node_file(node: &Value) -> Option<&str> {
+    let spanned = node
+        .get("span")
+        .and_then(|span| span.get("file"))
+        .and_then(Value::as_str);
+    let file_node = || {
+        (node.get("kind").and_then(Value::as_str) == Some("file"))
+            .then(|| node.get("label").and_then(Value::as_str))
+            .flatten()
+    };
+    spanned.or_else(file_node).filter(|file| !file.is_empty())
 }
 
 fn neighbor_rank(at: &str, line: &str) -> i32 {

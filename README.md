@@ -5,7 +5,7 @@
 Cortex Loom prepares a compact evidence packet for the task your coding
 agent is working on. It asks
 [Weavatrix](https://github.com/sergii-ziborov/weavatrix) (`weavatrix-rust`
-2.17.5) for typed repository facts, keeps their provenance, and reports
+2.17.17) for typed repository facts, keeps their provenance, and reports
 which declared requirements are covered, missing, contradictory, or stale.
 
 It is local-first. No account, model download, or hosted Cortex service
@@ -292,6 +292,6 @@ not a claim that the whole product is MIT.
 [Architecture](docs/architecture.md) · [Benchmark](docs/benchmark.md) ·
 [LLM backends](docs/llm-backends.md) ·
 [Local models](docs/local-models.md) ·
-[Competitors](docs/competitors.md)
+[Competitors](docs/competitors.md) · [Changelog](CHANGELOG.md)
 
 The same files are served from a running Studio binary at `/api/docs`.

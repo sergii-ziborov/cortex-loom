@@ -160,7 +160,7 @@ checksum = "7f8f80099a98041a3d1622845c271458a2d73e688351bf3cb999266764b81d48"
 
 [[package]]
 name = "cortex-adapters"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blazingly-json",
  "cortex-domain",
@@ -170,7 +170,7 @@ dependencies = [
 
 [[package]]
 name = "cortex-bench"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blazingly-json",
  "cortex-context",
@@ -185,7 +185,7 @@ dependencies = [
 
 [[package]]
 name = "cortex-context"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blazingly-json",
  "hex",
@@ -195,7 +195,7 @@ dependencies = [
 
 [[package]]
 name = "cortex-domain"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blazingly-json",
  "serde",
@@ -203,7 +203,7 @@ dependencies = [
 
 [[package]]
 name = "cortex-eval"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blazingly-json",
  "cortex-bench",
@@ -221,7 +221,7 @@ dependencies = [
 
 [[package]]
 name = "cortex-llm"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blazingly-json",
  "serde",
@@ -230,7 +230,7 @@ dependencies = [
 
 [[package]]
 name = "cortex-loom"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blazingly-json",
  "cortex-adapters",
@@ -239,7 +239,7 @@ dependencies = [
 
 [[package]]
 name = "cortex-mcp"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "axum",
  "blazingly-json",
@@ -265,7 +265,7 @@ dependencies = [
 
 [[package]]
 name = "cortex-ollama"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blazingly-json",
  "cortex-router",
@@ -275,7 +275,7 @@ dependencies = [
 
 [[package]]
 name = "cortex-router"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cortex-domain",
  "serde",
@@ -284,7 +284,7 @@ dependencies = [
 
 [[package]]
 name = "cortex-run"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blazingly-json",
  "cortex-domain",
@@ -293,7 +293,7 @@ dependencies = [
 
 [[package]]
 name = "cortex-sequences"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blazingly-json",
  "cortex-context",
@@ -306,7 +306,7 @@ dependencies = [
 
 [[package]]
 name = "cortex-server"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "axum",
  "blazingly-json",
@@ -324,7 +324,7 @@ dependencies = [
 
 [[package]]
 name = "cortex-shadow"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blazingly-json",
  "cortex-context",
@@ -338,7 +338,7 @@ dependencies = [
 
 [[package]]
 name = "cortex-skills"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blazingly-json",
  "cortex-domain",
@@ -346,7 +346,7 @@ dependencies = [
 
 [[package]]
 name = "cortex-store"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blazingly-json",
  "cortex-domain",
@@ -357,7 +357,7 @@ dependencies = [
 
 [[package]]
 name = "cortex-weavatrix"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blazingly-json",
  "cortex-context",
@@ -698,6 +698,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "inotify"
+version = "0.11.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4cc00ea907cab49550b7da656f80ebb97be1b997d931fbcd28d39734e17ce592"
+dependencies = [
+ "bitflags",
+ "inotify-sys",
+ "libc",
+]
+
+[[package]]
+name = "inotify-sys"
+version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c033f80b2c113cdf91ab7a33faa9cbc014726dcad99880c8609af2a370edf37d"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -720,6 +740,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb26cec98cce3a3d96cbb7bced3c4b16e3d13f27ec56dbd62cbc8f39cfb9d653"
 dependencies = [
  "cpufeatures 0.2.17",
+]
+
+[[package]]
+name = "kqueue"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8d763e5b24120b4ddf50de6c92308156765aabfbbccebf401da7cff2d70a41ea"
+dependencies = [
+ "kqueue-sys",
+ "libc",
+]
+
+[[package]]
+name = "kqueue-sys"
+version = "1.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "07293a4e297ac234359b510362495713f75ea345d5307140414f20c69ffeb087"
+dependencies = [
+ "bitflags",
+ "libc",
 ]
 
 [[package]]
@@ -859,6 +899,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4b18443e9c262bfe8fa82f51666e2642c53393f7e5c27b3e1aeab922cff5b9d8"
 dependencies = [
  "libc",
+ "log",
  "wasi",
  "windows-sys",
 ]
@@ -891,10 +932,57 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
 
 [[package]]
+name = "notify"
+version = "8.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c41a04a5f59df9322cc657286dd2d79f90816119b22c5f847607c850110205ab"
+dependencies = [
+ "bitflags",
+ "inotify",
+ "kqueue",
+ "libc",
+ "log",
+ "mio",
+ "notify-types",
+ "objc2-core-foundation",
+ "objc2-core-services",
+ "walkdir",
+ "windows-sys",
+]
+
+[[package]]
+name = "notify-types"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0a437a9308232ce794b1e7fdf540d38ea37efc3c73492640c13b4c8568b8f108"
+dependencies = [
+ "bitflags",
+]
+
+[[package]]
 name = "num-conv"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "521739c6d2bac4aa25192232afe6841231376b2b26d4d9fae5ecf8ca5772e441"
+
+[[package]]
+name = "objc2-core-foundation"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a180dd8642fa45cdb7dd721cd4c11b1cadd4929ce112ebd8b9f5803cc79d536"
+dependencies = [
+ "bitflags",
+]
+
+[[package]]
+name = "objc2-core-services"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "583300ad934cba24ff5292aee751ecc070f7ca6b39a574cc21b7b5e588e06a0b"
+dependencies = [
+ "libc",
+ "objc2-core-foundation",
+]
 
 [[package]]
 name = "once_cell"
@@ -1003,6 +1091,15 @@ name = "ryu-js"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6518fc26bced4d53678a22d6e423e9d8716377def84545fe328236e3af070e7f"
+
+[[package]]
+name = "same-file"
+version = "1.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502"
+dependencies = [
+ "winapi-util",
+]
 
 [[package]]
 name = "scopeguard"
@@ -1472,6 +1569,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
+name = "walkdir"
+version = "2.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29790946404f91d9c5d06f9874efddea1dc06c5efe94541a7d6863108e3a5e4b"
+dependencies = [
+ "same-file",
+ "winapi-util",
+]
+
+[[package]]
 name = "wasi"
 version = "0.11.1+wasi-snapshot-preview1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1568,9 +1675,9 @@ dependencies = [
 
 [[package]]
 name = "weavatrix-parse"
-version = "0.3.3"
+version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b033bf477f1a615abdabb19de3b851fd4d64fe1914b4be583124608e8dbfb4f"
+checksum = "64bb8dc309d55d1b3742f2868554bb373f19959c19c146b6e607d7d5ab5aaaca"
 
 [[package]]
 name = "weavatrix-refactor-plan"
@@ -1590,9 +1697,9 @@ dependencies = [
 
 [[package]]
 name = "weavatrix-rust"
-version = "2.17.5"
+version = "2.17.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b95e096aa88716b65db8154d27293ba76c970ed8881631be1949cad968514929"
+checksum = "2b3064f285b720f715139aa4aa40bc895abb6c4154197ef8d7d6c149e49c410e"
 dependencies = [
  "blazingly-json",
  "proc-macro2",
@@ -1619,6 +1726,7 @@ version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f411362c24f268e733b5820a6c118961a9954c9d9d8e3f23a4b9c8721f084557"
 dependencies = [
+ "notify",
  "winapi-util",
 ]
 
@@ -1639,6 +1747,7 @@ checksum = "3267206c667c89a56261617736ab18ec1083378ba9a16e0daf4d996795c44b36"
 dependencies = [
  "encoding_rs",
  "memchr",
+ "notify",
  "regex-automata",
  "regex-syntax",
  "sha2 0.10.9",

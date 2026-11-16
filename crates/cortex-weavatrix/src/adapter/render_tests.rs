@@ -116,3 +116,65 @@ fn git_blob_renders_path_revision_and_body() {
         "crates/sweeploom-cli/src/api.rs@HEAD~1\npub fn route() {}"
     );
 }
+
+#[test]
+fn a_compact_neighbor_line_names_the_edge_source_file() {
+    let value = json!({
+        "node": {
+            "kind": "struct",
+            "label": "RepositoryState",
+            "span": {"file": "src/engine/repository_state.rs", "start": {"line": 20}}
+        },
+        "neighbors": [
+            {
+                "direction": "incoming",
+                "relation": "references",
+                "line": 147,
+                "node": {
+                    "kind": "method",
+                    "label": "finish",
+                    "span": {"file": "src/engine/parallel/mod.rs", "start": {"line": 142}}
+                }
+            },
+            {
+                "direction": "incoming",
+                "relation": "contains",
+                "line": 47,
+                "node": {"kind": "file", "label": "src/engine/mod.rs"}
+            },
+            {
+                "direction": "outgoing",
+                "relation": "method",
+                "line": 61,
+                "node": {
+                    "kind": "method",
+                    "label": "build",
+                    "span": {"file": "src/engine/state_build.rs", "start": {"line": 60}}
+                }
+            },
+            {
+                "direction": "outgoing",
+                "relation": "references",
+                "line": 31,
+                "node": {
+                    "kind": "struct",
+                    "label": "Snapshot",
+                    "span": {"file": "src/model.rs", "start": {"line": 9}}
+                }
+            }
+        ]
+    });
+
+    let text = extract_text(&value);
+
+    assert!(text.contains(
+        "<- references finish (method) src/engine/parallel/mod.rs:142 via src/engine/parallel/mod.rs:147"
+    ));
+    assert!(text.contains("<- contains src/engine/mod.rs (file)  via src/engine/mod.rs:47"));
+    assert!(text.contains(
+        "-> method build (method) src/engine/state_build.rs:60 via src/engine/state_build.rs:61"
+    ));
+    assert!(text.contains(
+        "-> references Snapshot (struct) src/model.rs:9 via src/engine/repository_state.rs:31"
+    ));
+}

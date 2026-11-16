@@ -11,7 +11,7 @@ mod support;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use support::{cleanup, coverage_render, facet_loop, session_pool};
+pub(crate) use support::{cleanup, coverage_render, facet_loop, native_calls, session_pool};
 
 use std::fmt::{Display, Formatter};
 use std::path::{Path, PathBuf};

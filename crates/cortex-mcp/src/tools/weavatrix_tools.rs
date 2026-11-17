@@ -1,7 +1,8 @@
 use crate::{
     AdapterExportArgs, Arc, ConcurrentMcpServer, CortexMcpState, DEFAULT_GRAPH_ID,
-    RefactorPreviewArgs, ToolReply, WeavatrixPrepareArgs, export_adapter, export_library_adapter,
-    index_entry, json, preview_refactor_response, refactor_preview_schema,
+    RefactorPlanArgs, RefactorPreviewArgs, ToolReply, WeavatrixPrepareArgs, export_adapter,
+    export_library_adapter, index_entry, json, plan_refactor_response, preview_refactor_response,
+    refactor_plan_schema, refactor_preview_schema,
 };
 
 #[allow(clippy::too_many_lines)]
@@ -12,6 +13,7 @@ pub(crate) fn register(
     let adapter_state = Arc::clone(state);
     let prepare_state = Arc::clone(state);
     let refactor_state = Arc::clone(state);
+    let plan_state = Arc::clone(state);
     server
         .typed_tool(
             "adapter_export",
@@ -111,6 +113,25 @@ pub(crate) fn register(
                     &refactor_state.weavatrix,
                     &arguments.repository,
                     &arguments.plan,
+                ) {
+                    Ok(response) => ToolReply::text(response),
+                    Err(error) => ToolReply::error(error),
+                }
+            },
+        )
+        .typed_tool(
+            "weavatrix_refactor_plan",
+            "Produce a native weavatrix-rust-refactor plan (rename, signature change, file or symbol move, or extract) from the graph, then validate and render it in memory like weavatrix_refactor_preview. Preview-only: Cortex never applies a plan and returns no confirmation token.",
+            refactor_plan_schema(),
+            move |context, arguments: RefactorPlanArgs| {
+                if context.is_cancelled() {
+                    return ToolReply::error("cancelled");
+                }
+                match plan_refactor_response(
+                    &plan_state.weavatrix,
+                    &arguments.repository,
+                    &arguments.operation,
+                    &arguments.arguments,
                 ) {
                     Ok(response) => ToolReply::text(response),
                     Err(error) => ToolReply::error(error),

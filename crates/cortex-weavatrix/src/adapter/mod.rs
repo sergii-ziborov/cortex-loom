@@ -85,6 +85,36 @@ impl WeavatrixAdapter {
         crate::preview_refactor_plan(repository, &encoded)
     }
 
+    /// Ask `weavatrix-rust-refactor` for a native plan, then validate and
+    /// preview it in memory exactly like an upstream-authored plan.
+    ///
+    /// Only the producers in [`crate::NATIVE_PLAN_OPERATIONS`] are reachable.
+    /// The planner runs in a read-only session on a refreshed graph.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WeavatrixError`] for an operation outside that list, `mode`
+    /// or `confirm_token` arguments, a graph refresh failure, or a native
+    /// plan that fails Cortex's validation or preview.
+    pub fn plan_refactor(
+        &self,
+        repository: &Path,
+        operation: &str,
+        arguments: &Value,
+    ) -> Result<Value, WeavatrixError> {
+        let arguments = crate::refactor_native::planning_arguments(operation, arguments)?;
+        let root = self.canonical_root(repository)?;
+        let slot = self.lock_engine(&root)?;
+        let answer = {
+            let mut engine = slot.lock().map_err(|_| WeavatrixError::LockPoisoned)?;
+            engine.refresh_if_stale().map_err(|error| {
+                WeavatrixError::Engine(format!("Weavatrix refresh failed: {error}"))
+            })?;
+            crate::refactor_native::native_plan(engine.state(), operation, &arguments)?
+        };
+        crate::refactor_native::native_plan_response(&root, operation, &answer)
+    }
+
     fn canonical_root(&self, repository: &Path) -> Result<PathBuf, WeavatrixError> {
         let _ = self;
         repository.canonicalize().map_err(|error| {

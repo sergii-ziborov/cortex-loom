@@ -12,7 +12,7 @@ pub use adapter::{
 };
 pub use compile::{certificate, certified, context};
 pub use core::{budget, definition, fold, hints, languages, layers, mechanisms, snapshot};
-pub use memory::{refactor_preview, run_memory};
+pub use memory::{refactor_native, refactor_preview, run_memory};
 pub use plan::intent as plan_intent;
 pub(crate) use source as source_followup;
 
@@ -32,6 +32,7 @@ pub use plan::asks_for_coverage;
 pub use plan_intent::{
     TaskIntent, asks_for_dead_production, asks_for_duplicate_share, asks_for_prior_attempts, detect,
 };
+pub use refactor_native::NATIVE_PLAN_OPERATIONS;
 pub use refactor_preview::{PreviewChange, RefactorPreview, preview_refactor_plan};
 pub use run_memory::{PriorRunEvent, PriorRunMemory};
 pub use snapshot::repository_snapshot;
@@ -44,5 +45,21 @@ mod contract_tests {
         let limits = weavatrix_refactor_plan::RefactorPlanLimits::default();
         assert!(limits.max_operations > 0);
         assert_eq!(weavatrix_rust::VERSION, "2.17.17");
+    }
+
+    #[test]
+    fn native_plan_operations_are_declared_and_exclude_apply() {
+        use weavatrix_rust_refactor::operations::Operation;
+        assert_eq!(weavatrix_rust_refactor::VERSION, "0.1.13");
+        assert_eq!(weavatrix_rust_refactor::CONTRACT_VERSION, 4);
+        for name in crate::NATIVE_PLAN_OPERATIONS {
+            assert!(
+                Operation::from_name(name).is_some(),
+                "{name} is not declared"
+            );
+        }
+        for writer in ["apply_edit_plan", "rollback_last_apply"] {
+            assert!(!crate::NATIVE_PLAN_OPERATIONS.contains(&writer));
+        }
     }
 }

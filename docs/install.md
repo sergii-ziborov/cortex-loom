@@ -69,8 +69,8 @@ MCP server over stdio or Streamable HTTP.
 | profile | tools | when |
 | --- | --- | --- |
 | `agent` (default) | `cortex_prepare`, `cortex_expand` | coding agents |
-| `context` | evidence-compile pair | benches, ~454 schema tokens |
-| `full` | Studio/admin, 27 tools | humans, ~4 021 schema tokens |
+| `context` | evidence-compile pair | benches, ~656 schema tokens |
+| `full` | Studio/admin, 31 tools | humans, ~4 838 schema tokens |
 
 ```powershell
 cortex-mcp --profile agent

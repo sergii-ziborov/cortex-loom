@@ -1,4 +1,4 @@
-//! Agent-profile façade: two tools instead of the 27-tool admin surface.
+//! Agent-profile façade: two tools instead of the 31-tool admin surface.
 
 use std::path::PathBuf;
 use std::sync::Arc;

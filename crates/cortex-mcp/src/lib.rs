@@ -171,6 +171,19 @@ struct RefactorPreviewArgs {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct RefactorPlanArgs {
+    repository: PathBuf,
+    operation: String,
+    #[serde(default = "no_arguments")]
+    arguments: Value,
+}
+
+fn no_arguments() -> Value {
+    Value::Object(serde_json::Map::new())
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ShadowMetricsArgs {
     operation: Option<String>,
     model: Option<String>,
@@ -286,8 +299,9 @@ pub fn runtime_config() -> RuntimeConfig {
 ///
 /// Every tool schema is loaded into the client's context for the whole
 /// session, before a single call is made, so the surface is a standing cost.
-/// Measured on this workspace: `Full` is 27 tools over two `tools/list` pages
-/// and roughly 4 000 estimated tokens. Generated adapters and the CLI default
+/// Measured on this workspace (2026-11-17, compact `tools/list` JSON at four
+/// characters per token): `Full` is 31 tools over two pages and roughly
+/// 4 800 estimated tokens. Generated adapters and the CLI default
 /// to [`ServerProfile::Agent`] so a coding agent does not pay that tax.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ServerProfile {
@@ -389,6 +403,34 @@ fn refactor_preview_schema() -> Value {
         "required": ["repository", "plan"],
         "additionalProperties": false
     })
+}
+
+fn refactor_plan_schema() -> Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "repository": {"type": "string"},
+            "operation": {"type": "string", "enum": cortex_weavatrix::NATIVE_PLAN_OPERATIONS},
+            "arguments": {
+                "type": "object",
+                "description": "The operation's arguments from the weavatrix-refactor contract v4, for example {symbol, new_name} for rename_symbol or {from, to} for move_file. mode and confirm_token are refused.",
+                "additionalProperties": true
+            }
+        },
+        "required": ["repository", "operation"],
+        "additionalProperties": false
+    })
+}
+
+fn plan_refactor_response(
+    adapter: &WeavatrixAdapter,
+    repository: &std::path::Path,
+    operation: &str,
+    arguments: &Value,
+) -> Result<Value, String> {
+    adapter
+        .plan_refactor(repository, operation, arguments)
+        .map_err(|error| error.to_string())
 }
 
 fn preview_refactor_response(

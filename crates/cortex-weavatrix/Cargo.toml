@@ -17,6 +17,7 @@ unicode-normalization = "0.1.24"
 weavatrix-edit.workspace = true
 weavatrix-refactor-plan.workspace = true
 weavatrix-rust.workspace = true
+weavatrix-rust-refactor.workspace = true
 
 [lints]
 workspace = true

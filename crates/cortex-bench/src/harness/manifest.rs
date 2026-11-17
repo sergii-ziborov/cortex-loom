@@ -171,6 +171,7 @@ fn engine_versions(root: &Path) -> BTreeMap<String, Observation> {
         "weavatrix-edit",
         "weavatrix-refactor-plan",
         "weavatrix-rust",
+        "weavatrix-rust-refactor",
     ] {
         let observation = packages.get(name).map_or_else(
             || Observation::unknown(format!("{name} absent from Cargo.lock")),

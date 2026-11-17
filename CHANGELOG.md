@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.1.2 - 2026-11-17
+
+### Weavatrix
+
+- Adds `weavatrix-rust-refactor` 0.1.13, the first release pinned to
+  `weavatrix-rust = 2.17.17`, so it shares one build and one graph type with
+  the engine Cortex already uses. `weavatrix-rust` 2.17.17,
+  `weavatrix-refactor-plan` 0.1.1, and `weavatrix-edit` 0.1.7 are unchanged.
+
+### Adopted
+
+- `weavatrix_refactor_plan` (full profile) asks the native planner for a
+  `rename_symbol`, `rename_related_symbols`, `change_signature`, `move_file`,
+  `move_symbol`, `extract_duplicate`, `extract_window`, or
+  `share_method_body` plan. Cortex converts the planner's
+  `weavatrix.edit-plan.v1` envelope into `weavatrix.refactor-plan.v1` and runs
+  it through the same validation, hash check, and in-memory preview as
+  `weavatrix_refactor_preview`. Before, the upstream agent had to write every
+  coordinate and hash of such a plan by hand; the planner proves the sites
+  from the graph and leaves same-named occurrences it cannot prove in
+  `uncertainReferences`.
+- The bench manifest records the `weavatrix-rust-refactor` version.
+
+### Boundary kept
+
+- Plan production only. The planner runs in a read-only session, `mode` and
+  `confirm_token` arguments are refused, the planner's confirm token and
+  apply hints are dropped, and `apply_edit_plan` / `rollback_last_apply`
+  are not reachable. Cortex still never applies or rolls back a plan.
+- Planning takes the shared reader lock that `weavatrix-refactor` writers
+  respect. It creates an empty `.weavatrix/refactor-write.lock` in the
+  repository when that file is missing; no source file is written. A
+  repository another process is writing answers `REPO_BUSY`.
+- A native `COMPLETE` (a `move_file` with no uncertain specifier) is recorded
+  as `PARTIAL` with a `NATIVE_COMPLETE_WITHOUT_PROOF` warning. The planner
+  sends no typed `completenessProof`, the plan validator requires one for
+  `COMPLETE`, and Cortex does not invent it. The native claim stays visible
+  under `native.completeness`.
+
+### Still open
+
+- A `move_file` into a directory that does not exist yet fails the Cortex
+  preview: the preview requires the destination's parent, while the native
+  apply would create it.
+- `edit_symbol`, `bulk_replace`, `organize_imports`, `remove_duplicates`, and
+  `delete_closure` plans stay with the upstream agent; Cortex does not call
+  those producers.
+- The agent profile still has two tools. Native plans are on the full
+  profile, beside `weavatrix_refactor_preview`.
+
 ## 0.1.1 - 2026-11-16
 
 ### Weavatrix

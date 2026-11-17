@@ -172,3 +172,72 @@ fn weavatrix_refactor_preview_response_has_no_apply_authority() {
     assert!(!root.join("src/new.rs").exists());
     std::fs::remove_dir_all(&root).unwrap();
 }
+
+#[test]
+fn weavatrix_refactor_plan_schema_names_only_plan_producers() {
+    let schema = refactor_plan_schema();
+    assert_eq!(
+        schema["required"],
+        serde_json::json!(["repository", "operation"])
+    );
+    let operations = schema["properties"]["operation"]["enum"]
+        .as_array()
+        .unwrap();
+    assert_eq!(operations.len(), 8);
+    for writer in ["apply_edit_plan", "rollback_last_apply"] {
+        assert!(!operations.iter().any(|name| name == writer), "{writer}");
+    }
+    assert!(schema["properties"].get("plan").is_none());
+}
+
+#[test]
+fn weavatrix_refactor_plan_response_previews_without_apply_authority() {
+    let root = std::env::temp_dir().join(format!("cortex-mcp-native-plan-{}", std::process::id()));
+    if root.exists() {
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"fixture\"\nversion = \"0.0.0\"\nedition = \"2024\"\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("src/lib.rs"), "pub mod core;\npub mod caller;\n").unwrap();
+    let core = "pub fn resolve_target(value: u32) -> u32 {\n    value + 1\n}\n";
+    std::fs::write(root.join("src/core.rs"), core).unwrap();
+    std::fs::write(
+        root.join("src/caller.rs"),
+        "use crate::core::resolve_target;\n\npub fn run() -> u32 {\n    resolve_target(1)\n}\n",
+    )
+    .unwrap();
+    let adapter = WeavatrixAdapter::new(WeavatrixConfig::discover().unwrap());
+    let arguments = serde_json::json!({"symbol": "resolve_target", "new_name": "locate_target"});
+
+    let response = plan_refactor_response(&adapter, &root, "rename_symbol", &arguments).unwrap();
+    let applied = serde_json::json!({
+        "symbol": "resolve_target", "new_name": "locate_target", "mode": "apply"
+    });
+    let refused = plan_refactor_response(&adapter, &root, "rename_symbol", &applied);
+
+    assert_eq!(response["mode"], "preview");
+    assert_eq!(response["status"], "PLANNED");
+    assert!(
+        response["preview"]["changes"]
+            .as_array()
+            .is_some_and(|c| c.len() == 2)
+    );
+    let rendered = response.to_string().to_ascii_lowercase();
+    for forbidden in ["confirmtoken", "expiresat", "applyavailable", "rollback"] {
+        assert!(
+            !rendered.contains(forbidden),
+            "forbidden field: {forbidden}"
+        );
+    }
+    assert!(refused.unwrap_err().contains("never applies"));
+    assert!(plan_refactor_response(&adapter, &root, "apply_edit_plan", &arguments).is_err());
+    assert_eq!(
+        std::fs::read_to_string(root.join("src/core.rs")).unwrap(),
+        core
+    );
+    std::fs::remove_dir_all(&root).unwrap();
+}

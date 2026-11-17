@@ -45,7 +45,11 @@ the agent already understands.
 Cortex does not replace your agent, build a second repository index, or
 filter shell output like RTK. Weavatrix supplies repository
 intelligence. Cortex owns task requirements, evidence selection, and
-delivery. Refactor support stays preview-only. Weavatrix Quality is a
+delivery. Refactor support stays preview-only: on the full profile
+`weavatrix_refactor_plan` takes a native rename, signature, move, or extract
+plan from `weavatrix-rust-refactor` 0.1.13 and previews it with the same
+validation as an upstream-authored plan. Cortex never applies or rolls back
+a plan. Weavatrix Quality is a
 sibling product: if it wrote `.weavatrix/coverage/lcov.info`, Cortex can
 ingest it through `coverage_map`. Cortex does not run Quality or tests.
 

@@ -159,6 +159,10 @@ fn manifest_observes_versions_and_revisions_instead_of_accepting_labels() {
         Some("2.17.17")
     );
     assert_eq!(
+        manifest.engines["weavatrix-rust-refactor"].value.as_deref(),
+        Some("0.1.13")
+    );
+    assert_eq!(
         manifest.engines["npm-weavatrix"].value.as_deref(),
         Some("1.17.19")
     );
